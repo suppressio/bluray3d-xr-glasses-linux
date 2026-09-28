@@ -19,6 +19,7 @@ approximately (seconds off, and it does not know where it landed).
 """
 import bisect
 import ctypes
+import os
 import ctypes.util
 import threading
 from dataclasses import dataclass, field
@@ -108,6 +109,10 @@ class Dvd:
     """A DVD-Video disc, ISO image or folder with VIDEO_TS/."""
 
     def __init__(self, path: str):
+        # only the title key we need, when a title's VOBs are opened, instead of
+        # all of them at every open (each costs a seek on the disc; libdvdcss
+        # keeps them cached in ~/.dvdcss anyway)
+        os.environ.setdefault("DVDREAD_NOKEYS", "1")
         self._dvd = _dvdread().DVDOpen(path.encode())
         if not self._dvd:
             raise OSError(f"cannot open DVD: {path}")

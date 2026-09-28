@@ -33,7 +33,7 @@ Blu-ray 3D nel lettore (oppure un ISO / una cartella BDMV / un rip MKV)
 ```
 
 - **Inserisci il disco, compare il film.** Circa 15 secondi dopo la chiusura dello sportello il file compare nella cartella condivisa, con il nome del disco; togli il disco e sparisce.
-- **Anche i Blu-ray normali (2D).** Stesso funzionamento: finiscono nella cartella `Blu-ray/`, i dischi 3D in `Blu-ray 3D/`.
+- **Anche i Blu-ray normali (2D) e i DVD.** Stesso funzionamento: i Blu-ray 2D finiscono nella cartella `Blu-ray/`, i DVD in `DVD/`, i dischi 3D in `Blu-ray 3D/`.
 - **Non si scrive niente su disco.** Il file `.ts` risulta di circa 22 GB ma non occupa spazio: ogni pezzo viene prodotto nel momento in cui il player lo legge.
 - **Il seek funziona.** Il file ha bitrate costante, quindi ogni byte corrisponde a un secondo preciso del film. Quando il player salta, il PC riprende a leggere il disco da lì (qualche secondo: il lettore ottico deve riposizionarsi).
 - **Gli occhiali vedono un file normale.** Niente app particolari né protocolli di streaming: interfaccia, riconoscimento del 3D, pausa e seek sono quelli del player.
@@ -43,7 +43,7 @@ Tutte le procedure descritte sono un compromesso ragionato tra il "manuale" e il
 ## Requisiti
 
 #### Hardware
-- **Un lettore Blu-ray** nel PC Linux (provato: TSSTcorp SH-B123L).
+- **Un lettore Blu-ray** nel PC Linux, che legge anche i DVD (provato: TSSTcorp SH-B123L).
 - **Un PC Linux** sulla stessa rete degli occhiali. Decodificare l'MVC è lavoro per la CPU: provato su un Ryzen 9 5900X (decodifica a circa 9 volte il tempo reale). Non ho provato CPU meno potenti.
 - **Facoltativa: una GPU NVIDIA**, per codificare con NVENC. Senza, il video viene codificato dalla CPU con x264 (sul 5900X comunque circa 6 volte il tempo reale).
 - **Occhiali XR + un player** che apra video da una cartella di rete SMB e riproduca il 3D SBS. Provato: VITURE Pro XR + Pro Neckband, 3D Player ufficiale.
@@ -56,12 +56,14 @@ I Blu-ray commerciali sono cifrati (AACS, alcuni anche BD+). Il progetto **non f
 2. **MakeMKV**, se installato e registrato: la sua libreria `libmmbd` decifra al posto di libaacs (anche il BD+).
 3. Gli **ISO / le cartelle BDMV non cifrati** non richiedono chiavi.
 
+I DVD (CSS) vengono decifrati da **libdvdcss**, che installi tu: su Debian/Ubuntu `sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg` (Debian: sezione `contrib`). Non è nell'immagine Docker; in `docker-compose.yml` c'è una riga commentata per usare quella del sistema.
+
 > ⚖️ In molti paesi (Italia e gran parte dell'UE compresi) aggirare una protezione anticopia non è consentito, nemmeno per una copia privata. Verifica le regole del tuo paese.
 
 #### Software sul PC
 - **Docker** (strada A) _oppure_ un sistema **Debian/Ubuntu** (strada B). Tutto il resto lo installa il progetto:
   - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc): l'unico decoder open source della vista dipendente MVC;
-  - libbluray, libaacs, libbdplus (lettura e decifratura del disco), FFmpeg, Samba (la cartella di rete), FUSE + pyfuse3 (il file virtuale).
+  - libbluray, libaacs, libbdplus (Blu-ray), libdvdread (DVD), FFmpeg, Samba (la cartella di rete), FUSE + pyfuse3 (il file virtuale).
 
 ---
 
@@ -155,8 +157,11 @@ Disks/
 │   ├── ITA - Tron - Legacy 3D - 3D SBS.ts
 │   ├── ENG - Tron - Legacy 3D - 3D SBS.ts
 │   └── Light/ ...
-└── Blu-ray/
-    ├── ITA - Ready Player One.ts
+├── Blu-ray/
+│   ├── ITA - Ready Player One.ts
+│   └── Light/ ...
+└── DVD/
+    ├── ITA - Back To The Future.ts
     └── Light/ ...
 ```
 - [ ] Aprilo. Il player riconosce il formato affiancato e passa in 3D da solo. 🎉
@@ -182,6 +187,7 @@ Oltre al lettore, il programma accetta lo stesso contenuto in altre forme (anche
 | Lettore Blu-ray | `/dev/sr0` | il film compare quando inserisci un disco e sparisce quando lo togli |
 | Immagine ISO | `~/Video/3D/Tron.iso` | letta e decifrata come il disco |
 | Cartella BDMV | `~/Video/3D/Tron/` (contiene `BDMV/`) | per esempio un "backup" di MakeMKV; quelle non cifrate non richiedono chiavi |
+| Cartella VIDEO_TS | `~/Video/DVD/RAF/` (contiene `VIDEO_TS/`) | un DVD copiato su disco; i file ISO possono essere Blu-ray o DVD |
 | Rip MKV | `~/Video/3D/Tron.mkv` | un rip di MakeMKV che ha conservato il 3D (MVC); i file senza 3D vengono saltati |
 | Cartella | `~/Video/3D` | esplorata con tutte le sottocartelle, per tutto quanto sopra |
 
@@ -224,6 +230,7 @@ Ogni file ha un **bitrate costante**: è quello che permette di far corrisponder
 |---|---|---|
 | **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) |
 | **2D** (1920×1080) | 15 Mbit/s (video 12) | 6,5 Mbit/s (video 5) |
+| **DVD** (1024×576 PAL, 854×480 NTSC) | 5 Mbit/s (video 4) | 2,4 Mbit/s (video 1,8) |
 
 Audio: AAC stereo 192 kbit/s per lingua (DTS e TrueHD non sono supportati dalla maggior parte dei player mobili); un file con più lingue (`Multi-audio/`) cresce di 0,22 Mbit/s per ogni lingua in più. Video: H.264.
 
@@ -257,7 +264,8 @@ Se la riproduzione **si ferma ogni pochi secondi**, il Wi-Fi non regge quel bitr
 - **Seek.** Un tempo viene tradotto in un byte del `.ssif` attraverso l'EP_map (le posizioni dei fotogrammi chiave) e la tabella degli extent della clip. I film composti da più clip (Tron: due) vengono letti in sequenza, e i timestamp audio delle clip successive vengono riportati su un'unica linea temporale.
 - **Audio.** `src/disc_reader.py` legge il disco una volta sola: il video va a edge264, la traccia audio scelta (con la lingua presa dalla playlist) va a FFmpeg attraverso una FIFO, ognuno con il suo thread. Il fotogramma chiave viaggia insieme all'audio come ancora temporale, così audio e video partono esattamente insieme. Scarto misurato rispetto alla strada MKV: 4 ms.
 - **Il file virtuale.** L'encoder lavora a **bitrate costante** e il muxer MPEG-TS riempie esattamente fino a 24 Mbit/s, così il byte _X_ è il secondo _X_ / 3.000.000 del film. Un file system **FUSE** (`src/bd3d_fs.py`) serve i file. Riavvia la decodifica quando il player salta e mette in pausa la pipeline se va troppo avanti. Per ogni lettore gira una sola pipeline alla volta, perché due farebbero saltare avanti e indietro il lettore ottico. La fine del file, che i player leggono per ricavare la durata, è sintetica: nero e silenzio con i timestamp giusti, così il lettore non viene mandato alla fine del disco.
-- **Lettori.** Ogni pochi secondi si chiede al lettore se c'è un disco (senza leggerlo). All'inserimento il disco viene aperto e il suo film aggiunto; all'espulsione viene tolto.
+- **DVD.** `src/dvd.py` legge il disco tramite libdvdread (libdvdcss per il CSS) e i suoi file IFO: il titolo principale (il più lungo), le sue celle, le lingue audio, lo standard video e il formato. Il seek usa la mappa dei tempi per arrivare entro pochi secondi, poi il pacchetto di navigazione di ogni blocco VOBU (circa 0,5 s), che contiene il suo tempo esatto: il punto di ripartenza è noto con precisione. Il lettore DVD di FFmpeg salta solo in modo approssimativo (secondi di scarto, senza sapere dove è atterrato). `src/dvd_reader.py` manda il titolo da lì a FFmpeg, che lo deinterlaccia e lo porta a pixel quadrati.
+- **Lettori.** Ogni pochi secondi si chiede al lettore se c'è un disco (senza leggerlo). All'inserimento il disco viene aperto come Blu-ray, altrimenti come DVD, e il suo film aggiunto; all'espulsione viene tolto.
 
 ---
 
@@ -265,7 +273,7 @@ Se la riproduzione **si ferma ogni pochi secondi**, il Wi-Fi non regge quel bitr
 
 - Provato con **un solo disco 3D** (Tron: Legacy 3D), solo AACS. I dischi con BD+ (tramite MakeMKV) e quelli con strutture insolite non sono provati.
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
-- Blu-ray 3D e 2D; il DVD è il prossimo passo ([roadmap](ROADMAP.it.md)). Dischi 2D provati: uno (Ready Player One).
+- Dischi provati: uno per tipo (3D: Tron: Legacy; 2D: Ready Player One; DVD: Ritorno al futuro, PAL). I DVD NTSC non sono provati.
 - Sottotitoli solo come file esterni; l'audio è convertito in AAC stereo.
 
 ## E Windows?

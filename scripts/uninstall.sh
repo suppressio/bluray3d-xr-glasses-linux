@@ -16,5 +16,5 @@ if grep -qF "$MARK_BEGIN" /etc/samba/smb.conf; then
 fi
 sudo rm -rf /opt/bluray3d-xr /usr/local/bin/bluray3d-xr
 sudo rmdir /srv/bd3d 2>/dev/null || true
-echo "Removed. Packages left installed: ffmpeg python3-pyfuse3 fuse3 samba libbluray libaacs0 libbdplus0"
+echo "Removed. Packages left installed: ffmpeg python3-pyfuse3 fuse3 samba libbluray libaacs0 libbdplus0 libdvdread"
 echo "(remove them with apt if nothing else needs them)"

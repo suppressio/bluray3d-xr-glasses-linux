@@ -12,22 +12,20 @@ verificato, passo per passo, su Tron: Legacy 3D.
 
 Prossimi passi, in quest'ordine:
 
-- [ ] **Blu-ray 2D.** Stesso funzionamento (inserisci il disco, compare il film)
-  per i Blu-ray normali. Si riusa quasi tutto: libbluray, decifratura, playlist,
-  seek con l'EP_map, audio, passaggio tra le clip. Cosa cambia: si leggono i
-  normali `.m2ts` invece dell'`.ssif`, decodifica FFmpeg (niente edge264), uscita
-  1920×1080 ricodificata a bitrate costante.
-- [ ] **DVD.** Una nuova sorgente con il demuxer `dvdvideo` di FFmpeg (libdvdnav
-  + libdvdread, libdvdcss per il CSS). Titolo principale = il più lungo. Da
-  verificare: il seek, che sui DVD funziona in modo diverso.
-- [ ] **Una cartella per tipo** nella condivisione `Disks`: `Blu-ray 3D/`,
-  `Blu-ray/`, `DVD/`.
-- [ ] **Altri dischi.** È provato solo Tron: Legacy 3D; dischi con BD+, più
-  angolazioni o strutture insolite potrebbero richiedere lavoro.
+- [x] **Blu-ray 2D** e **DVD**, ciascuno nella sua cartella della condivisione
+  `Disks`. Il demuxer `dvdvideo` di FFmpeg salta solo in modo approssimativo
+  (secondi di scarto, senza sapere dove è atterrato), quindi i DVD hanno un
+  lettore proprio: libdvdread + lettura degli IFO, seek con la mappa dei tempi
+  e i pacchetti di navigazione (esatto).
+- [ ] **Sottotitoli dal disco**: come file esterni per default (decide il
+  player), con un'opzione per disegnarli invece nell'immagine. Sono sparsi su
+  tutto il disco: leggerlo una volta in background dopo l'inserimento e
+  tenere il risultato per le volte successive.
+- [ ] **Altri dischi.** È provato un disco per tipo (Tron: Legacy 3D, Ready Player
+  One, Ritorno al futuro PAL); dischi con BD+, più angolazioni, DVD NTSC o
+  strutture insolite potrebbero richiedere lavoro.
 
 Più avanti, forse:
-- sottotitoli letti dal disco (PGS), estratti gradualmente mentre si guarda e
-  salvati;
 - una modalità "passthrough" per i dischi 2D: servire il flusso originale senza
   ricodifica (qualità piena, ma il seek dipende di più dal player);
 - codifica NVIDIA dentro Docker (il file compose c'è, non è provato).

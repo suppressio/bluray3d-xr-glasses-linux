@@ -31,6 +31,7 @@ import stat
 import subprocess
 import threading
 import time
+import weakref
 from typing import Optional
 
 import pyfuse3
@@ -57,6 +58,11 @@ MULTI_AUDIO_DIR = "Multi-audio"      # --audio-files both: where the all-tracks 
 LIGHT_DIR = "Light"                  # lower-bitrate copies, for weak Wi-Fi
 KINDS = ["Blu-ray 3D", "Blu-ray", "DVD"]   # one folder per kind of disc in the share
 RATE_WINDOW = 20                     # seconds of continuous reading to judge the network
+
+
+# files served from the same optical disc (all languages, Light, Multi-audio):
+# only one of them may have pipelines running, or the drive seeks back and forth
+_disc_files: dict[str, weakref.WeakSet] = {}
 
 
 def null_padding(offset: int, size: int) -> bytes:
@@ -185,6 +191,8 @@ class VirtualFile:
         self.head: Optional[bytes] = None
         self.tail: Optional[bytes] = None
         self.last_read = 0.0
+        if source.max_pipelines == 1:
+            _disc_files.setdefault(source.path, weakref.WeakSet()).add(self)
         # network diagnostics: the pace at which the player pulls data
         self.rate_start = 0.0            # when the current run of sequential reads began
         self.rate_bytes = 0
@@ -200,6 +208,18 @@ class VirtualFile:
             for g in self.gens:
                 if g.covers(offset):
                     g.last_used = time.monotonic()
+                    return g
+        # a new pipeline: on an optical disc, first stop the other files' ones
+        # (switching from the Italian to the English file, for instance)
+        for other in list(_disc_files.get(self.source.path, ())):
+            if other is not self and other.gens:
+                log.info("%s: stopping its pipeline, %s is reading the same disc",
+                         other.path, self.path)
+                other.stop()
+        with self.lock:
+            self.gens = [g for g in self.gens if not g.stopped]
+            for g in self.gens:
+                if g.covers(offset):
                     return g
             if len(self.gens) >= self.source.max_pipelines:
                 old = min(self.gens, key=lambda g: g.last_used)

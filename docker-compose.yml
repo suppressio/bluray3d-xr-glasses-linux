@@ -11,6 +11,8 @@ services:
       - "${MOVIES_DIR:?set MOVIES_DIR in .env}:/films:ro"
       # key database for libaacs (commercial discs); not provided by this project
       - "${AACS_DIR:-./aacs}:/root/.config/aacs:ro"
+      # encrypted DVDs (CSS) need libdvdcss, not in the image: uncomment to use the host's
+      # - /usr/lib/x86_64-linux-gnu/libdvdcss.so.2:/usr/lib/x86_64-linux-gnu/libdvdcss.so.2:ro
     environment:
       DRIVE: "${DRIVE:-}"
       AUDIO_LANG: "${AUDIO_LANG:-}"

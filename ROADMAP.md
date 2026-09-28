@@ -12,19 +12,19 @@ Legacy 3D.
 
 Next steps, in this order:
 
-- [ ] **2D Blu-ray.** Same flow (insert the disc, the movie appears) for normal
-  Blu-rays. Almost everything is reused: libbluray, decryption, playlists, EP_map
-  seeking, audio, clip joins. What changes: plain `.m2ts` instead of `.ssif`,
-  FFmpeg decodes (no edge264), output 1920×1080 re-encoded at constant bitrate.
-- [ ] **DVD.** A new source through FFmpeg's `dvdvideo` demuxer (libdvdnav +
-  libdvdread, libdvdcss for CSS). Main title = the longest. To be checked:
-  seeking, which works differently on DVDs.
-- [ ] **One folder per kind** in the `Disks` share: `Blu-ray 3D/`, `Blu-ray/`, `DVD/`.
-- [ ] **More discs.** Only Tron: Legacy 3D is tested; discs with BD+, several
-  angles or unusual structures may need work.
+- [x] **2D Blu-ray** and **DVD**, each in its own folder of the `Disks` share.
+  FFmpeg's `dvdvideo` demuxer seeks only approximately (seconds off, without
+  knowing where it landed), so DVDs have their own reader: libdvdread + IFO
+  parsing, seek through the time map and the navigation packs (exact).
+- [ ] **Subtitles from the disc**: as external files by default (the player
+  decides), with an option to draw them into the picture instead. They are
+  spread over the whole disc: read it once in the background after insertion,
+  keep the result for next time.
+- [ ] **More discs.** One per kind is tested (Tron: Legacy 3D, Ready Player One,
+  Back to the Future PAL); discs with BD+, several angles, NTSC DVDs or unusual
+  structures may need work.
 
 Later, maybe:
-- subtitles read from the disc (PGS), progressively while watching, cached;
 - a "passthrough" mode for 2D discs: serve the original stream, no re-encoding
   (full quality, but seeking depends more on the player);
 - NVIDIA encoding inside Docker (the compose file exists, untested).

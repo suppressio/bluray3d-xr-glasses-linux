@@ -15,7 +15,7 @@ RUN git clone "$EDGE264_REPO" /edge264 \
 FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ffmpeg python3 python3-pyfuse3 fuse3 samba tini libbluray2 libaacs0 libbdplus0 \
+      ffmpeg python3 python3-pyfuse3 fuse3 samba tini libbluray2 libaacs0 libbdplus0 libdvdread8 \
  && rm -rf /var/lib/apt/lists/*
 # edge264_test finds libedge264.so.1 next to itself (rpath $ORIGIN)
 COPY --from=edge264 /edge264/edge264_test /edge264/libedge264.so.1 /usr/local/bin/

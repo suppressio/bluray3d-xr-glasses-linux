@@ -4,7 +4,7 @@
 #
 # What it changes on the system (undo with scripts/uninstall.sh):
 #   - apt packages: ffmpeg python3-pyfuse3 fuse3 samba libbluray libaacs libbdplus
-#                   (+ build tools for edge264)
+#                   libdvdread (+ build tools for edge264)
 #   - /opt/bluray3d-xr            edge264 decoder + the program
 #   - /usr/local/bin/bluray3d-xr  command to start it
 #   - /srv/bd3d                   mount point of the virtual files
@@ -31,8 +31,10 @@ sudo apt-get update
 # libbluray's package name changes with its ABI (libbluray2 up to 1.3, libbluray4 from 1.4)
 libbluray=libbluray2
 apt-cache show libbluray4 >/dev/null 2>&1 && libbluray=libbluray4
+libdvdread=libdvdread8
+apt-cache show libdvdread8t64 >/dev/null 2>&1 && libdvdread=libdvdread8t64
 sudo apt-get install -y --no-install-recommends \
-    ffmpeg python3 python3-pyfuse3 fuse3 samba "$libbluray" libaacs0 libbdplus0 \
+    ffmpeg python3 python3-pyfuse3 fuse3 samba "$libbluray" libaacs0 libbdplus0 "$libdvdread" \
     git build-essential ca-certificates
 
 step "2/5 edge264-mvc decoder (MVC 3D)"
@@ -96,8 +98,10 @@ cat <<DONE
 Done. Start it with:
     bluray3d-xr --audio-lang eng /dev/sr0              # the disc in the drive
     bluray3d-xr --audio-lang eng /path/to/your/3D/movies   # ISO, BDMV folders, MKV rips
-Commercial discs need a decryption key database for libaacs in ~/.config/aacs/KEYDB.cfg
+Commercial Blu-rays need a decryption key database for libaacs in ~/.config/aacs/KEYDB.cfg
 (this project does not provide one), or MakeMKV installed (used via its libmmbd).
+Encrypted DVDs (CSS) need libdvdcss, not installed by this script. On Debian/Ubuntu:
+    sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg   (Debian: "contrib")
 Then on the glasses open the network share \\\\$(hostname -I | awk '{print $1}')\\Disks
 Stop it with Ctrl+C.
 DONE
