@@ -33,6 +33,7 @@ The PC reads the disc and decodes the MVC **while you watch**, and serves the re
 ```
 
 - **Insert the disc, the movie appears.** About 15 seconds after closing the tray the file shows up in the share, named after the disc; eject the disc and it goes away.
+- **Normal (2D) Blu-rays too.** Same flow: they go in the `Blu-ray/` folder, 3D discs in `Blu-ray 3D/`.
 - **Nothing is written to disk.** The `.ts` file shows a size of ~22 GB but takes no space: every piece is produced when the player reads it.
 - **Seeking works.** The file has a constant bitrate, so every byte matches a precise second of the movie. When the player jumps, the PC restarts reading the disc from there (a few seconds: the optical drive has to move).
 - **The glasses see a normal file.** No special app or streaming protocol: the player's own interface, 3D detection, pause and seek.
@@ -145,7 +146,18 @@ The script is tested with the real drive and disc in clean Debian 13 (trixie) an
 ##### From your VITURE Neckband:
 - [ ] Open the **3D Player**, go to the **Local network** tab and add the PC: its IP address (`hostname -I` on the PC tells you), guest / anonymous access.
 - [ ] Insert the disc in the PC and wait about 15 seconds.
-- [ ] Open the **Disks** folder (go back and in again if it looks empty): the movie is there as `ITA - <movie> - 3D SBS.ts`, one file per audio language.
+- [ ] Open the **Disks** folder (go back and in again if it looks empty). 3D discs are in `Blu-ray 3D/` as `ITA - <movie> - 3D SBS.ts`, normal ones in `Blu-ray/` as `ITA - <movie>.ts`: one file per audio language. `Light/` has the same movies at a lower bitrate (see [Network and quality](#network-and-quality)).
+
+```
+Disks/
+├── Blu-ray 3D/
+│   ├── ITA - Tron - Legacy 3D - 3D SBS.ts
+│   ├── ENG - Tron - Legacy 3D - 3D SBS.ts
+│   └── Light/ ...
+└── Blu-ray/
+    ├── ITA - Ready Player One.ts
+    └── Light/ ...
+```
 - [ ] Open it. The player recognizes the side-by-side format and switches to 3D by itself. 🎉
 
 The first opening and every jump with the seek bar take a few seconds: that is the drive moving to the new point.
@@ -166,7 +178,7 @@ Besides a drive, the program accepts the same content in other forms (all at onc
 
 | Source | Example | Notes |
 |---|---|---|
-| Blu-ray drive | `/dev/sr0` | the movie appears when a 3D disc is inserted, disappears on eject |
+| Blu-ray drive | `/dev/sr0` | the movie appears when a disc is inserted, disappears on eject |
 | ISO image | `~/Videos/3D/Tron.iso` | read and decrypted like the disc |
 | BDMV folder | `~/Videos/3D/Tron/` (contains `BDMV/`) | e.g. a MakeMKV "backup"; unencrypted ones need no keys |
 | MKV rip | `~/Videos/3D/Tron.mkv` | a MakeMKV rip that kept the 3D (MVC); files without 3D are skipped |
@@ -184,6 +196,7 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
 | Folder with ISO / BDMV / MKV | `MOVIES_DIR` | positional arguments | — |
 | Audio languages | `AUDIO_LANG` | `--audio-lang ita,eng` | first track |
 | One file per language, one with all, or both | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
+| Lower-bitrate copies in `Light/` | `LIGHT=on\|off` | `--light` / `--no-light` | on |
 | Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
 | Mount point | — | `--mount` | `/srv/bd3d` |
 | Pipeline log | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
@@ -202,14 +215,32 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
   The VITURE 3D Player loads them and shows them correctly in both eyes. Subtitles are
   not read from the disc itself yet.
 
-Output format: H.264 Full-SBS 3840×1080 at 20 Mbit/s CBR, AAC stereo 192 kbit/s per language, in a 24 Mbit/s MPEG-TS. Audio is converted to stereo (DTS/TrueHD are not supported by most mobile players).
+## Network and quality
+
+Every file has a **constant bitrate**: that is what lets a byte of the file match a second of the movie. So a file **cannot adapt to the network** the way YouTube does. Instead, every movie is offered at two bitrates:
+
+| | Normal | `Light/` |
+|---|---|---|
+| **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) |
+| **2D** (1920×1080) | 15 Mbit/s (video 12) | 6.5 Mbit/s (video 5) |
+
+Audio: AAC stereo 192 kbit/s per language (DTS/TrueHD are not supported by most mobile players). Video: H.264.
+
+If playback **pauses every few seconds**, the Wi-Fi cannot keep up with that bitrate (a thick wall is enough):
+- open the same movie from **`Light/`**;
+- in **VLC**, raise the network cache (*Settings → Advanced → Network caching*) to 5000-10000 ms: it rides out short Wi-Fi drops;
+- the program notices it and says so in its log:
+  ```
+  Blu-ray/ITA - Ready Player One.ts: the player receives 77% of the data rate the movie needs:
+  the network is too slow for this file, playback will pause (try Light/)
+  ```
 
 ---
 
 ## Troubleshooting
 
 - **The movie does not appear, the log says `cannot decrypt`**: no working key for that disc. Update your `KEYDB.cfg`, or install and register MakeMKV (native path).
-- **The log says `no 3D title found` / `no 3D content`**: it is a 2D Blu-ray; only 3D discs are handled for now (2D Blu-ray and DVD are on the [roadmap](ROADMAP.md)).
+- **Playback pauses every few seconds**: the Wi-Fi is too slow for the file; see [Network and quality](#network-and-quality).
 - **Nothing happens when inserting the disc**: check that your user can read the drive (`ls -l /dev/sr0`, `cdrom` group), and for Docker that the device is passed to the container.
 - **The glasses do not see the share**: check that the PC and the glasses are on the same network, and the firewall (port 445/TCP). From another Linux PC: `smbclient -N -L //<pc-ip>`.
 - **The picture stutters**: check the Wi-Fi first (5 GHz, close to the router). Then the log of the last pipeline (`/tmp/bd3d-pipeline.log`, or `docker compose logs`).
@@ -233,7 +264,7 @@ Output format: H.264 Full-SBS 3840×1080 at 20 Mbit/s CBR, AAC stereo 192 kbit/s
 
 - Tested with **one 3D disc** (Tron: Legacy 3D), AACS only. BD+ discs (through MakeMKV) and discs with unusual structures are untested.
 - The last ~2.7 seconds of every movie (after the end credits) are black: the tail of the file is synthetic.
-- Only 3D Blu-ray for now; 2D Blu-ray and DVD are next ([roadmap](ROADMAP.md)).
+- 3D and 2D Blu-ray; DVD is next ([roadmap](ROADMAP.md)). 2D discs tested: one (Ready Player One).
 - Subtitles only as external files; audio is converted to AAC stereo.
 
 ## Windows?

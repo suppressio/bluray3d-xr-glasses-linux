@@ -33,6 +33,7 @@ Blu-ray 3D nel lettore (oppure un ISO / una cartella BDMV / un rip MKV)
 ```
 
 - **Inserisci il disco, compare il film.** Circa 15 secondi dopo la chiusura dello sportello il file compare nella cartella condivisa, con il nome del disco; togli il disco e sparisce.
+- **Anche i Blu-ray normali (2D).** Stesso funzionamento: finiscono nella cartella `Blu-ray/`, i dischi 3D in `Blu-ray 3D/`.
 - **Non si scrive niente su disco.** Il file `.ts` risulta di circa 22 GB ma non occupa spazio: ogni pezzo viene prodotto nel momento in cui il player lo legge.
 - **Il seek funziona.** Il file ha bitrate costante, quindi ogni byte corrisponde a un secondo preciso del film. Quando il player salta, il PC riprende a leggere il disco da lì (qualche secondo: il lettore ottico deve riposizionarsi).
 - **Gli occhiali vedono un file normale.** Niente app particolari né protocolli di streaming: interfaccia, riconoscimento del 3D, pausa e seek sono quelli del player.
@@ -145,7 +146,18 @@ Lo script è provato con lettore e disco veri in container puliti Debian 13 (tri
 ##### Dal Neckband VITURE:
 - [ ] Apri il **3D Player**, vai nella scheda **Rete locale** e aggiungi il PC: il suo indirizzo IP (sul PC lo trovi con `hostname -I`), accesso ospite / anonimo.
 - [ ] Inserisci il disco nel PC e aspetta circa 15 secondi.
-- [ ] Apri la cartella **Disks** (se sembra vuota, torna indietro e rientra): il film è lì come `ITA - <film> - 3D SBS.ts`, un file per ogni lingua audio.
+- [ ] Apri la cartella **Disks** (se sembra vuota, torna indietro e rientra). I dischi 3D sono in `Blu-ray 3D/` come `ITA - <film> - 3D SBS.ts`, quelli normali in `Blu-ray/` come `ITA - <film>.ts`: un file per ogni lingua audio. In `Light/` ci sono gli stessi film a un bitrate più basso (vedi [Rete e qualità](#rete-e-qualità)).
+
+```
+Disks/
+├── Blu-ray 3D/
+│   ├── ITA - Tron - Legacy 3D - 3D SBS.ts
+│   ├── ENG - Tron - Legacy 3D - 3D SBS.ts
+│   └── Light/ ...
+└── Blu-ray/
+    ├── ITA - Ready Player One.ts
+    └── Light/ ...
+```
 - [ ] Aprilo. Il player riconosce il formato affiancato e passa in 3D da solo. 🎉
 
 La prima apertura e ogni salto con la barra richiedono qualche secondo: è il lettore che si sposta nel nuovo punto.
@@ -166,7 +178,7 @@ Oltre al lettore, il programma accetta lo stesso contenuto in altre forme (anche
 
 | Sorgente | Esempio | Note |
 |---|---|---|
-| Lettore Blu-ray | `/dev/sr0` | il film compare quando inserisci un disco 3D e sparisce quando lo togli |
+| Lettore Blu-ray | `/dev/sr0` | il film compare quando inserisci un disco e sparisce quando lo togli |
 | Immagine ISO | `~/Video/3D/Tron.iso` | letta e decifrata come il disco |
 | Cartella BDMV | `~/Video/3D/Tron/` (contiene `BDMV/`) | per esempio un "backup" di MakeMKV; quelle non cifrate non richiedono chiavi |
 | Rip MKV | `~/Video/3D/Tron.mkv` | un rip di MakeMKV che ha conservato il 3D (MVC); i file senza 3D vengono saltati |
@@ -184,6 +196,7 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
 | Cartella con ISO / BDMV / MKV | `MOVIES_DIR` | argomenti posizionali | — |
 | Lingue audio | `AUDIO_LANG` | `--audio-lang ita,eng` | prima traccia |
 | Un file per lingua, uno con tutte, o entrambi | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
+| Copie a bitrate ridotto in `Light/` | `LIGHT=on\|off` | `--light` / `--no-light` | attive |
 | Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |
 | Log della pipeline | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
@@ -202,14 +215,32 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
   Player VITURE li carica e li mostra correttamente in entrambi gli occhi. Dal disco stesso
   i sottotitoli non vengono ancora letti.
 
-Formato in uscita: H.264 Full-SBS 3840×1080 a 20 Mbit/s CBR, audio AAC stereo 192 kbit/s per lingua, in un MPEG-TS a 24 Mbit/s. L'audio è convertito in stereo (DTS e TrueHD non sono supportati dalla maggior parte dei player mobili).
+## Rete e qualità
+
+Ogni file ha un **bitrate costante**: è quello che permette di far corrispondere un byte del file a un secondo del film. Quindi un file **non può adattarsi alla rete** come fa YouTube. Ogni film viene invece offerto a due bitrate:
+
+| | Normale | `Light/` |
+|---|---|---|
+| **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) |
+| **2D** (1920×1080) | 15 Mbit/s (video 12) | 6,5 Mbit/s (video 5) |
+
+Audio: AAC stereo 192 kbit/s per lingua (DTS e TrueHD non sono supportati dalla maggior parte dei player mobili). Video: H.264.
+
+Se la riproduzione **si ferma ogni pochi secondi**, il Wi-Fi non regge quel bitrate (basta un muro spesso):
+- apri lo stesso film da **`Light/`**;
+- in **VLC** aumenta la cache di rete (*Impostazioni → Avanzate → Cache di rete*) a 5000-10000 ms: assorbe i brevi cali del Wi-Fi;
+- il programma se ne accorge e lo scrive nel suo log:
+  ```
+  Blu-ray/ITA - Ready Player One.ts: the player receives 77% of the data rate the movie needs:
+  the network is too slow for this file, playback will pause (try Light/)
+  ```
 
 ---
 
 ## Risoluzione dei problemi
 
 - **Il film non compare e il log dice `cannot decrypt`**: nessuna chiave funzionante per quel disco. Aggiorna il `KEYDB.cfg`, oppure installa e registra MakeMKV (strada nativa).
-- **Il log dice `no 3D title found` / `no 3D content`**: è un Blu-ray 2D; per ora sono gestiti solo i dischi 3D (Blu-ray 2D e DVD sono nella [roadmap](ROADMAP.it.md)).
+- **La riproduzione si ferma ogni pochi secondi**: il Wi-Fi è troppo lento per quel file; vedi [Rete e qualità](#rete-e-qualità).
 - **Inserendo il disco non succede niente**: verifica che il tuo utente possa leggere il lettore (`ls -l /dev/sr0`, gruppo `cdrom`) e, con Docker, che il dispositivo sia passato al container.
 - **Gli occhiali non vedono la cartella condivisa**: verifica che PC e occhiali siano sulla stessa rete, e controlla il firewall (porta 445/TCP). Da un altro PC Linux: `smbclient -N -L //<ip-del-pc>`.
 - **L'immagine va a scatti**: controlla prima il Wi-Fi (5 GHz, vicino al router). Poi il log dell'ultima pipeline (`/tmp/bd3d-pipeline.log`, oppure `docker compose logs`).
@@ -233,7 +264,7 @@ Formato in uscita: H.264 Full-SBS 3840×1080 a 20 Mbit/s CBR, audio AAC stereo 1
 
 - Provato con **un solo disco 3D** (Tron: Legacy 3D), solo AACS. I dischi con BD+ (tramite MakeMKV) e quelli con strutture insolite non sono provati.
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
-- Per ora solo Blu-ray 3D; i Blu-ray 2D e i DVD sono i prossimi passi ([roadmap](ROADMAP.it.md)).
+- Blu-ray 3D e 2D; il DVD è il prossimo passo ([roadmap](ROADMAP.it.md)). Dischi 2D provati: uno (Ready Player One).
 - Sottotitoli solo come file esterni; l'audio è convertito in AAC stereo.
 
 ## E Windows?

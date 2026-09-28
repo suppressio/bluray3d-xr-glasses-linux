@@ -15,6 +15,7 @@ services:
       DRIVE: "${DRIVE:-}"
       AUDIO_LANG: "${AUDIO_LANG:-}"
       AUDIO_FILES: "${AUDIO_FILES:-per-language}"
+      LIGHT: "${LIGHT:-on}"
       ENCODER: "${ENCODER:-auto}"
     # FUSE inside the container needs the device and SYS_ADMIN
     devices:

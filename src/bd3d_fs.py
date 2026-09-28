@@ -36,13 +36,11 @@ from typing import Optional
 import pyfuse3
 import trio
 
-from pipeline import ENCODERS, decode_command, pick_encoder
+from pipeline import ENCODERS, Quality, decode_command, encoder_args, pick_encoder, quality_for
 from sources import BlurayDiscSource, Source, discover
 
 log = logging.getLogger("bd3d_fs")
 
-MUXRATE = 24_000_000                 # TS bit/s (video 20M + audio + muxer headroom)
-BYTES_PER_SEC = MUXRATE // 8
 TS_PACKET = 188
 NULL_PACKET = b"\x47\x1f\xff\x10" + b"\xff" * 184
 
@@ -54,8 +52,10 @@ IDLE_STOP = 120                      # seconds without reads before stopping the
 TAIL_ALIGN = 47 * 4096               # multiple of both a TS packet (188) and a memory page
 
 COMMON_ARGS = "-g 24 -c:a aac -ac 2 -b:a 192k "
-MULTI_AUDIO_DIR = "Multi-audio"
-KINDS = ["Blu-ray 3D", "Blu-ray"]    # one folder per kind of disc in the share      # --audio-files both: where the all-tracks files go
+MULTI_AUDIO_DIR = "Multi-audio"      # --audio-files both: where the all-tracks files go
+LIGHT_DIR = "Light"                  # lower-bitrate copies, for weak Wi-Fi
+KINDS = ["Blu-ray 3D", "Blu-ray"]    # one folder per kind of disc in the share
+RATE_WINDOW = 20                     # seconds of continuous reading to judge the network
 
 
 def null_padding(offset: int, size: int) -> bytes:
@@ -68,10 +68,11 @@ def null_padding(offset: int, size: int) -> bytes:
 class Generator:
     """A running pipeline producing the virtual file from offset `base` on."""
 
-    def __init__(self, source: Source, seconds: float, encode_args: str, log_path: str):
+    def __init__(self, vf: "VirtualFile", seconds: float):
+        source = vf.source
         start = source.keyframe_at_or_before(seconds)
         # base aligned to TS packets, so bytes match the global grid
-        self.base = int(start * BYTES_PER_SEC) // TS_PACKET * TS_PACKET
+        self.base = int(start * vf.bytes_per_sec) // TS_PACKET * TS_PACKET
         self.buf = bytearray()
         self.buf_start = self.base     # virtual-file offset of buf[0]
         self.reader_pos = self.base
@@ -82,14 +83,15 @@ class Generator:
 
         cmd = decode_command(
             source, start,
-            f"{encode_args} {COMMON_ARGS}"
-            f"-output_ts_offset {start:.3f} -f mpegts -muxrate {MUXRATE} -",
+            f"{vf.encode_args} {COMMON_ARGS}"
+            f"-output_ts_offset {start:.3f} -f mpegts -muxrate {vf.quality.muxrate} -",
         )
-        log.info("pipeline from %.1fs (requested %.1fs, offset %d)", start, seconds, self.base)
+        log.info("%s: pipeline from %.1fs (requested %.1fs, offset %d)",
+                 vf.path, start, seconds, self.base)
         self.proc = subprocess.Popen(
             ["bash", "-o", "pipefail", "-c", cmd],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=open(log_path, "w"),
+            stderr=open(vf.log_path, "w"),
             start_new_session=True,
         )
         threading.Thread(target=self._pump, daemon=True).start()
@@ -156,16 +158,19 @@ class Generator:
 
 
 class VirtualFile:
-    def __init__(self, inode: int, source: Source, encode_args: str, log_path: str,
-                 parent: int = pyfuse3.ROOT_INODE):
+    def __init__(self, inode: int, source: Source, encoder: str, quality: Quality,
+                 log_path: str, parent: int = pyfuse3.ROOT_INODE, path: str = ""):
         self.inode = inode
         self.parent = parent
         self.source = source
-        self.encode_args = encode_args
+        self.quality = quality
+        self.bytes_per_sec = quality.bytes_per_sec
+        self.encode_args = encoder_args(encoder, quality.video)
         self.log_path = log_path
         # the language goes first: players cut long names, and it must stay visible
         self.name = f"{source.label + ' - ' if source.label else ''}{source.name}{source.name_suffix}.ts"
-        self.size = int(source.duration * BYTES_PER_SEC) // TS_PACKET * TS_PACKET
+        self.path = path + self.name       # for the log, e.g. "Blu-ray/Light/ITA - x.ts"
+        self.size = int(source.duration * self.bytes_per_sec) // TS_PACKET * TS_PACKET
         # the tail is served synthetic; aligned so the kernel's page-aligned reads
         # never start just before it
         self.tail_start = max(0, self.size - EDGE_CACHE) // TAIL_ALIGN * TAIL_ALIGN
@@ -175,6 +180,11 @@ class VirtualFile:
         self.head: Optional[bytes] = None
         self.tail: Optional[bytes] = None
         self.last_read = 0.0
+        # network diagnostics: the pace at which the player pulls data
+        self.rate_start = 0.0            # when the current run of sequential reads began
+        self.rate_bytes = 0
+        self.rate_next = 0               # offset the next sequential read would start at
+        self.slow_since: Optional[float] = None
 
     def _generator_for(self, offset: int) -> Generator:
         """A pipeline covering `offset`: an existing one, or a new one. Players read
@@ -190,7 +200,7 @@ class VirtualFile:
                 old = min(self.gens, key=lambda g: g.last_used)
                 self.gens.remove(old)
                 old.stop()
-            g = Generator(self.source, offset / BYTES_PER_SEC, self.encode_args, self.log_path)
+            g = Generator(self, offset / self.bytes_per_sec)
             self.gens.append(g)
             return g
 
@@ -201,23 +211,48 @@ class VirtualFile:
         far end of the disc while playback reads the beginning."""
         tail_start = self.tail_start
         length = self.size - tail_start
-        t0 = tail_start / BYTES_PER_SEC
+        t0 = tail_start / self.bytes_per_sec
         n_audio = max(1, len(self.source.audio_langs))
         inputs = " ".join([f"-f lavfi -i color=black:s={self.source.frame_size}:r=24000/1001"] +
                           ["-f lavfi -i anullsrc=r=48000:cl=stereo"] * n_audio)
         maps = " ".join(["-map 0:v"] + [f"-map {i + 1}:a" for i in range(n_audio)])
         langs = " ".join(f"-metadata:s:a:{i} language={lang}"
                          for i, lang in enumerate(self.source.audio_langs))
-        cmd = (f"ffmpeg -nostdin -v error {inputs} {maps} {langs} -t {length / BYTES_PER_SEC + 3:.1f} "
+        cmd = (f"ffmpeg -nostdin -v error {inputs} {maps} {langs} -t {length / self.bytes_per_sec + 3:.1f} "
                f"{self.encode_args} {COMMON_ARGS}"
-               f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {MUXRATE} -")
+               f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {self.quality.muxrate} -")
         out = subprocess.run(["bash", "-c", cmd], capture_output=True).stdout[:length]
         return out + null_padding(tail_start + len(out), length - len(out))
+
+    def _track_rate(self, offset: int, size: int):
+        """Log when the player pulls data slower than the movie plays: over Wi-Fi
+        that means pauses to rebuffer. Reads come from the SMB client, so their
+        pace is the network's. A pause (no reads) or a jump starts a new run."""
+        now = time.monotonic()
+        if offset != self.rate_next or now - self.last_read > 5:
+            self.rate_start, self.rate_bytes = now, 0
+        self.rate_bytes += size
+        self.rate_next = offset + size
+        elapsed = now - self.rate_start
+        if elapsed < RATE_WINDOW:
+            return
+        ratio = self.rate_bytes / elapsed / self.bytes_per_sec
+        if ratio < 0.9 and self.slow_since is None:
+            self.slow_since = now
+            hint = f" (try {LIGHT_DIR}/)" if self.quality.name == "normal" else ""
+            log.warning("%s: the player receives %d%% of the data rate the movie needs: "
+                        "the network is too slow for this file, playback will pause%s",
+                        self.path, ratio * 100, hint)
+        elif ratio >= 1.0 and self.slow_since is not None:
+            log.info("%s: network back to real time (%d%%)", self.path, ratio * 100)
+            self.slow_since = None
+        self.rate_start, self.rate_bytes = now, 0
 
     def read(self, offset: int, size: int) -> bytes:
         size = min(size, self.size - offset)
         if size <= 0:
             return b""
+        self._track_rate(offset, size)
         self.last_read = time.monotonic()
 
         # players often re-read the start (headers) and the end (duration):
@@ -412,56 +447,70 @@ class Bd3dFS(pyfuse3.Operations):
 
 
 class Library:
-    """Turns sources into files of the tree: one per audio language and/or one
-    with all languages, plus the external subtitles next to each video."""
+    """Turns sources into files of the tree: in the folder of their kind, one per
+    audio language and/or one with all languages, the same again at a lower
+    bitrate in Light/, plus the external subtitles next to each video."""
 
-    def __init__(self, fs: Bd3dFS, encode_args: str, log_file: str, audio_files: str):
-        self.fs, self.encode_args, self.log_file = fs, encode_args, log_file
-        self.audio_files = audio_files
+    def __init__(self, fs: Bd3dFS, encoder: str, log_file: str, audio_files: str, light: bool):
+        self.fs, self.encoder, self.log_file = fs, encoder, log_file
+        self.audio_files, self.light = audio_files, light
 
-    def _add_movie(self, source: Source, parent: int) -> list:
-        vf = VirtualFile(self.fs.new_inode(), source, self.encode_args, self.log_file, parent)
-        added = [vf]
-        where, node = "", self.fs.nodes.get(parent)
+    def _path(self, inode: int) -> str:
+        where, node = "", self.fs.nodes.get(inode)
         while node is not None and node.inode != pyfuse3.ROOT_INODE:
             where, node = f"{node.name}/{where}", self.fs.nodes.get(node.parent)
-        log.info("+ %s%s  (%.0f min, audio %s)", where, vf.name, source.duration / 60,
-                 source.audio_desc)
+        return where
+
+    def _add_movie(self, source: Source, parent: int, level: str) -> list:
+        quality = quality_for(source, level)
+        vf = VirtualFile(self.fs.new_inode(), source, self.encoder, quality, self.log_file,
+                         parent, self._path(parent))
+        added = [vf]
+        log.info("+ %s  (%.0f min, %d Mbit/s, audio %s)", vf.path, source.duration / 60,
+                 quality.muxrate // 1_000_000, source.audio_desc)
         # external subtitles: "movie.ita.srt" -> "movie - 3D SBS.ita.srt", so that
         # players pair them with the video (whether they show them in 3D is up to them)
         for suffix, path in source.sidecars:
             added.append(SidecarFile(self.fs.new_inode(), vf.name[:-len(".ts")] + suffix,
                                      path, parent))
-            log.info("  + %s", added[-1].name)
         for e in added:
             self.fs.add(e)
+        return added
+
+    def _add_set(self, source: Source, folder: int, level: str) -> list:
+        variants = source.variants()
+        if self.audio_files == "single" or len(variants) == 1:
+            return self._add_movie(source, folder, level)
+        added = []
+        for v in variants:
+            added += self._add_movie(v, folder, level)
+        if self.audio_files == "both":
+            added += self._add_movie(source, self.fs.folder(MULTI_AUDIO_DIR, folder).inode, level)
         return added
 
     def add(self, source: Source) -> list:
         """Files go in the folder of their kind: Blu-ray 3D/, Blu-ray/ ..."""
         category = self.fs.folder(source.category).inode
-        variants = source.variants()
-        if self.audio_files == "single" or len(variants) == 1:
-            return self._add_movie(source, category)
-        added = []
-        for v in variants:
-            added += self._add_movie(v, category)
-        if self.audio_files == "both":
-            added += self._add_movie(source, self.fs.folder(MULTI_AUDIO_DIR, category).inode)
+        added = self._add_set(source, category, "normal")
+        if self.light:
+            added += self._add_set(source, self.fs.folder(LIGHT_DIR, category).inode, "light")
         return added
 
     def remove(self, entries: list) -> None:
         for e in entries:
             e.stop()
             self.fs.remove(e)
-            log.info("- %s", e.name)
-        # a Multi-audio/ left empty goes too; the folders of each kind stay
-        folders = {e.parent for e in entries} - {pyfuse3.ROOT_INODE}
-        for inode in folders:
-            folder = self.fs.nodes.get(inode)
-            if (folder is not None and folder.parent != pyfuse3.ROOT_INODE
-                    and not self.fs.children.get(inode)):
-                self.fs.remove(folder)
+            log.info("- %s", getattr(e, "path", e.name))
+        # sub-folders left empty (Multi-audio/, Light/) go too, deepest first;
+        # the folders of each kind stay
+        changed = True
+        while changed:
+            changed = False
+            for folder in [n for n in list(self.fs.nodes.values()) if isinstance(n, Folder)]:
+                if (folder.inode != pyfuse3.ROOT_INODE and folder.parent != pyfuse3.ROOT_INODE
+                        and not self.fs.children.get(folder.inode)):
+                    self.fs.remove(folder)
+                    changed = True
 
 
 CDROM_DRIVE_STATUS, CDS_DISC_OK = 0x5326, 4
@@ -545,6 +594,9 @@ def main():
                              "audio track menu (default); single: one file with all the "
                              "tracks; both: per-language files plus the single file in "
                              f"the {MULTI_AUDIO_DIR}/ folder")
+    parser.add_argument("--light", action=argparse.BooleanOptionalAction, default=True,
+                        help=f"also offer every movie at a lower bitrate in {LIGHT_DIR}/, for "
+                             "weak Wi-Fi (default: on)")
     parser.add_argument("--encoder", choices=["auto", *ENCODERS], default="auto",
                         help="auto = NVENC if available, else x264 on the CPU")
     parser.add_argument("--log-file", default="/tmp/bd3d-pipeline.log",
@@ -561,7 +613,7 @@ def main():
     others = [a for a in args.sources if a not in drives]
 
     fs = Bd3dFS()
-    library = Library(fs, ENCODERS[encoder], args.log_file, args.audio_files)
+    library = Library(fs, encoder, args.log_file, args.audio_files, args.light)
     for kind in KINDS:                  # always visible, so one knows where to look
         fs.folder(kind)
     for source in discover(others, audio_langs) if others else []:
