@@ -72,9 +72,16 @@ class Source(ABC):
         """The subtitle stream as an ffmpeg stream specifier on that input."""
         return f"{input_index}:i:{self.sub.stream:#x}"
 
+    # Size of the picture the subtitles are drawn for. ffmpeg takes it from a video
+    # stream of the same input; Blu-ray subtitles travel with the audio (3D) where
+    # there is none, and ffmpeg then falls back to 720x576: they came out small,
+    # half-way up on the left. Blu-ray PGS are always 1920x1080.
+    sub_canvas: str = "1920x1080"
+
     def sub_decoder_args(self) -> str:
         """ffmpeg input options for the subtitle decoder."""
-        return "-forced_subs_only 1" if self.forced_only else ""
+        args = f"-canvas_size {self.sub_canvas}" if self.sub_canvas else ""
+        return args + (" -forced_subs_only 1" if self.forced_only else "")
     audio_langs: list    # languages of the audio tracks the pipeline outputs, in order
     # Pipelines that may run at once on this source. A disc is one optical drive:
     # two pipelines reading far-apart places make its head jump back and forth
@@ -408,6 +415,7 @@ class DvdSource(Source):
     two_d = True
     category, name_suffix, quality_key = "DVD", "", "dvd"
     input_format, video_map = "mpeg", "0:i:0x1e0"
+    sub_canvas = ""                 # DVD: the picture in the same stream gives it
 
     def __init__(self, path: str, audio_langs: Optional[list[str]] = None):
         from dvd import Dvd, main_title
