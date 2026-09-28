@@ -51,6 +51,11 @@ class Source(ABC):
     mtime_ns: int        # timestamp shown for the virtual file
 
     label: str = ""      # prefix of the file name of a variant, e.g. "ITA"
+    audio_langs: list    # languages of the audio tracks the pipeline outputs, in order
+    # Pipelines that may run at once on this source. A disc is one optical drive:
+    # two pipelines reading far-apart places make its head jump back and forth
+    # on every read and both crawl.
+    max_pipelines: int = 2
 
     def variants(self) -> list["Source"]:
         """One source per audio language: players such as the VITURE 3D Player
@@ -229,6 +234,8 @@ def _safe_name(name: str) -> str:
 
 class BlurayDiscSource(Source):
     """A 3D Blu-ray title read straight from a drive, an ISO or a BDMV folder."""
+
+    max_pipelines = 1
 
     def __init__(self, path: str, audio_langs: Optional[list[str]] = None):
         from bdmv import parse_clpi, parse_mpls

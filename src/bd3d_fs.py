@@ -49,6 +49,7 @@ BEHIND_KEEP = 64 * 1024 * 1024       # how much to keep behind (slightly out-of-
 JUMP_TOLERANCE = 32 * 1024 * 1024    # forward jump beyond which restarting is cheaper
 EDGE_CACHE = 8 * 1024 * 1024         # file start and end stay cached (players re-read them)
 IDLE_STOP = 120                      # seconds without reads before stopping the pipeline
+TAIL_ALIGN = 47 * 4096               # multiple of both a TS packet (188) and a memory page
 
 COMMON_ARGS = "-g 24 -c:a aac -ac 2 -b:a 192k "
 MULTI_AUDIO_DIR = "Multi-audio"      # --audio-files both: where the all-tracks files go
@@ -73,6 +74,7 @@ class Generator:
         self.reader_pos = self.base
         self.eof = False
         self.stopped = False
+        self.last_used = time.monotonic()
         self.cond = threading.Condition()
 
         cmd = decode_command(
@@ -119,7 +121,9 @@ class Generator:
         with self.cond:
             return self.buf_start <= offset <= self.end + JUMP_TOLERANCE
 
-    def read(self, offset: int, size: int) -> bytes:
+    def read(self, offset: int, size: int) -> Optional[bytes]:
+        """The bytes, or None if this pipeline was stopped meanwhile (read elsewhere)."""
+        self.last_used = time.monotonic()
         with self.cond:
             self.reader_pos = offset
             self.cond.notify_all()
@@ -127,6 +131,8 @@ class Generator:
             while (self.end < offset + size and not self.eof and not self.stopped
                    and time.monotonic() < deadline):
                 self.cond.wait(timeout=1)
+            if self.stopped:
+                return None
             lo = offset - self.buf_start
             data = bytes(self.buf[max(lo, 0):max(lo, 0) + size])
         if len(data) < size and self.eof:
@@ -157,12 +163,53 @@ class VirtualFile:
         # the language goes first: players cut long names, and it must stay visible
         self.name = f"{source.label + ' - ' if source.label else ''}{source.name} - 3D SBS.ts"
         self.size = int(source.duration * BYTES_PER_SEC) // TS_PACKET * TS_PACKET
+        # the tail is served synthetic; aligned so the kernel's page-aligned reads
+        # never start just before it
+        self.tail_start = max(0, self.size - EDGE_CACHE) // TAIL_ALIGN * TAIL_ALIGN
         self.mtime_ns = source.mtime_ns
         self.lock = threading.Lock()
-        self.gen: Optional[Generator] = None
+        self.gens: list[Generator] = []
         self.head: Optional[bytes] = None
         self.tail: Optional[bytes] = None
         self.last_read = 0.0
+
+    def _generator_for(self, offset: int) -> Generator:
+        """A pipeline covering `offset`: an existing one, or a new one. Players read
+        several places at once (playback + the end of the file for the duration),
+        so a new pipeline replaces the least recently used one, not the only one."""
+        with self.lock:
+            self.gens = [g for g in self.gens if not g.stopped]
+            for g in self.gens:
+                if g.covers(offset):
+                    g.last_used = time.monotonic()
+                    return g
+            if len(self.gens) >= self.source.max_pipelines:
+                old = min(self.gens, key=lambda g: g.last_used)
+                self.gens.remove(old)
+                old.stop()
+            g = Generator(self.source, offset / BYTES_PER_SEC, self.encode_args, self.log_path)
+            self.gens.append(g)
+            return g
+
+    def _synthetic_tail(self) -> bytes:
+        """The last EDGE_CACHE bytes, made of black video and silence with the same
+        streams and timestamps the real movie has there. Players read the end of
+        the file for its duration; decoding the real end would mean reading the
+        far end of the disc while playback reads the beginning."""
+        tail_start = self.tail_start
+        length = self.size - tail_start
+        t0 = tail_start / BYTES_PER_SEC
+        n_audio = max(1, len(self.source.audio_langs))
+        inputs = " ".join(["-f lavfi -i color=black:s=3840x1080:r=24000/1001"] +
+                          ["-f lavfi -i anullsrc=r=48000:cl=stereo"] * n_audio)
+        maps = " ".join(["-map 0:v"] + [f"-map {i + 1}:a" for i in range(n_audio)])
+        langs = " ".join(f"-metadata:s:a:{i} language={lang}"
+                         for i, lang in enumerate(self.source.audio_langs))
+        cmd = (f"ffmpeg -nostdin -v error {inputs} {maps} {langs} -t {length / BYTES_PER_SEC + 3:.1f} "
+               f"{self.encode_args} {COMMON_ARGS}"
+               f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {MUXRATE} -")
+        out = subprocess.run(["bash", "-c", cmd], capture_output=True).stdout[:length]
+        return out + null_padding(tail_start + len(out), length - len(out))
 
     def read(self, offset: int, size: int) -> bytes:
         size = min(size, self.size - offset)
@@ -171,43 +218,45 @@ class VirtualFile:
         self.last_read = time.monotonic()
 
         # players often re-read the start (headers) and the end (duration):
-        # serve them from cache instead of restarting the pipeline every time
+        # serve them from cache instead of restarting a pipeline every time
         if self.head is not None and offset + size <= len(self.head):
             return self.head[offset:offset + size]
-        tail_start = self.size - EDGE_CACHE
-        if self.tail is not None and offset >= tail_start:
-            return self.tail[offset - tail_start:offset - tail_start + size]
+        tail_start = self.tail_start
+        if offset + size > tail_start:
+            with self.lock:
+                if self.tail is None:
+                    self.tail = self._synthetic_tail()
+            if offset >= tail_start:
+                return self.tail[offset - tail_start:offset - tail_start + size]
+            # a read across the boundary (playback reaching the very end)
+            return self.read(offset, tail_start - offset) + self.tail[:offset + size - tail_start]
 
-        with self.lock:
-            gen = self.gen
-            if gen is None or gen.stopped or not gen.covers(offset):
-                if gen is not None:
-                    gen.stop()
-                gen = self.gen = Generator(self.source, offset / BYTES_PER_SEC,
-                                           self.encode_args, self.log_path)
-
-        data = gen.read(offset, size)
-
-        if self.head is None and gen.base == 0 and gen.end >= EDGE_CACHE:
-            with gen.cond:
-                if gen.buf_start == 0:
-                    self.head = bytes(gen.buf[:EDGE_CACHE])
-        if self.tail is None and offset >= tail_start and gen.eof and gen.buf_start <= tail_start:
-            self.tail = gen.read(tail_start, EDGE_CACHE)
-        return data
+        for _ in range(5):
+            gen = self._generator_for(offset)
+            data = gen.read(offset, size)
+            if data is None:          # that pipeline was replaced meanwhile: try again
+                continue
+            if self.head is None and gen.base == 0 and gen.end >= EDGE_CACHE:
+                with gen.cond:
+                    if gen.buf_start == 0:
+                        self.head = bytes(gen.buf[:EDGE_CACHE])
+            return data
+        raise pyfuse3.FUSEError(errno.EIO)
 
     def stop_if_idle(self):
         with self.lock:
-            if self.gen is not None and time.monotonic() - self.last_read > IDLE_STOP:
-                log.info("%s: no reads for %ds, stopping pipeline", self.name, IDLE_STOP)
-                self.gen.stop()
-                self.gen = None
+            idle = [g for g in self.gens if time.monotonic() - g.last_used > IDLE_STOP]
+            for g in idle:
+                self.gens.remove(g)
+        for g in idle:
+            log.info("%s: no reads for %ds, stopping a pipeline", self.name, IDLE_STOP)
+            g.stop()
 
     def stop(self):
         with self.lock:
-            if self.gen is not None:
-                self.gen.stop()
-                self.gen = None
+            gens, self.gens = self.gens, []
+        for g in gens:
+            g.stop()
 
 
 class SidecarFile:
