@@ -39,8 +39,8 @@ def _shift(pack: bytearray, pes: int, delta: int):
 
 
 class PackFilter:
-    def __init__(self, audio: set[int], anchor_pts: int):
-        self.audio, self.anchor = audio, anchor_pts
+    def __init__(self, audio: set[int], anchor_pts: int, sub: int = None):
+        self.audio, self.anchor, self.sub = audio, anchor_pts, sub
         self.started: set[int] = set()
         self.delta = 0
 
@@ -56,8 +56,10 @@ class PackFilter:
         sid = pack[p + 3]
         if sid == 0xE0:
             stream = 0x1E0
-        elif sid == 0xBD:                                          # private 1: AC-3/DTS/LPCM
+        elif sid == 0xBD:                           # private 1: AC-3/DTS/LPCM, subpictures
             stream = pack[p + 9 + pack[p + 8]]
+            if stream == self.sub:
+                return self._shifted(pack, p)
         elif 0xC0 <= sid <= 0xDF:                                  # MPEG audio
             stream = 0x100 | sid
         else:
@@ -72,7 +74,10 @@ class PackFilter:
             if not has_pts or (_timestamp(pack, p + 9) + self.delta - self.anchor) % (1 << 33) >= 1 << 32:
                 return None
             self.started.add(stream)
-        if self.delta and has_pts:
+        return self._shifted(pack, p) if has_pts else pack
+
+    def _shifted(self, pack, p):
+        if self.delta and pack[p + 7] & 0x80:
             pack = bytearray(pack)
             _shift(pack, p, self.delta)
         return pack
@@ -84,6 +89,7 @@ def main():
     ap.add_argument("--title", type=int, required=True)
     ap.add_argument("--start", type=float, default=0.0, help="seconds from the title start")
     ap.add_argument("--audio", action="append", default=[], help="audio stream id, e.g. 0x81")
+    ap.add_argument("--sub", help="subpicture stream id to pass on, e.g. 0x21")
     args = ap.parse_args()
 
     out = sys.stdout.buffer
@@ -94,7 +100,8 @@ def main():
         nav = seek(vobs, title, args.start)
         print(f"dvd_reader: title {args.title}, VOBU at {nav.time:.3f}s (sector {nav.sector})",
               file=sys.stderr)
-        filt = PackFilter({int(a, 0) for a in args.audio}, nav.pts)
+        filt = PackFilter({int(a, 0) for a in args.audio}, nav.pts,
+                          int(args.sub, 0) if args.sub else None)
         first = next(i for i, c in enumerate(title.cells) if c.first <= nav.sector <= c.last)
         try:
             for i in range(first, len(title.cells)):

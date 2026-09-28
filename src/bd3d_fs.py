@@ -22,6 +22,7 @@ Unmount: Ctrl+C (or fusermount3 -u /srv/bd3d)
 Requires: python3-pyfuse3, edge264_test, ffmpeg, ffprobe
 """
 import argparse
+import copy
 import errno
 import fcntl
 import logging
@@ -55,6 +56,7 @@ TAIL_ALIGN = 47 * 4096               # multiple of both a TS packet (188) and a 
 COMMON_ARGS = "-g 24 -c:a aac -ac 2 -b:a 192k "
 AUDIO_TRACK_MUX = 220_000            # TS bit/s per AAC 192k track, with muxer headroom
 MULTI_AUDIO_DIR = "Multi-audio"      # --audio-files both: where the all-tracks files go
+SUB_TAG = "sub"                      # ITAsubENG: Italian audio, English subtitles
 LIGHT_DIR = "Light"                  # lower-bitrate copies, for weak Wi-Fi
 KINDS = ["Blu-ray 3D", "Blu-ray", "DVD"]   # one folder per kind of disc in the share
 RATE_WINDOW = 20                     # seconds of continuous reading to judge the network
@@ -480,9 +482,11 @@ class Library:
     audio language and/or one with all languages, the same again at a lower
     bitrate in Light/, plus the external subtitles next to each video."""
 
-    def __init__(self, fs: Bd3dFS, encoder: str, log_file: str, audio_files: str, light: bool):
+    def __init__(self, fs: Bd3dFS, encoder: str, log_file: str, audio_files: str, light: bool,
+                 sub_langs: Optional[list[str]] = None):
         self.fs, self.encoder, self.log_file = fs, encoder, log_file
         self.audio_files, self.light = audio_files, light
+        self.sub_langs = sub_langs          # None: every language; []: no subtitle versions
 
     def _path(self, inode: int) -> str:
         where, node = "", self.fs.nodes.get(inode)
@@ -495,8 +499,11 @@ class Library:
         vf = VirtualFile(self.fs.new_inode(), source, self.encoder, quality, self.log_file,
                          parent, self._path(parent))
         added = [vf]
-        log.info("+ %s  (%.0f min, %.1f Mbit/s, audio %s)", vf.path, source.duration / 60,
-                 vf.muxrate / 1e6, source.audio_desc)
+        sub = f", subtitles {source.sub.lang}" if source.sub is not None else ""
+        if source.forced_only:
+            sub = f", forced subtitles {source.sub.lang}"
+        log.info("+ %s  (%.0f min, %.1f Mbit/s, audio %s%s)", vf.path, source.duration / 60,
+                 vf.muxrate / 1e6, source.audio_desc, sub)
         # external subtitles: "movie.ita.srt" -> "movie - 3D SBS.ita.srt", so that
         # players pair them with the video (whether they show them in 3D is up to them)
         for suffix, path in source.sidecars:
@@ -506,15 +513,39 @@ class Library:
             self.fs.add(e)
         return added
 
+    def _with_subs(self, v: Source) -> list[Source]:
+        """The file without subtitles (but with the forced ones of its audio
+        language, like a disc player does), then one per subtitle language:
+        ITA - movie, ITAsubITA - movie, ITAsubENG - movie ..."""
+        plain = copy.copy(v)
+        if len(v.audio_langs) == 1:
+            forced = next((s for s in v.subs if s.lang == v.audio_langs[0]), None)
+            if forced is not None:
+                plain.sub, plain.forced_only = forced, True
+        out = [plain]
+        langs = self.sub_langs
+        tracks = v.subs if langs is None else [s for lang in langs for s in v.subs if s.lang == lang]
+        for s in tracks:
+            w = copy.copy(v)
+            w.sub, w.forced_only = s, False
+            w.label = f"{v.label}{SUB_TAG}{s.lang.upper()}"
+            out.append(w)
+        return out
+
     def _add_set(self, source: Source, folder: int, level: str) -> list:
         variants = source.variants()
         if self.audio_files == "single" or len(variants) == 1:
-            return self._add_movie(source, folder, level)
+            variants, multi = [source], None
+        else:
+            multi = source if self.audio_files == "both" else None
         added = []
         for v in variants:
-            added += self._add_movie(v, folder, level)
-        if self.audio_files == "both":
-            added += self._add_movie(source, self.fs.folder(MULTI_AUDIO_DIR, folder).inode, level)
+            for w in self._with_subs(v):
+                added += self._add_movie(w, folder, level)
+        if multi is not None:
+            multi_dir = self.fs.folder(MULTI_AUDIO_DIR, folder).inode
+            for w in self._with_subs(multi):
+                added += self._add_movie(w, multi_dir, level)
         return added
 
     def add(self, source: Source) -> list:
@@ -624,6 +655,10 @@ def main():
                              "audio track menu (default); single: one file with all the "
                              "tracks; both: per-language files plus the single file in "
                              f"the {MULTI_AUDIO_DIR}/ folder")
+    parser.add_argument("--subs", default="all",
+                        help="subtitle languages to offer as extra versions drawn into the "
+                             "picture, e.g. ita,eng; all (default) or none. Forced subtitles "
+                             "of the audio language are always drawn in")
     parser.add_argument("--light", action=argparse.BooleanOptionalAction, default=True,
                         help=f"also offer every movie at a lower bitrate in {LIGHT_DIR}/, for "
                              "weak Wi-Fi (default: on)")
@@ -644,7 +679,10 @@ def main():
     others = [a for a in args.sources if a not in drives]
 
     fs = Bd3dFS()
-    library = Library(fs, encoder, args.log_file, args.audio_files, args.light)
+    subs = args.subs.strip().lower()
+    sub_langs = None if subs in ("", "all") else [] if subs == "none" else \
+        [x.strip() for x in args.subs.split(",")]
+    library = Library(fs, encoder, args.log_file, args.audio_files, args.light, sub_langs)
     for kind in KINDS:                  # always visible, so one knows where to look
         fs.folder(kind)
     for source in discover(others, audio_langs) if others else []:

@@ -173,12 +173,32 @@ class DvdAudio:
 
 
 @dataclass
+class DvdSub:
+    stream: int         # subpicture stream id (0x20 + n)
+    lang: str           # ISO 639-2
+    kind: str           # "normal", "commentary", "forced", "other"
+
+
+SUB_KINDS = {0: "normal", 1: "normal", 2: "normal", 3: "other", 5: "normal", 6: "normal",
+             7: "other", 9: "forced", 13: "commentary", 14: "commentary", 15: "commentary"}
+
+
+def _rgb(y: int, cr: int, cb: int) -> str:
+    clip = lambda x: max(0, min(255, round(x)))
+    return "%02x%02x%02x" % (clip(y + 1.402 * (cr - 128)),
+                             clip(y - 0.344136 * (cb - 128) - 0.714136 * (cr - 128)),
+                             clip(y + 1.772 * (cb - 128)))
+
+
+@dataclass
 class DvdTitle:
     number: int         # title number on the disc (1-based)
     vts: int
     duration: float
     cells: list = field(default_factory=list)
     audio: list = field(default_factory=list)
+    subs: list = field(default_factory=list)
+    palette: list = field(default_factory=list)  # 16 "rrggbb" colours for the subpictures
     frame_size: str = "1024x576"   # square-pixel display size
     frame_rate: str = "25"
     tmap_unit: int = 0
@@ -226,6 +246,19 @@ def parse_title(vts_ifo: bytes, number: int, vts: int, ttn: int) -> DvdTitle:
         lang2 = v[a + 2:a + 4].decode("ascii", "replace").strip("\0 ").lower() or "und"
         t.audio.append(DvdAudio(stream, AUDIO_FORMATS.get(fmt, f"fmt{fmt}"),
                                 LANG3.get(lang2, lang2), v[a + 5] in (3, 4)))
+
+    # subpictures: attributes in the VTS header, stream numbers in the PGC (the
+    # one for the display format: widescreen on 16:9 titles); palette in the PGC
+    for i in range(min(32, _u16(v, 0x254))):
+        a = 0x256 + i * 6
+        control = _u32(v, pgc + 0x1C + i * 4)
+        if not control >> 31:
+            continue
+        n = (control >> 16) & 31 if wide else (control >> 24) & 31
+        lang2 = v[a + 2:a + 4].decode("ascii", "replace").strip("\0 ").lower() or "und"
+        t.subs.append(DvdSub(0x20 + n, LANG3.get(lang2, lang2), SUB_KINDS.get(v[a + 5], "other")))
+    t.palette = [_rgb(v[pgc + 0xA4 + i * 4 + 1], v[pgc + 0xA4 + i * 4 + 2], v[pgc + 0xA4 + i * 4 + 3])
+                 for i in range(16)]
 
     # cells, skipping the non-first angles of angle blocks
     playback = pgc + _u16(v, pgc + 0xE8)

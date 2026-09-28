@@ -60,7 +60,15 @@ class Source(ABC):
     quality_key: str = "3d"         # which bitrates (pipeline.QUALITIES)
     input_format: str = "mpegts"    # two_d: format of video_command's output
     video_map: str = "0:i:0x1011"   # two_d: the video stream in it
-    video_filter: str = ""          # extra ffmpeg video options (deinterlace, scale)
+    pre_filter: str = ""            # video filters before the subtitle overlay (deinterlace)
+    post_filter: str = ""           # ... and after it (scale)
+    subs: list = []                 # subtitle tracks that can be drawn in (.stream, .lang)
+    sub = None                      # the track drawn into this file, if any
+    forced_only: bool = False       # draw only its forced subtitles (foreign-language parts)
+
+    def sub_decoder_args(self) -> str:
+        """ffmpeg input options for the subtitle decoder."""
+        return "-forced_subs_only 1" if self.forced_only else ""
     audio_langs: list    # languages of the audio tracks the pipeline outputs, in order
     # Pipelines that may run at once on this source. A disc is one optical drive:
     # two pipelines reading far-apart places make its head jump back and forth
@@ -388,13 +396,18 @@ class DvdSource(Source):
         self.duration = self.title.duration
         self.frame_size, self.frame_rate = self.title.frame_size, self.title.frame_rate
         w, h = self.frame_size.split("x")
-        # DVDs are often interlaced, and their pixels are not square
-        self.video_filter = f"-vf bwdif=deint=interlaced,scale={w}:{h},setsar=1"
+        # DVDs are often interlaced, and their pixels are not square; subtitles
+        # are drawn in between, on the 720-pixel-wide picture they are made for
+        self.pre_filter = "bwdif=deint=interlaced"
+        self.post_filter = f"scale={w}:{h},setsar=1"
+        # one normal track per language (commentary and other kinds left out)
+        self.subs = list({s.lang: s for s in reversed(self.title.subs) if s.kind == "normal"}.values())[::-1]
         st = os.stat(path)
         self.mtime_ns = time.time_ns() if stat.S_ISBLK(st.st_mode) else st.st_mtime_ns
         self.sidecars = [] if stat.S_ISBLK(st.st_mode) else find_sidecars(path)
         # commentaries only if a language has nothing else
         main = [a for a in self.title.audio if not a.commentary]
+        self.sub_desc = ", ".join(s.lang for s in self.subs) or "none"
         chosen = _pick_audio(main or self.title.audio, audio_langs)
         self.audio_pids = [a.stream for a in chosen]
         self.audio_langs = [a.lang for a in chosen]
@@ -402,6 +415,9 @@ class DvdSource(Source):
 
     def variants(self) -> list[Source]:
         return BlurayDiscSource.variants(self)
+
+    def sub_decoder_args(self) -> str:
+        return f"-palette {','.join(self.title.palette)} " + super().sub_decoder_args()
 
     def keyframe_at_or_before(self, seconds: float) -> float:
         from dvd import seek
@@ -413,7 +429,8 @@ class DvdSource(Source):
         # +2 ms: `start` is a VOBU time, make sure the same VOBU is found
         return (f"{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'dvd_reader.py'))} "
                 f"{shlex.quote(self.path)} --title {self.title.number} "
-                f"--start {start + 0.002:.3f} {audio}")
+                f"--start {start + 0.002:.3f} {audio}"
+                + (f" --sub {self.sub.stream:#x}" if self.sub else ""))
 
     def audio_input(self, start: float) -> str:
         return ""

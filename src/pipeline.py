@@ -5,6 +5,7 @@ pipeline.py — encoder choice and the decode chain, independent of the source.
       | edge264_test - -Ok              # MVC -> Y4M SBS 3840x1080
       | ffmpeg -i - <source audio> ...  # encode + audio -> output
 """
+import shlex
 import subprocess
 from dataclasses import dataclass
 
@@ -67,12 +68,20 @@ def pick_encoder(requested: str = "auto") -> str:
 def decode_command(source: Source, start: float, output_args: str) -> str:
     """Full shell pipeline from keyframe `start`; output_args = codecs + output of the last ffmpeg."""
     if source.two_d:
-        # 2D Blu-ray / DVD: one stream with video and audio, ffmpeg decodes it all
+        # 2D Blu-ray / DVD: one stream with video, audio and maybe a subtitle
+        # track, ffmpeg decodes it all; the subtitle is drawn onto the picture
+        pre, post = source.pre_filter or "null", source.post_filter or "null"
+        if source.sub is not None:
+            graph = (f"[{source.video_map}]{pre}[pre];"
+                     f"[pre][0:i:{source.sub.stream:#x}]overlay=eof_action=pass[ov];[ov]{post}[v]")
+            sub_args = source.sub_decoder_args()
+        else:
+            graph, sub_args = f"[{source.video_map}]{pre},{post}[v]", ""
         return (
             f"{source.video_command(start)} "
-            f"| ffmpeg -nostdin -v warning -f {source.input_format} -analyzeduration 2000000 "
-            f"-probesize 10000000 -i - -map {source.video_map} {source.audio_map(0)} "
-            f"{source.video_filter} {output_args}"
+            f"| ffmpeg -nostdin -v warning {sub_args} -f {source.input_format} "
+            f"-analyzeduration 2000000 -probesize 10000000 -i - "
+            f"-filter_complex {shlex.quote(graph)} -map '[v]' {source.audio_map(0)} {output_args}"
         )
     return (
         f"{source.video_command(start)} "
