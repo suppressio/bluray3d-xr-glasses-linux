@@ -27,6 +27,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -53,8 +54,13 @@ class Source(ABC):
     label: str = ""      # prefix of the file name of a variant, e.g. "ITA"
     category: str = "Blu-ray 3D"    # folder of the share it goes in
     name_suffix: str = " - 3D SBS"  # after the movie name in the file name
-    two_d: bool = False  # True: video_command gives one TS with video and audio for ffmpeg
+    two_d: bool = False  # True: video_command gives one stream with video and audio for ffmpeg
     frame_size: str = "3840x1080"   # output picture size (Full-SBS for 3D)
+    frame_rate: str = "24000/1001"
+    quality_key: str = "3d"         # which bitrates (pipeline.QUALITIES)
+    input_format: str = "mpegts"    # two_d: format of video_command's output
+    video_map: str = "0:i:0x1011"   # two_d: the video stream in it
+    video_filter: str = ""          # extra ffmpeg video options (deinterlace, scale)
     audio_langs: list    # languages of the audio tracks the pipeline outputs, in order
     # Pipelines that may run at once on this source. A disc is one optical drive:
     # two pipelines reading far-apart places make its head jump back and forth
@@ -296,6 +302,7 @@ class BlurayDiscSource(Source):
 
         if self.two_d:
             self.category, self.name_suffix, self.frame_size = "Blu-ray", "", "1920x1080"
+            self.quality_key = "2d"
         self.name = _safe_name(info.name or info.volume_id.replace("_", " ").title())
         self.duration = sum(it.duration for it in items)
         self.starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
@@ -357,6 +364,79 @@ class BlurayDiscSource(Source):
                         for n, (p, lang) in enumerate(zip(self.audio_pids, self.audio_langs)))
 
 
+class DvdSource(Source):
+    """The main title of a DVD-Video: drive, ISO or folder with VIDEO_TS/ (dvd_reader.py)."""
+
+    max_pipelines = 1
+    two_d = True
+    category, name_suffix, quality_key = "DVD", "", "dvd"
+    input_format, video_map = "mpeg", "0:i:0x1e0"
+
+    def __init__(self, path: str, audio_langs: Optional[list[str]] = None):
+        from dvd import Dvd, main_title
+        self.path = path
+        self._dvd = Dvd(path)
+        try:
+            self.title = main_title(self._dvd)
+            label = self._dvd.volume_id()
+        except OSError:
+            self._dvd.close()
+            raise
+        self._vobs = self._dvd.title_vobs(self.title.vts)
+        self._lock = threading.Lock()
+        self.name = _safe_name(label.replace("_", " ").title() if label else Path(path).stem)
+        self.duration = self.title.duration
+        self.frame_size, self.frame_rate = self.title.frame_size, self.title.frame_rate
+        w, h = self.frame_size.split("x")
+        # DVDs are often interlaced, and their pixels are not square
+        self.video_filter = f"-vf bwdif=deint=interlaced,scale={w}:{h},setsar=1"
+        st = os.stat(path)
+        self.mtime_ns = time.time_ns() if stat.S_ISBLK(st.st_mode) else st.st_mtime_ns
+        self.sidecars = [] if stat.S_ISBLK(st.st_mode) else find_sidecars(path)
+        # commentaries only if a language has nothing else
+        main = [a for a in self.title.audio if not a.commentary]
+        chosen = _pick_audio(main or self.title.audio, audio_langs)
+        self.audio_pids = [a.stream for a in chosen]
+        self.audio_langs = [a.lang for a in chosen]
+        self.audio_desc = ", ".join(f"{a.stream:#x} {a.lang} {a.codec}" for a in chosen) or "none"
+
+    def variants(self) -> list[Source]:
+        return BlurayDiscSource.variants(self)
+
+    def keyframe_at_or_before(self, seconds: float) -> float:
+        from dvd import seek
+        with self._lock:
+            return seek(self._vobs, self.title, seconds).time
+
+    def video_command(self, start: float) -> str:
+        audio = " ".join(f"--audio {p:#x}" for p in self.audio_pids)
+        # +2 ms: `start` is a VOBU time, make sure the same VOBU is found
+        return (f"{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'dvd_reader.py'))} "
+                f"{shlex.quote(self.path)} --title {self.title.number} "
+                f"--start {start + 0.002:.3f} {audio}")
+
+    def audio_input(self, start: float) -> str:
+        return ""
+
+    def audio_map(self, input_index: int = 0) -> str:
+        return BlurayDiscSource.audio_map(self, input_index)
+
+
+def open_disc(path: str, audio_langs: Optional[list[str]] = None) -> Source:
+    """A Blu-ray (3D or 2D) or a DVD, whichever the drive/ISO/folder holds."""
+    try:
+        return BlurayDiscSource(path, audio_langs)
+    except OSError as bd_error:
+        try:
+            return DvdSource(path, audio_langs)
+        except OSError:
+            raise bd_error from None
+
+
+def is_dvd(path: Path) -> bool:
+    return path.is_dir() and (path / "VIDEO_TS" / "VIDEO_TS.IFO").exists()
+
+
 def is_bluray(path: Path) -> bool:
     """A drive, an ISO or a folder with BDMV/ inside."""
     try:
@@ -372,12 +452,14 @@ def discover(paths: list[str], audio_langs: Optional[list[str]] = None) -> list[
     candidates = []
     for s in paths:
         p = Path(s).expanduser()
-        if is_bluray(p):
+        if is_bluray(p) or is_dvd(p):
             candidates.append(p)
         elif p.is_dir():
             for x in sorted(p.rglob("*")):
-                if x.suffix.lower() in (".mkv", ".iso") or (x.name == "BDMV" and x.is_dir()):
-                    candidates.append(x.parent if x.name == "BDMV" else x)
+                if x.suffix.lower() in (".mkv", ".iso"):
+                    candidates.append(x)
+                elif x.name in ("BDMV", "VIDEO_TS") and x.is_dir():
+                    candidates.append(x.parent)
         elif p.is_file():
             candidates.append(p)
         else:
@@ -385,9 +467,9 @@ def discover(paths: list[str], audio_langs: Optional[list[str]] = None) -> list[
 
     sources: list[Source] = []
     for p in candidates:
-        if is_bluray(p):
+        if is_bluray(p) or is_dvd(p):
             try:
-                sources.append(BlurayDiscSource(str(p), audio_langs))
+                sources.append(open_disc(str(p), audio_langs))
             except OSError as e:
                 log.info("skipped: %s", e)
         elif p.suffix.lower() != ".mkv":

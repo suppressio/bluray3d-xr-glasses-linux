@@ -37,7 +37,7 @@ import pyfuse3
 import trio
 
 from pipeline import ENCODERS, Quality, decode_command, encoder_args, pick_encoder, quality_for
-from sources import BlurayDiscSource, Source, discover
+from sources import Source, discover, open_disc
 
 log = logging.getLogger("bd3d_fs")
 
@@ -55,7 +55,7 @@ COMMON_ARGS = "-g 24 -c:a aac -ac 2 -b:a 192k "
 AUDIO_TRACK_MUX = 220_000            # TS bit/s per AAC 192k track, with muxer headroom
 MULTI_AUDIO_DIR = "Multi-audio"      # --audio-files both: where the all-tracks files go
 LIGHT_DIR = "Light"                  # lower-bitrate copies, for weak Wi-Fi
-KINDS = ["Blu-ray 3D", "Blu-ray"]    # one folder per kind of disc in the share
+KINDS = ["Blu-ray 3D", "Blu-ray", "DVD"]   # one folder per kind of disc in the share
 RATE_WINDOW = 20                     # seconds of continuous reading to judge the network
 
 
@@ -218,7 +218,7 @@ class VirtualFile:
         length = self.size - tail_start
         t0 = tail_start / self.bytes_per_sec
         n_audio = max(1, len(self.source.audio_langs))
-        inputs = " ".join([f"-f lavfi -i color=black:s={self.source.frame_size}:r=24000/1001"] +
+        inputs = " ".join([f"-f lavfi -i color=black:s={self.source.frame_size}:r={self.source.frame_rate}"] +
                           ["-f lavfi -i anullsrc=r=48000:cl=stereo"] * n_audio)
         maps = " ".join(["-map 0:v"] + [f"-map {i + 1}:a" for i in range(n_audio)])
         langs = " ".join(f"-metadata:s:a:{i} language={lang}"
@@ -544,7 +544,7 @@ async def watch_drive(device: str, library: Library, audio_langs):
         if present and state == "empty":
             log.info("%s: disc inserted, opening it", device)
             try:
-                source = await trio.to_thread.run_sync(BlurayDiscSource, device, audio_langs)
+                source = await trio.to_thread.run_sync(open_disc, device, audio_langs)
                 entries = library.add(source)
                 state = "loaded"
             except Exception as e:           # not 3D, cannot decrypt, not ready yet...

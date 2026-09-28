@@ -39,11 +39,13 @@ QUALITIES = {
     ("3d", "light"): Quality("light", 8_000_000, 10_000_000),
     ("2d", "normal"): Quality("normal", 12_000_000, 15_000_000),   # 1920x1080
     ("2d", "light"): Quality("light", 5_000_000, 6_500_000),
+    ("dvd", "normal"): Quality("normal", 4_000_000, 5_000_000),    # 1024x576 / 854x480
+    ("dvd", "light"): Quality("light", 1_800_000, 2_400_000),
 }
 
 
 def quality_for(source: Source, level: str) -> Quality:
-    return QUALITIES[("2d" if source.two_d else "3d", level)]
+    return QUALITIES[(source.quality_key, level)]
 
 
 def encoder_args(encoder: str, video_bitrate: int) -> str:
@@ -65,11 +67,12 @@ def pick_encoder(requested: str = "auto") -> str:
 def decode_command(source: Source, start: float, output_args: str) -> str:
     """Full shell pipeline from keyframe `start`; output_args = codecs + output of the last ffmpeg."""
     if source.two_d:
-        # 2D disc: one transport stream with video and audio, ffmpeg decodes it all
+        # 2D Blu-ray / DVD: one stream with video and audio, ffmpeg decodes it all
         return (
             f"{source.video_command(start)} "
-            f"| ffmpeg -nostdin -v warning -f mpegts -analyzeduration 2000000 "
-            f"-probesize 10000000 -i - -map 0:i:0x1011 {source.audio_map(0)} {output_args}"
+            f"| ffmpeg -nostdin -v warning -f {source.input_format} -analyzeduration 2000000 "
+            f"-probesize 10000000 -i - -map {source.video_map} {source.audio_map(0)} "
+            f"{source.video_filter} {output_args}"
         )
     return (
         f"{source.video_command(start)} "
