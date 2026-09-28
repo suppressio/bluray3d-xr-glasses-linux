@@ -27,6 +27,7 @@ import errno
 import fcntl
 import logging
 import os
+import shlex
 import signal
 import stat
 import subprocess
@@ -62,6 +63,16 @@ RATE_WINDOW = 20                     # seconds of continuous reading to judge th
 SIBLING_IDLE = 3                     # a file of the same disc unread this long is left behind
 STALE_KEEP = 15                      # seconds a replaced pipeline's data still answers reads
 BOTH_READ = 1.0                      # reads this close in time at two positions = one is stale
+LOADER_AHEAD = 8                     # seconds of loading animation prepared ahead of the player
+# the animation is handed out at the pace of playback, plus a small lead: a player
+# filling its buffer with it would have to play all of it before the movie shows
+LOADER_LEAD = 2.0
+LOADER_RATE = 1.0
+TRACE_READS = 20                     # seconds of reads logged after a jump (--debug)
+# a player that stopped reading this long ago is paused (its buffer is full and
+# it does not play it): a jump then shows it one still frame, which must be the
+# movie, not the animation
+PAUSED_AFTER = 8.0
 
 
 # files served from the same optical disc (all languages, Light, Multi-audio):
@@ -79,7 +90,8 @@ def null_padding(offset: int, size: int) -> bytes:
 class Generator:
     """A running pipeline producing the virtual file from offset `base` on."""
 
-    def __init__(self, vf: "VirtualFile", seconds: float):
+    def __init__(self, vf: "VirtualFile", seconds: float, loader: bool = False,
+                 with_loader: bool = False):
         source = vf.source
         start = source.keyframe_at_or_before(seconds)
         # base aligned to TS packets, so bytes match the global grid
@@ -91,14 +103,30 @@ class Generator:
         self.stopped = False
         self.last_used = time.monotonic()
         self.cond = threading.Condition()
+        self.ahead_max = AHEAD_MAX
+        self.started = time.monotonic()
+        # the loading animation covering this pipeline's start, and the offset
+        # (a keyframe of the movie) where the movie takes over from it
+        self.loader: Optional[Generator] = None
+        self.switch_at: Optional[int] = None
+        self.jump_at: Optional[int] = None       # first offset the player read
 
-        cmd = decode_command(
-            source, start,
-            f"{vf.encode_args} {COMMON_ARGS}"
-            f"-output_ts_offset {start:.3f} -f mpegts -muxrate {vf.muxrate} -",
-        )
-        log.info("%s: pipeline from %.1fs (requested %.1fs, offset %d)",
-                 vf.path, start, seconds, self.base)
+        if loader:
+            # same start, so the same timestamps and bytes <-> time mapping as the movie
+            # frequent keyframes: the player can start it anywhere
+            cmd = vf.filler_command(f"-stream_loop -1 -i {shlex.quote(vf.loader)}", start,
+                                    extra="-g 6 ")
+            self.ahead_max = LOADER_AHEAD * vf.bytes_per_sec
+        else:
+            cmd = decode_command(
+                source, start,
+                f"{vf.encode_args} {COMMON_ARGS}"
+                f"-output_ts_offset {start:.3f} -f mpegts -muxrate {vf.muxrate} -",
+            )
+            log.info("%s: pipeline from %.1fs (requested %.1fs, offset %d)",
+                     vf.path, start, seconds, self.base)
+            if with_loader:
+                self.loader = Generator(vf, seconds, loader=True)
         self.proc = subprocess.Popen(
             ["bash", "-o", "pipefail", "-c", cmd],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -116,7 +144,7 @@ class Generator:
             with self.cond:
                 # backpressure: when too far ahead we stop reading, the pipe
                 # fills up and the pipeline pauses until the player catches up
-                while not self.stopped and self.end - self.reader_pos > AHEAD_MAX:
+                while not self.stopped and self.end - self.reader_pos > self.ahead_max:
                     self.cond.wait()
                 if self.stopped:
                     return
@@ -136,6 +164,19 @@ class Generator:
     def covers(self, offset: int) -> bool:
         with self.cond:
             return self.buf_start <= offset <= self.end + JUMP_TOLERANCE
+
+    def keyframe_from(self, offset: int) -> Optional[int]:
+        """Offset of the first video keyframe packet at or after `offset` already
+        in the buffer: the muxer flags it (random access indicator)."""
+        with self.cond:
+            lo = max(offset, self.buf_start) - self.buf_start
+            lo += (-(self.buf_start + lo)) % TS_PACKET        # onto the 188-byte grid
+            buf = self.buf
+            for i in range(lo, len(buf) - TS_PACKET + 1, TS_PACKET):
+                if (buf[i] == 0x47 and buf[i + 1] & 0x5F == 0x41 and buf[i + 2] == 0x00  # PID 0x100, unit start
+                        and buf[i + 3] & 0x20 and buf[i + 4] and buf[i + 5] & 0x40):   # adaptation field: RAI
+                    return self.buf_start + i
+        return None
 
     def holds(self, offset: int, size: int) -> bool:
         """The bytes are already in the buffer (also after the pipeline stopped)."""
@@ -162,6 +203,9 @@ class Generator:
         return data
 
     def stop(self):
+        loader, self.loader = self.loader, None
+        if loader is not None:
+            loader.stop()
         with self.cond:
             self.stopped = True
             self.cond.notify_all()
@@ -175,7 +219,8 @@ class Generator:
 
 class VirtualFile:
     def __init__(self, inode: int, source: Source, encoder: str, quality: Quality,
-                 log_path: str, parent: int = pyfuse3.ROOT_INODE, path: str = ""):
+                 log_path: str, parent: int = pyfuse3.ROOT_INODE, path: str = "",
+                 loader: Optional[str] = None):
         self.inode = inode
         self.parent = parent
         self.source = source
@@ -187,6 +232,7 @@ class VirtualFile:
         self.bytes_per_sec = self.muxrate // 8
         self.encode_args = encoder_args(encoder, quality.video)
         self.log_path = log_path
+        self.loader = loader
         # the language goes first: players cut long names, and it must stay visible
         self.name = f"{source.label + ' - ' if source.label else ''}{source.name}{source.name_suffix}.ts"
         self.path = path + self.name       # for the log, e.g. "Blu-ray/Light/ITA - x.ts"
@@ -207,6 +253,7 @@ class VirtualFile:
         self.head: Optional[bytes] = None
         self.tail: Optional[bytes] = None
         self.last_read = 0.0
+        self.prev_read = 0.0                     # the read before the current one
         if source.max_pipelines == 1:
             _disc_files.setdefault(source.path, weakref.WeakSet()).add(self)
         # network diagnostics: the pace at which the player pulls data
@@ -269,9 +316,35 @@ class VirtualFile:
                 old.stop()
                 self.stale, self.stale_until = old, time.monotonic() + STALE_KEEP
                 self.stale_logged = False
-            g = Generator(self, offset / self.bytes_per_sec)
+            quiet = time.monotonic() - self.prev_read
+            log.debug("%s: jump, no reads in the %.1fs before", self.path, quiet)
+            g = Generator(self, offset / self.bytes_per_sec,
+                          with_loader=bool(self.loader) and quiet < PAUSED_AFTER)
             self.gens.append(g)
             return g
+
+    def filler_command(self, video_input: str, t0: float, duration: Optional[float] = None,
+                       extra: str = "") -> str:
+        """ffmpeg writing a stand-in for the movie from second t0: `video_input`
+        (black, or the loading animation fitted to the picture, in both eyes for
+        3D) and silence, with the same streams, timestamps and bitrate the movie
+        has there, so the player can go on from one to the other."""
+        src = self.source
+        w, h = (int(v) for v in src.frame_size.split("x"))
+        eye = w // 2 if not src.two_d else w
+        n_audio = max(1, len(src.audio_langs))
+        inputs = " ".join([video_input] + ["-f lavfi -i anullsrc=r=48000:cl=stereo"] * n_audio)
+        fit = (f"[0:v]fps={src.frame_rate},scale={eye}:{h}:force_original_aspect_ratio=decrease,"
+               f"pad={eye}:{h}:-1:-1,setsar=1")
+        graph = f"{fit},split[a][b];[a][b]hstack[v]" if eye != w else f"{fit}[v]"
+        maps = " ".join([f"-filter_complex {shlex.quote(graph)} -map '[v]'"] +
+                        [f"-map {i + 1}:a" for i in range(n_audio)])
+        langs = " ".join(f"-metadata:s:a:{i} language={lang}"
+                         for i, lang in enumerate(src.audio_langs))
+        limit = f"-t {duration:.1f} " if duration else ""
+        return (f"ffmpeg -nostdin -v error {inputs} {maps} {langs} {limit}"
+                f"{self.encode_args} {COMMON_ARGS}{extra}"
+                f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {self.muxrate} -")
 
     def _synthetic_tail(self) -> bytes:
         """The last EDGE_CACHE bytes, made of black video and silence with the same
@@ -281,15 +354,8 @@ class VirtualFile:
         tail_start = self.tail_start
         length = self.size - tail_start
         t0 = tail_start / self.bytes_per_sec
-        n_audio = max(1, len(self.source.audio_langs))
-        inputs = " ".join([f"-f lavfi -i color=black:s={self.source.frame_size}:r={self.source.frame_rate}"] +
-                          ["-f lavfi -i anullsrc=r=48000:cl=stereo"] * n_audio)
-        maps = " ".join(["-map 0:v"] + [f"-map {i + 1}:a" for i in range(n_audio)])
-        langs = " ".join(f"-metadata:s:a:{i} language={lang}"
-                         for i, lang in enumerate(self.source.audio_langs))
-        cmd = (f"ffmpeg -nostdin -v error {inputs} {maps} {langs} -t {length / self.bytes_per_sec + 3:.1f} "
-               f"{self.encode_args} {COMMON_ARGS}"
-               f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {self.muxrate} -")
+        black = f"-f lavfi -i color=black:s={self.source.frame_size}:r={self.source.frame_rate}"
+        cmd = self.filler_command(black, t0, length / self.bytes_per_sec + 3)
         out = subprocess.run(["bash", "-c", cmd], capture_output=True).stdout[:length]
         return out + null_padding(tail_start + len(out), length - len(out))
 
@@ -322,7 +388,11 @@ class VirtualFile:
         if size <= 0:
             return b""
         self._track_rate(offset, size)
-        self.last_read = time.monotonic()
+        self.prev_read, self.last_read = self.last_read, time.monotonic()
+        if self.gens and time.monotonic() - self.gens[-1].started < TRACE_READS:
+            g = self.gens[-1]
+            log.debug("  read t+%.2fs at %.2fs (+%d KB)", time.monotonic() - g.started,
+                     offset / self.bytes_per_sec, size // 1024)
 
         # players often re-read the start (headers) and the end (duration):
         # serve them from cache instead of restarting a pipeline every time
@@ -342,6 +412,10 @@ class VirtualFile:
             gen = self._generator_for(offset, size)
             if gen is None:
                 return null_padding(offset, size)
+            if gen.loader is not None:
+                data = self._through_loader(gen, offset, size)
+                if data is not None:
+                    return data
             data = gen.read(offset, size)
             if data is None:          # that pipeline was replaced meanwhile: try again
                 continue
@@ -351,6 +425,41 @@ class VirtualFile:
                         self.head = bytes(gen.buf[:EDGE_CACHE])
             return data
         raise pyfuse3.FUSEError(errno.EIO)
+
+    def _through_loader(self, gen: Generator, offset: int, size: int) -> Optional[bytes]:
+        """While the movie is not ready, the loading animation; from the movie's
+        first keyframe at or after the player's position on, None (the movie)."""
+        loader = gen.loader
+        if loader is None:
+            return None
+        if gen.jump_at is None:
+            gen.jump_at = offset
+        while gen.switch_at is None:
+            gen.switch_at = gen.keyframe_from(offset)
+            if gen.switch_at is not None:
+                log.info("%s: movie ready, %.1fs after the jump (%.1fs of animation)",
+                         self.path, time.monotonic() - gen.started,
+                         (gen.switch_at - gen.jump_at) / self.bytes_per_sec)
+                break
+            allowed = gen.jump_at + (LOADER_LEAD + LOADER_RATE * (time.monotonic() - gen.started)) \
+                * self.bytes_per_sec
+            if offset + size <= allowed or gen.loader is None:
+                break
+            time.sleep(0.05)
+        if gen.switch_at is not None and offset >= gen.switch_at:
+            gen.loader = None
+            loader.stop()
+            return None
+        end = offset + size if gen.switch_at is None else min(offset + size, gen.switch_at)
+        data = loader.read(offset, end - offset)
+        if data is None:                          # stopped meanwhile
+            return None
+        if end < offset + size:
+            rest = gen.read(end, offset + size - end)
+            if rest is None:
+                return None
+            data += rest
+        return data
 
     def stop_if_idle(self):
         with self.lock:
@@ -498,7 +607,9 @@ class Bd3dFS(pyfuse3.Operations):
             raise pyfuse3.FUSEError(errno.ENOENT)
         if flags & (os.O_WRONLY | os.O_RDWR):
             raise pyfuse3.FUSEError(errno.EROFS)
-        return pyfuse3.FileInfo(fh=inode)
+        # no page cache for the movies: the same bytes can differ between two
+        # reads (the loading animation, or the movie once it is ready)
+        return pyfuse3.FileInfo(fh=inode, direct_io=isinstance(e, VirtualFile))
 
     async def statfs(self, ctx):
         # SMB clients ask for the share's free space: answer "full"
@@ -524,8 +635,9 @@ class Library:
     bitrate in Light/, plus the external subtitles next to each video."""
 
     def __init__(self, fs: Bd3dFS, encoder: str, log_file: str, audio_files: str, light: bool,
-                 sub_langs: Optional[list[str]] = None):
+                 sub_langs: Optional[list[str]] = None, loader: Optional[str] = None):
         self.fs, self.encoder, self.log_file = fs, encoder, log_file
+        self.loader = loader
         self.audio_files, self.light = audio_files, light
         self.sub_langs = sub_langs          # None: every language; []: no subtitle versions
 
@@ -538,7 +650,7 @@ class Library:
     def _add_movie(self, source: Source, parent: int, level: str) -> list:
         quality = quality_for(source, level)
         vf = VirtualFile(self.fs.new_inode(), source, self.encoder, quality, self.log_file,
-                         parent, self._path(parent))
+                         parent, self._path(parent), self.loader)
         added = [vf]
         sub = f", subtitles {source.sub.lang}" if source.sub is not None else ""
         if source.forced_only:
@@ -705,6 +817,11 @@ def main():
     parser.add_argument("--light", action=argparse.BooleanOptionalAction, default=True,
                         help=f"also offer every movie at a lower bitrate in {LIGHT_DIR}/, for "
                              "weak Wi-Fi (default: on)")
+    parser.add_argument("--debug", action="store_true",
+                        help="also log every jump and the player's reads after it")
+    parser.add_argument("--loader", default="none",
+                        help="a short video shown in a loop after a jump until the movie is "
+                             "ready, e.g. a spinner (default: none, the player waits)")
     parser.add_argument("--encoder", choices=["auto", *ENCODERS], default="auto",
                         help="auto = NVENC if available, else x264 on the CPU")
     parser.add_argument("--log-file", default="/tmp/bd3d-pipeline.log",
@@ -712,6 +829,8 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    if args.debug:
+        log.setLevel(logging.DEBUG)      # ours only: pyfuse3's debug output is huge
 
     encoder = pick_encoder(args.encoder)
     log.info("video encoder: %s", encoder)
@@ -726,7 +845,8 @@ def main():
     subs = args.subs.strip().lower()
     sub_langs = None if subs in ("", "all") else [] if subs == "none" else \
         [x.strip() for x in args.subs.split(",")]
-    library = Library(fs, encoder, args.log_file, args.audio_files, args.light, sub_langs)
+    loader = None if not args.loader or args.loader == "none" else args.loader
+    library = Library(fs, encoder, args.log_file, args.audio_files, args.light, sub_langs, loader)
     for source in discover(others, audio_langs) if others else []:
         library.add(source)
     if not fs.files() and not drives:

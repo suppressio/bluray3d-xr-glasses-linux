@@ -167,7 +167,7 @@ Disks/
 ```
 - [ ] Aprilo. Il player riconosce il formato affiancato e passa in 3D da solo. 🎉
 
-La prima apertura e ogni salto con la barra richiedono qualche secondo: è il lettore che si sposta nel nuovo punto.
+La prima apertura e ogni salto con la barra richiedono qualche secondo: è il lettore che si sposta nel nuovo punto. Con `--loader spinner.mp4` (un qualsiasi video breve in loop), un salto fatto durante la riproduzione lo mostra finché il film non è pronto, invece dell'immagine ferma; costa i primi secondi dopo il punto di arrivo. In pausa il player aspetta semplicemente il fotogramma del film.
 
 **ATTENZIONE!** In alcuni film una parte delle scene è in 2D per scelta (in _Tron: Legacy_ le parti nel "mondo reale"). Lì i due occhi ricevono la stessa immagine: non è un errore.
 
@@ -207,6 +207,7 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
 | Lingue dei sottotitoli (versioni con i sottotitoli disegnati) | `SUBS` | `--subs ita,eng`, `all` oppure `none` | `all` |
 | Profondità dei sottotitoli 3D (pixel) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | Copie a bitrate ridotto in `Light/` | `LIGHT=on\|off` | `--light` / `--no-light` | attive |
+| Animazione dopo un salto | — | `--loader video.mp4` oppure `none` | `none` |
 | Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |
 | Log della pipeline | — | `--log-file` | `/tmp/bd3d-pipeline.log` |

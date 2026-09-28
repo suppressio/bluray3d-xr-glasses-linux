@@ -167,7 +167,7 @@ Disks/
 ```
 - [ ] Open it. The player recognizes the side-by-side format and switches to 3D by itself. 🎉
 
-The first opening and every jump with the seek bar take a few seconds: that is the drive moving to the new point.
+The first opening and every jump with the seek bar take a few seconds: that is the drive moving to the new point. With `--loader spinner.mp4` (any short looping video), a jump made while playing shows it until the movie is ready, instead of a frozen picture; it costs the first seconds after the landing point. When paused, the player just waits for the movie's frame.
 
 **PLEASE NOTE!** In some movies part of the scenes are 2D on purpose (in _Tron: Legacy_, the "real world" parts). There the two eyes get the same picture: it is not a bug.
 
@@ -207,6 +207,7 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
 | Subtitle languages (versions with subtitles drawn in) | `SUBS` | `--subs ita,eng`, `all` or `none` | `all` |
 | 3D subtitle depth (pixels) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | Lower-bitrate copies in `Light/` | `LIGHT=on\|off` | `--light` / `--no-light` | on |
+| Animation after a jump | — | `--loader video.mp4` or `none` | `none` |
 | Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
 | Mount point | — | `--mount` | `/srv/bd3d` |
 | Pipeline log | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
