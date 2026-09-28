@@ -726,19 +726,22 @@ class Library:
                     changed = True
 
 
-CDROM_DRIVE_STATUS, CDS_DISC_OK = 0x5326, 4
+CDROM_DRIVE_STATUS = 0x5326
+CDS_NO_DISC, CDS_TRAY_OPEN, CDS_DISC_OK = 1, 2, 4
+GONE_AFTER = 2                       # "no disc" answers in a row before we believe it
 
 
-def _disc_present(device: str) -> bool:
-    """Ask the drive whether a disc is in, without reading it."""
+def _drive_status(device: str) -> int:
+    """Ask the drive whether a disc is in, without reading it. A busy drive can
+    answer "not ready" or fail the call: that is not an eject (0 = no idea)."""
     try:
         fd = os.open(device, os.O_RDONLY | os.O_NONBLOCK)
     except OSError:
-        return False
+        return 0
     try:
-        return fcntl.ioctl(fd, CDROM_DRIVE_STATUS, 0) == CDS_DISC_OK
+        return fcntl.ioctl(fd, CDROM_DRIVE_STATUS, 0)
     except OSError:
-        return False
+        return 0
     finally:
         os.close(fd)
 
@@ -747,9 +750,11 @@ async def watch_drive(device: str, library: Library, audio_langs):
     """A movie appears when a 3D disc is inserted and disappears when it is ejected."""
     entries: list = []
     state = "empty"                  # empty -> loaded / failed -> (eject) -> empty
+    gone = 0
     while True:
-        present = await trio.to_thread.run_sync(_disc_present, device)
-        if present and state == "empty":
+        status = await trio.to_thread.run_sync(_drive_status, device)
+        gone = gone + 1 if status in (CDS_NO_DISC, CDS_TRAY_OPEN) else 0
+        if status == CDS_DISC_OK and state == "empty":
             log.info("%s: disc inserted, opening it", device)
             try:
                 source = await trio.to_thread.run_sync(open_disc, device, audio_langs)
@@ -758,10 +763,12 @@ async def watch_drive(device: str, library: Library, audio_langs):
             except Exception as e:           # not 3D, cannot decrypt, not ready yet...
                 log.info("%s: %s", device, e)
                 state = "failed"
-        elif not present and state != "empty":
+        elif gone >= GONE_AFTER and state != "empty":
             log.info("%s: disc ejected", device)
             await trio.to_thread.run_sync(library.remove, entries)
             entries, state = [], "empty"
+        elif status not in (CDS_DISC_OK, CDS_NO_DISC, CDS_TRAY_OPEN):
+            log.debug("%s: drive status %d, ignored", device, status)
         await trio.sleep(3)
 
 
