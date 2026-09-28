@@ -58,7 +58,6 @@ AUDIO_TRACK_MUX = 220_000            # TS bit/s per AAC 192k track, with muxer h
 MULTI_AUDIO_DIR = "Multi-audio"      # --audio-files both: where the all-tracks files go
 SUB_TAG = "sub"                      # ITAsubENG: Italian audio, English subtitles
 LIGHT_DIR = "Light"                  # lower-bitrate copies, for weak Wi-Fi
-KINDS = ["Blu-ray 3D", "Blu-ray", "DVD"]   # one folder per kind of disc in the share
 RATE_WINDOW = 20                     # seconds of continuous reading to judge the network
 SIBLING_IDLE = 3                     # a file of the same disc unread this long is left behind
 
@@ -561,14 +560,13 @@ class Library:
             e.stop()
             self.fs.remove(e)
             log.info("- %s", getattr(e, "path", e.name))
-        # sub-folders left empty (Multi-audio/, Light/) go too, deepest first;
-        # the folders of each kind stay
+        # folders left empty go too, deepest first (Multi-audio/, Light/, then the
+        # folder of the kind): a folder is there only if there is a movie in it
         changed = True
         while changed:
             changed = False
             for folder in [n for n in list(self.fs.nodes.values()) if isinstance(n, Folder)]:
-                if (folder.inode != pyfuse3.ROOT_INODE and folder.parent != pyfuse3.ROOT_INODE
-                        and not self.fs.children.get(folder.inode)):
+                if folder.inode != pyfuse3.ROOT_INODE and not self.fs.children.get(folder.inode):
                     self.fs.remove(folder)
                     changed = True
 
@@ -687,8 +685,6 @@ def main():
     sub_langs = None if subs in ("", "all") else [] if subs == "none" else \
         [x.strip() for x in args.subs.split(",")]
     library = Library(fs, encoder, args.log_file, args.audio_files, args.light, sub_langs)
-    for kind in KINDS:                  # always visible, so one knows where to look
-        fs.folder(kind)
     for source in discover(others, audio_langs) if others else []:
         library.add(source)
     if not fs.files() and not drives:
