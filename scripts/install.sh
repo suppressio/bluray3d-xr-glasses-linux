@@ -38,19 +38,28 @@ sudo apt-get install -y --no-install-recommends \
     git build-essential ca-certificates
 
 step "2/5 edge264-mvc decoder (MVC 3D)"
-build=$(mktemp -d)
-git clone --quiet "$EDGE264_REPO" "$build/edge264"
-git -C "$build/edge264" checkout --quiet "$EDGE264_COMMIT"
-# plain system PATH: toolchains from Homebrew/conda & co. can break the link step
-env PATH=/usr/local/bin:/usr/bin:/bin make -C "$build/edge264" -j"$(nproc)" CC=/usr/bin/gcc >/dev/null
-sudo install -d "$PREFIX/bin" "$PREFIX/app"
-sudo install -m 755 "$build/edge264/edge264_test" "$PREFIX/bin/"
-sudo install -m 644 "$build/edge264/libedge264.so.1" "$PREFIX/bin/"
-rm -rf "$build"
+# built once per pinned commit: the one installed is recorded next to it
+if [ "$(cat "$PREFIX/bin/edge264.commit" 2>/dev/null)" = "$EDGE264_COMMIT" ] \
+        && [ -x "$PREFIX/bin/edge264_test" ]; then
+    echo "already built (${EDGE264_COMMIT:0:12})"
+else
+    build=$(mktemp -d)
+    git clone --quiet "$EDGE264_REPO" "$build/edge264"
+    git -C "$build/edge264" checkout --quiet "$EDGE264_COMMIT"
+    # plain system PATH: toolchains from Homebrew/conda & co. can break the link step
+    env PATH=/usr/local/bin:/usr/bin:/bin make -C "$build/edge264" -j"$(nproc)" CC=/usr/bin/gcc >/dev/null
+    sudo install -d "$PREFIX/bin" "$PREFIX/app"
+    sudo install -m 755 "$build/edge264/edge264_test" "$PREFIX/bin/"
+    sudo install -m 644 "$build/edge264/libedge264.so.1" "$PREFIX/bin/"
+    echo "$EDGE264_COMMIT" | sudo tee "$PREFIX/bin/edge264.commit" >/dev/null
+    rm -rf "$build"
+fi
 "$PREFIX/bin/edge264_test" -h >/dev/null && echo "edge264_test OK"
 
 step "3/5 Program"
+sudo install -d "$PREFIX/app"
 sudo install -m 644 "$REPO_DIR"/src/*.py "$PREFIX/app/"
+git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null | sudo tee "$PREFIX/app/version" >/dev/null || true
 sudo tee /usr/local/bin/bluray3d-xr >/dev/null <<WRAP
 #!/bin/sh
 PATH="$PREFIX/bin:\$PATH" exec python3 "$PREFIX/app/bd3d_fs.py" "\$@"

@@ -108,7 +108,7 @@ watching /dev/sr0: insert a 3D Blu-ray
 + ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, audio 0x1102 ita dts)
 ```
 
-Per fermarlo: `docker compose down`.
+Per fermarlo: `docker compose down`. Per aggiornare: `git pull && docker compose up -d --build`.
 
 ##### GPU NVIDIA (facoltativo)
 Installa il [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), poi avvia con entrambi i file compose:
@@ -138,7 +138,7 @@ sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
 ```console
 bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
-Si ferma con `Ctrl+C`. Per togliere tutto: `./scripts/uninstall.sh`.
+Si ferma con `Ctrl+C`. Per aggiornare all'ultima versione: `./scripts/update.sh`. Per togliere tutto: `./scripts/uninstall.sh`.
 
 Lo script è provato con lettore e disco veri in container puliti Debian 13 (trixie) e Ubuntu 24.04; il programma gira sul mio PC con Debian testing.
 
