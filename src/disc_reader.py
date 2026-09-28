@@ -107,7 +107,7 @@ class AudioTap:
     """Forwards the TS packets of PAT, PMT, the chosen audio PIDs and the anchor frame."""
 
     def __init__(self, path: str, audio_pids: set[int], start_pts: int):
-        self.pids = audio_pids | {PAT_PID}
+        self.pids = audio_pids
         self.keep = audio_pids | {BASE_PID}
         self.pmt = bytearray()           # PMT section being reassembled
         self.pmt_cc = 0
@@ -115,6 +115,9 @@ class AudioTap:
         self.anchor = "waiting"          # waiting -> copying -> done
         self.anchor_pts = None           # exact PTS of the keyframe, from its PES header
         self.started: set[int] = set()   # audio PIDs already forwarding
+        self.keeping: dict[int, bool] = {}   # per audio PID: is the current PES kept
+        self.delta = 0                   # added to audio PTS/DTS of the current clip
+        self.lo = self.hi = None         # clip in/out time (90 kHz, clip timeline)
         self.q: queue.Queue = queue.Queue(maxsize=4096)   # ~ tens of MB of audio
         self.thread = threading.Thread(target=self._writer, args=(path,), daemon=True)
         self.thread.start()
@@ -147,6 +150,24 @@ class AudioTap:
         self.pmt_cc = (self.pmt_cc + 1) & 0x0F
         return (pkt + section).ljust(188, b"\xff")
 
+    def set_clip(self, delta: int, in_pts: int, out_pts: int):
+        """Next play item: its audio keeps only [in, out) and is moved by `delta`
+        onto the timeline of the first clip, since every clip restarts its PTS."""
+        self.delta, self.lo, self.hi = delta, in_pts, out_pts
+
+    @staticmethod
+    def _shift_timestamps(p: bytearray, delta: int):
+        """Add delta to PTS (and DTS) of the PES header starting in TS packet p."""
+        hdr = 5 + p[4] if (p[3] >> 4) & 2 else 4
+        fields = [hdr + 9] + ([hdr + 14] if p[hdr + 7] & 0x40 else [])
+        for o in fields:
+            ts = (_timestamp(p[o:o + 5]) + delta) % (1 << 33)
+            p[o] = (p[o] & 0xF1) | ((ts >> 29) & 0x0E)
+            p[o + 1] = (ts >> 22) & 0xFF
+            p[o + 2] = ((ts >> 14) & 0xFE) | 1
+            p[o + 3] = (ts >> 7) & 0xFF
+            p[o + 4] = ((ts << 1) & 0xFE) | 1
+
     @staticmethod
     def _pes_pts(p) -> "int | None":
         """PTS in the PES header that starts in this TS packet, if any."""
@@ -174,19 +195,28 @@ class AudioTap:
                         self.anchor_pts = pts
                 if self.anchor == "copying":
                     out += p
-            elif pid in self.pids:
-                if pid not in (PAT_PID, PMT_PID) and pid not in self.started:
-                    # Video travels ahead of its presentation time in a TS, audio
-                    # almost on time: audio right after the keyframe in the stream
-                    # still has earlier PTS. Start each track at its first PES
-                    # presented at or after the keyframe.
-                    if not pusi or self.anchor_pts is None:
-                        continue
-                    pts = self._pes_pts(p)
-                    if pts is None or (pts - self.anchor_pts) % (1 << 33) >= 1 << 32:
-                        continue
-                    self.started.add(pid)
+            elif pid in (PAT_PID,):
                 out += p
+            elif pid in self.pids:
+                if pusi:
+                    pts = self._pes_pts(p)
+                    keep = pts is not None and self.anchor_pts is not None
+                    if keep and pid not in self.started:
+                        # Video travels ahead of its presentation time in a TS,
+                        # audio almost on time: audio right after the keyframe in
+                        # the stream still has earlier PTS. Start each track at
+                        # its first PES presented at or after the keyframe.
+                        keep = (pts - self.anchor_pts) % (1 << 33) < 1 << 32
+                    if keep and self.lo is not None:
+                        keep = self.lo <= pts < self.hi
+                    self.keeping[pid] = keep
+                    if keep:
+                        self.started.add(pid)
+                        if self.delta:
+                            p = bytearray(p)
+                            self._shift_timestamps(p, self.delta)
+                if self.keeping.get(pid):
+                    out += p
         if out:
             self.q.put(bytes(out))
 
@@ -199,7 +229,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("disc", help="/dev/sr0, an .iso or a folder containing BDMV/")
     ap.add_argument("--playlist", required=True, help="e.g. 00070")
-    ap.add_argument("--start", type=float, default=0.0, help="seconds from the title start")
+    ap.add_argument("--start", type=float, default=0.0,
+                    help="seconds from the start of the title (all its clips)")
     ap.add_argument("--audio-pid", action="append", default=[],
                     help="audio PID to forward (repeatable), e.g. 0x1102")
     ap.add_argument("--audio-out", help="file or FIFO for the audio TS")
@@ -208,28 +239,50 @@ def main():
     out = sys.stdout.buffer
     with Disc(args.disc) as disc:
         items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{args.playlist}.mpls"))
-        item = items[0]        # TODO phase 4: titles made of several play items
-        base = parse_clpi(disc.read_file(f"BDMV/CLIPINF/{item.clip}.clpi"))
-        dep = parse_clpi(disc.read_file(f"BDMV/CLIPINF/{item.dep_clip}.clpi"), pid=0x1012)
-        sp = ssif_seek(item, base, dep, args.start)
-        print(f"disc_reader: keyframe {sp.time:.3f}s, ssif offset {sp.ssif_offset}",
-              file=sys.stderr)
+        starts = [0.0]
+        for it in items[:-1]:
+            starts.append(starts[-1] + it.duration)
+        first = max(i for i, t in enumerate(starts) if t <= args.start)
 
-        demux = SsifDemuxer(start_pts=sp.pts90)
         video = VideoWriter(out)
         tap = None
-        if args.audio_out:
-            tap = AudioTap(args.audio_out, {int(p, 0) for p in args.audio_pid}, sp.pts90)
         try:
-            with disc.open(f"BDMV/STREAM/SSIF/{item.clip}.ssif") as f:
-                f.seek(sp.ssif_offset)
-                while (unit := f.read_unit()) and not video.broken:
-                    if tap:
-                        tap.feed(unit)
-                    for au in demux.feed(unit):
+            for i in range(first, len(items)):
+                item = items[i]
+                base = parse_clpi(disc.read_file(f"BDMV/CLIPINF/{item.clip}.clpi"))
+                dep = parse_clpi(disc.read_file(f"BDMV/CLIPINF/{item.dep_clip}.clpi"),
+                                 pid=0x1012)
+                if i == first:
+                    sp = ssif_seek(item, base, dep, args.start - starts[i])
+                    offset, demux = sp.ssif_offset, SsifDemuxer(start_pts=sp.pts90)
+                    print(f"disc_reader: clip {item.clip}, keyframe {starts[i] + sp.time:.3f}s,"
+                          f" ssif offset {offset}", file=sys.stderr)
+                    if args.audio_out:
+                        tap = AudioTap(args.audio_out,
+                                       {int(p, 0) for p in args.audio_pid}, sp.pts90)
+                else:
+                    # the next clip continues from its first byte; each clip
+                    # restarts its timestamps, so its audio is moved onto the
+                    # timeline of the first one (the video is just a sequence
+                    # of frames, numbered by the encoder)
+                    offset, demux = 0, SsifDemuxer()
+                    print(f"disc_reader: clip {item.clip} from {starts[i]:.3f}s", file=sys.stderr)
+                if tap:
+                    ref = items[first]
+                    delta = round((starts[i] - starts[first]) * 90000) \
+                        - 2 * (item.in_time - ref.in_time)
+                    tap.set_clip(delta, 2 * item.in_time, 2 * item.out_time)
+                with disc.open(f"BDMV/STREAM/SSIF/{item.clip}.ssif") as f:
+                    f.seek(offset)
+                    while (unit := f.read_unit()) and not video.broken:
+                        if tap:
+                            tap.feed(unit)
+                        for au in demux.feed(unit):
+                            video.write(au)
+                    for au in demux.flush():
                         video.write(au)
-                for au in demux.flush():
-                    video.write(au)
+                if video.broken:
+                    break
         finally:
             video.close()
             if tap:

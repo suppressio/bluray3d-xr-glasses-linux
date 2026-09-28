@@ -31,6 +31,11 @@ BASE_PID = 0x1011
 DEP_PID = 0x1012
 SOURCE_PACKET = 192          # 4-byte TP_extra_header + 188-byte TS packet
 NAL_BD_DELIMITER = 24
+# End of sequence / end of stream / filler data. Blu-ray clips end with filler and
+# an end-of-sequence NAL in both views; edge264 treats everything after an end of
+# sequence as corrupt, so the next clip of the title would not decode. MakeMKV
+# drops them too.
+NAL_DROP = {10, 11, 12}
 
 
 def _timestamp(b: bytes) -> int:
@@ -48,6 +53,20 @@ def _pes_payload(pes: bytes) -> Optional[tuple[int, int, bytes]]:
     pts = _timestamp(pes[9:14])
     dts = _timestamp(pes[14:19]) if flags & 0x40 else pts
     return dts, pts, pes[9 + header_len:]
+
+
+def _strip_nals(payload: bytes, drop: set[int]) -> bytes:
+    """Remove NAL units of the given types (fast path: nothing to remove)."""
+    if not any(b"\x00\x00\x01" + bytes([t]) in payload for t in drop):
+        return payload
+    starts = [i for i in range(len(payload) - 3)
+              if payload[i] == 0 and payload[i + 1] == 0 and payload[i + 2] == 1]
+    out = bytearray(payload[:starts[0]] if starts else payload)
+    for n, i in enumerate(starts):
+        end = starts[n + 1] if n + 1 < len(starts) else len(payload)
+        if payload[i + 3] & 0x1F not in drop:
+            out += payload[i:end]
+    return bytes(out)
 
 
 def _drop_bd_delimiter(payload: bytes) -> bytes:
@@ -82,6 +101,7 @@ class SsifDemuxer:
         if parsed is None:
             return
         ts, pts, payload = parsed
+        payload = _strip_nals(payload, NAL_DROP)
         if pid == BASE_PID:
             if self._start is not None:
                 if pts & ~0x1FF != self._start:
