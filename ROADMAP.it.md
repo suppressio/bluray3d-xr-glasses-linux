@@ -84,11 +84,21 @@ In ordine dalla più economica alla più costosa, per potersi fermare presto.
   SBS decodificati su 3730 identici bit per bit** a quelli della strada MKV
   (framemd5 dell'uscita di edge264, primi 2,6 minuti). Velocità del demux:
   circa 390 MB/s in Python, contro i circa 6 MB/s necessari.
-- [ ] **Fase 2 — Seek.** Tradurre un tempo in una posizione nel file SSIF: EP_map
-  nel CLPI (tempo → pacchetto) più la disposizione degli extent SS, oppure una
-  ricerca binaria sui PTS. Misurare quanto è preciso. Mantenere la lezione
-  imparata con l'MKV: video e audio devono partire esattamente dallo stesso
-  keyframe.
+- [x] **Fase 2 — Seek.** `src/bdmv.py` legge la playlist (MPLS, con il sotto
+  percorso 3D che indica le clip dipendenti) e le informazioni delle clip
+  (CLPI: EP_map e punti di inizio degli extent). `ssif_seek()` traduce un
+  tempo nell'entry point (fotogramma chiave) della vista base, poi nell'extent
+  che lo contiene. La lettura parte dall'extent dipendente che lo precede,
+  perché il file .ssif alterna D0 B0 D1 B1 …, e il demuxer scarta i
+  fotogrammi prima di quello chiave. `src/bluray.py` è un piccolo binding
+  ctypes a libbluray (apertura, lettura decifrata, salto a unità di 6144 byte).
+  Risultato su Tron: Legacy 3D a 5, 30 e 50 minuti: stesso fotogramma chiave
+  della strada MKV (entro 3 ms, la precisione dell'EP_map), **tutti i
+  fotogrammi SBS decodificati identici** a quelli dell'MKV partito da lì.
+  Salto + lettura di 48 MB dal lettore: 2-3,5 s. Entry point in media ogni
+  0,9 s (al massimo ogni 2 s).
+  Nota per la Fase 3: allineare l'audio sul PTS reale del primo fotogramma,
+  non sul tempo dell'EP_map (arrotondato a 5,7 ms).
 - [ ] **Fase 3 — Audio.** Prendere il PID audio scelto dallo stesso flusso
   decifrato e passarlo all'encoder. Vuol dire estendere `Source.audio_input`
   oltre "un file che ffmpeg sa aprire" (per esempio una FIFO alimentata dal

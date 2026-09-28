@@ -38,15 +38,16 @@ def _timestamp(b: bytes) -> int:
     return (((b[0] >> 1) & 7) << 30) | (b[1] << 22) | ((b[2] >> 1) << 15) | (b[3] << 7) | (b[4] >> 1)
 
 
-def _pes_payload(pes: bytes) -> Optional[tuple[int, bytes]]:
-    """(DTS, or PTS when there is no DTS; elementary stream payload) of a complete PES packet."""
+def _pes_payload(pes: bytes) -> Optional[tuple[int, int, bytes]]:
+    """(DTS or PTS when there is no DTS, PTS, elementary stream payload) of a complete PES."""
     if len(pes) < 9 or pes[:3] != b"\x00\x00\x01":
         return None
     flags, header_len = pes[7], pes[8]
     if not flags & 0x80:
         return None
-    ts = _timestamp(pes[14:19]) if flags & 0x40 else _timestamp(pes[9:14])
-    return ts, pes[9 + header_len:]
+    pts = _timestamp(pes[9:14])
+    dts = _timestamp(pes[14:19]) if flags & 0x40 else pts
+    return dts, pts, pes[9 + header_len:]
 
 
 def _drop_bd_delimiter(payload: bytes) -> bytes:
@@ -63,10 +64,13 @@ def _drop_bd_delimiter(payload: bytes) -> bytes:
 
 
 class SsifDemuxer:
-    def __init__(self):
+    def __init__(self, start_pts: Optional[int] = None):
+        """start_pts: 90 kHz PTS of the keyframe to start from after a jump into the
+        stream (EP_map precision: low 9 bits ignored). Frames before it are dropped."""
+        self._start = None if start_pts is None else start_pts & ~0x1FF
         self._pes = {BASE_PID: bytearray(), DEP_PID: bytearray()}
         self._started = {BASE_PID: False, DEP_PID: False}
-        self._base: deque[tuple[int, bytes]] = deque()
+        self._base: deque[tuple[int, int, bytes]] = deque()
         self._dep: dict[int, bytes] = {}
         self._tail = b""
         self.frames = 0
@@ -77,9 +81,13 @@ class SsifDemuxer:
         self._pes[pid] = bytearray()
         if parsed is None:
             return
-        ts, payload = parsed
+        ts, pts, payload = parsed
         if pid == BASE_PID:
-            self._base.append((ts, payload))
+            if self._start is not None:
+                if pts & ~0x1FF != self._start:
+                    return          # still before the keyframe we jumped to
+                self._start = None
+            self._base.append((ts, pts, payload))
         else:
             self._dep[ts] = _drop_bd_delimiter(payload)
             if len(self._dep) > 1024:  # orphans (e.g. right after a jump): forget the oldest
@@ -87,7 +95,7 @@ class SsifDemuxer:
 
     def _emit_ready(self) -> Iterator[bytes]:
         while self._base:
-            ts, payload = self._base[0]
+            ts, _, payload = self._base[0]
             dep = self._dep.pop(ts, None)
             if dep is None:
                 # the dependent view of this frame has not arrived yet; bound the
