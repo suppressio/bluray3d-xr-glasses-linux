@@ -163,8 +163,13 @@ class Generator:
                 self.cond.notify_all()
 
     def covers(self, offset: int) -> bool:
+        # while the loading animation plays, the player reads ahead of what the
+        # movie has made so far: those reads are this pipeline's too, or a movie
+        # slow to start would look like a jump and be restarted over and over
+        loader = self.loader
+        loader_end = loader.end if loader is not None else 0
         with self.cond:
-            return self.buf_start <= offset <= self.end + JUMP_TOLERANCE
+            return self.buf_start <= offset <= max(self.end, loader_end) + JUMP_TOLERANCE
 
     def keyframe_from(self, offset: int) -> Optional[int]:
         """Offset of the first video keyframe packet at or after `offset` already

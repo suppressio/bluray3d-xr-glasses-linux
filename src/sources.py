@@ -283,7 +283,7 @@ def _open_disc(path: str):
 def _safe_name(name: str) -> str:
     """Disc title -> file name: drop the 'Blu-ray' suffix, no characters SMB forbids."""
     name = re.sub(r"\s*[-–]\s*Blu-ray.*$", "", name, flags=re.I).strip()
-    name = re.sub(r'\s*[:/\\*?"<>|]\s*', " - ", name)
+    name = re.sub(r'(\s*[:/\\*?"<>|])+\s*', " - ", name)
     return re.sub(r"\s+", " ", name).strip(" .-") or "Blu-ray"
 
 

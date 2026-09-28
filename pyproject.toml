@@ -1,0 +1,13 @@
+[project]
+name = "bluray3d-xr"
+version = "0"
+description = "3D Blu-ray, Blu-ray and DVD as virtual constant-bitrate .ts files on a network share"
+requires-python = ">=3.11"
+license = "MIT"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+# the integration tests need a disc in the drive (or a movie file): see tests/integration
+addopts = "-m 'not integration' --strict-markers"
+markers = ["integration: needs a real disc, drive or movie file (run with -m integration)"]
