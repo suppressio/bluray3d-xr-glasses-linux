@@ -150,7 +150,7 @@ class VirtualFile:
         self.source = source
         self.encode_args = encode_args
         self.log_path = log_path
-        self.name = f"{source.name} - 3D SBS.ts"
+        self.name = f"{source.name} - 3D SBS{' - ' + source.label if source.label else ''}.ts"
         self.size = int(source.duration * BYTES_PER_SEC) // TS_PACKET * TS_PACKET
         self.mtime_ns = source.mtime_ns
         self.lock = threading.Lock()
@@ -334,8 +334,8 @@ def main():
                         help="3D Blu-ray MKV files, or folders to scan recursively")
     parser.add_argument("--mount", default="/srv/bd3d", help="mount point (default /srv/bd3d)")
     parser.add_argument("--audio-lang",
-                        help="audio track languages to include, in order, e.g. ita,eng "
-                             "(the player lets you switch; default: first audio track)")
+                        help="audio languages, e.g. ita,eng: one file per language "
+                             "(default: first audio track)")
     parser.add_argument("--encoder", choices=["auto", *ENCODERS], default="auto",
                         help="auto = NVENC if available, else x264 on the CPU")
     parser.add_argument("--log-file", default="/tmp/bd3d-pipeline.log",
@@ -348,7 +348,7 @@ def main():
     log.info("video encoder: %s", encoder)
     audio_langs = [x.strip() for x in args.audio_lang.split(",")] if args.audio_lang else None
     files = []
-    for source in discover(args.sources, audio_langs):
+    for source in (v for src in discover(args.sources, audio_langs) for v in src.variants()):
         vf = VirtualFile(pyfuse3.ROOT_INODE + 1 + len(files), source, ENCODERS[encoder],
                          args.log_file)
         files.append(vf)

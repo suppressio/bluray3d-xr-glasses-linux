@@ -17,6 +17,7 @@ Planned (see ROADMAP.md):
   BlurayDisc  the disc itself / an ISO / a BDMV folder, read and decrypted on
               the fly, with no rip at all.
 """
+import copy
 import json
 import logging
 import os
@@ -44,6 +45,14 @@ class Source(ABC):
     audio_desc: str      # for the log
     sidecars: list       # (suffix, path) of external subtitle files, e.g. (".ita.srt", "/x/movie.ita.srt")
     mtime_ns: int        # timestamp shown for the virtual file
+
+    label: str = ""      # added to the file name of a variant, e.g. "ITA"
+
+    def variants(self) -> list["Source"]:
+        """One source per audio language: players such as the VITURE 3D Player
+        have no audio track menu and pick a track on their own, so each language
+        becomes its own file. A single language keeps the plain name."""
+        return [self]
 
     @abstractmethod
     def keyframe_at_or_before(self, seconds: float) -> float:
@@ -87,6 +96,7 @@ class MkvSource(Source):
         if not chosen and audio:
             chosen = [audio[0]]
         self.audio_indexes = [s["index"] for s in chosen]
+        self.audio_langs = [s.get("tags", {}).get("language", "und") for s in chosen]
         self.audio_desc = ", ".join(
             f"#{s['index']} {s.get('tags', {}).get('language', '?')} {s.get('codec_name')}"
             for s in chosen) or "none"
@@ -137,6 +147,18 @@ class MkvSource(Source):
 
     def audio_map(self) -> str:
         return " ".join(f"-map 1:{i}" for i in self.audio_indexes)
+
+    def variants(self) -> list[Source]:
+        if len(self.audio_indexes) < 2:
+            return [self]
+        out = []
+        for index, lang in zip(self.audio_indexes, self.audio_langs):
+            v = copy.copy(self)
+            v.audio_indexes, v.audio_langs = [index], [lang]
+            v.audio_desc = next(d for d in self.audio_desc.split(", ") if d.startswith(f"#{index} "))
+            v.label = lang.upper()
+            out.append(v)
+        return out
 
 
 SUBTITLE_EXTENSIONS = (".srt", ".ass", ".ssa", ".sup", ".sub", ".idx", ".vtt")
