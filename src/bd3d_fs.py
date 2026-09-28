@@ -448,6 +448,12 @@ class Library:
             e.stop()
             self.fs.remove(e)
             log.info("- %s", e.name)
+        # a sub-folder left empty (e.g. Multi-audio/ after the last disc) goes too
+        folders = {e.parent for e in entries} - {pyfuse3.ROOT_INODE}
+        for inode in folders:
+            folder = self.fs.nodes.get(inode)
+            if folder is not None and not self.fs.children.get(inode):
+                self.fs.remove(folder)
 
 
 CDROM_DRIVE_STATUS, CDS_DISC_OK = 0x5326, 4
