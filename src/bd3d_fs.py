@@ -58,6 +58,7 @@ MULTI_AUDIO_DIR = "Multi-audio"      # --audio-files both: where the all-tracks 
 LIGHT_DIR = "Light"                  # lower-bitrate copies, for weak Wi-Fi
 KINDS = ["Blu-ray 3D", "Blu-ray", "DVD"]   # one folder per kind of disc in the share
 RATE_WINDOW = 20                     # seconds of continuous reading to judge the network
+SIBLING_IDLE = 3                     # a file of the same disc unread this long is left behind
 
 
 # files served from the same optical disc (all languages, Light, Multi-audio):
@@ -210,9 +211,12 @@ class VirtualFile:
                     g.last_used = time.monotonic()
                     return g
         # a new pipeline: on an optical disc, first stop the other files' ones
-        # (switching from the Italian to the English file, for instance)
+        # that nobody reads any more (switching from the Italian to the English
+        # file, for instance). Files read right now stay: two people may be
+        # watching the same disc in two languages.
+        now = time.monotonic()
         for other in list(_disc_files.get(self.source.path, ())):
-            if other is not self and other.gens:
+            if other is not self and other.gens and now - other.last_read > SIBLING_IDLE:
                 log.info("%s: stopping its pipeline, %s is reading the same disc",
                          other.path, self.path)
                 other.stop()
