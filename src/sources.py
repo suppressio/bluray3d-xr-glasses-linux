@@ -285,7 +285,9 @@ class BlurayDiscSource(Source):
         i = max(n for n, t in enumerate(self.starts) if t <= max(0.0, seconds))
         item = self.items[i]
         base, dep = self.clips[item.clip]
-        return self.starts[i] + ssif_seek(item, base, dep, seconds - self.starts[i]).time
+        # the first keyframe of a clip can sit a few ms before the play item's
+        # in time: never report a start before the clip itself (or before 0)
+        return self.starts[i] + max(0.0, ssif_seek(item, base, dep, seconds - self.starts[i]).time)
 
     def video_command(self, start: float) -> str:
         # one FIFO per pipeline start: disc_reader writes the audio TS into it

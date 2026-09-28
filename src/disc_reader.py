@@ -242,7 +242,7 @@ def main():
         starts = [0.0]
         for it in items[:-1]:
             starts.append(starts[-1] + it.duration)
-        first = max(i for i, t in enumerate(starts) if t <= args.start)
+        first = max(i for i, t in enumerate(starts) if t <= max(0.0, args.start))
 
         video = VideoWriter(out)
         tap = None
