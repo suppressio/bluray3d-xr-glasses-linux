@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
     BD_FILE_H *fp = bd_open_file_dec(bd, path);
     if (!fp) { printf("cannot open %s decrypted\n", path); return 1; }
     FILE *out = fopen(argv[2], "wb");
-    uint8_t buf[6144 * 32];
+    uint8_t buf[6144];   /* the decrypting reader takes exactly one AACS unit per call */
     int64_t total = 0;
     while (total < mb * 1024 * 1024) {
         int64_t r = fp->read(fp, buf, sizeof buf);

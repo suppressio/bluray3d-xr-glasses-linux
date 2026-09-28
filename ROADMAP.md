@@ -42,19 +42,29 @@ Three backends, tried in this order (the project **never ships or downloads keys
 Legal note: in many countries (Italy and most of the EU included) circumventing
 copy protection is not covered by the private-copy exception, whatever the tool.
 
-Status on the test PC (Tron: Legacy 3D, 2026-09-28): the disc opens and its
-structure is readable without keys (3D flag set, AACS only, no BD+, main
-playlist 00070 = clips 00131 + 00133, base view = left eye). Decryption not
-tested yet: no KEYDB present, and MakeMKV needed a rebuild for FFmpeg 8 plus a
-beta key (`libmmbd` failed first because `makemkvcon` could not start).
+Phase 0 result on the test PC (Tron: Legacy 3D, 2026-09-28) — **all three backends work**:
+
+| Backend | AACS | Decrypted SSIF | Notes |
+|---|---|---|---|
+| libaacs + KEYDB.cfg | handled (MKB v19) | ✅ 64 MB in ~7 s incl. spin-up | fully open source |
+| libmmbd (MakeMKV 2.0.0) | handled | ✅ ~15 s (starts `makemkvcon`) | same payload as libaacs; only the copy-permission bits of each packet header differ |
+| decrypted BDMV folder | not present | ✅ byte-identical to the disc | no key library loaded at all |
+
+Findings: the disc is 3D, AACS only (no BD+). The main playlist 00070 is made of clips
+00131 + 00133, and the base view is the left eye. The decrypted SSIF carries PID
+`0x1011` (base, H.264 High 1920×1080), PID `0x1012` (MVC dependent), audio and PGS.
+The decrypting reader only accepts reads of exactly one AACS unit (6144 bytes).
+MakeMKV built for FFmpeg 7 does not start on FFmpeg 8 systems (rebuild
+makemkv-oss). The beta key goes in `~/.MakeMKV/settings.conf`
+(`app_Key = "T-..."`): `makemkvcon reg` rejects it.
 
 ## Phases
 
 Ordered from the cheapest to the most expensive, so that we can stop early.
 
-- [ ] **Phase 0 — Access**, once per decryption backend (libaacs, libmmbd,
+- [x] **Phase 0 — Access**, once per decryption backend (libaacs, libmmbd,
   decrypted BDMV). With the disc in the drive: libbluray opens it, lists the
-  playlists and finds the main 3D one ✅. The SSIF of its clip is readable
+  playlists and finds the main 3D one. The SSIF of its clip is readable
   decrypted through `bd_open_file_dec`, and ffprobe on those bytes shows both
   `0x1011` and `0x1012`. _Go/no-go: the disc decrypts with at least one backend._
 - [ ] **Phase 1 — Demux.** A helper turns the SSIF transport stream into Annex B

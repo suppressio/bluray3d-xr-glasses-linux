@@ -47,20 +47,30 @@ Nota legale: in molti paesi (Italia e gran parte dell'UE compresi) aggirare una
 protezione anticopia non rientra nell'eccezione per la copia privata,
 qualunque strumento si usi.
 
-Stato sul PC di prova (Tron: Legacy 3D, 28/09/2026): il disco si apre e la sua
-struttura si legge anche senza chiavi (flag 3D presente, solo AACS, niente BD+,
-playlist principale 00070 = clip 00131 + 00133, vista base = occhio sinistro).
-Decifratura non ancora provata: non c'è nessun KEYDB, e MakeMKV ha dovuto
-essere ricompilato per FFmpeg 8 e ha bisogno di una chiave beta (`libmmbd` al
-primo tentativo è fallito perché `makemkvcon` non partiva).
+Risultato della Fase 0 sul PC di prova (Tron: Legacy 3D, 28/09/2026): **funzionano tutte e tre le opzioni**:
+
+| Opzione | AACS | SSIF decifrato | Note |
+|---|---|---|---|
+| libaacs + KEYDB.cfg | gestito (MKB v19) | ✅ 64 MB in circa 7 s, avvio del disco compreso | tutto open source |
+| libmmbd (MakeMKV 2.0.0) | gestito | ✅ circa 15 s (avvia `makemkvcon`) | stesso contenuto di libaacs; cambiano solo i bit di permesso di copia nell'intestazione di ogni pacchetto |
+| cartella BDMV decifrata | assente | ✅ identico byte per byte al disco | nessuna libreria di chiavi caricata |
+
+Cosa abbiamo scoperto: il disco è 3D, solo AACS (niente BD+). La playlist
+principale 00070 è fatta delle clip 00131 + 00133, e la vista base è l'occhio
+sinistro. Il file SSIF decifrato contiene il PID `0x1011` (vista base, H.264
+High 1920×1080), il PID `0x1012` (vista dipendente MVC), l'audio e i
+sottotitoli PGS. Il lettore con decifratura accetta solo letture di esattamente
+un'unità AACS (6144 byte). MakeMKV compilato per FFmpeg 7 non parte sui sistemi
+con FFmpeg 8 (va ricompilato makemkv-oss). La chiave beta va scritta in
+`~/.MakeMKV/settings.conf` (`app_Key = "T-..."`): `makemkvcon reg` la rifiuta.
 
 ## Fasi
 
 In ordine dalla più economica alla più costosa, per potersi fermare presto.
 
-- [ ] **Fase 0 — Accesso**, una volta per ogni opzione di decifratura (libaacs,
+- [x] **Fase 0 — Accesso**, una volta per ogni opzione di decifratura (libaacs,
   libmmbd, BDMV decifrato). Con il disco nel lettore: libbluray lo apre,
-  elenca le playlist e trova quella 3D principale ✅. Il file SSIF della sua
+  elenca le playlist e trova quella 3D principale. Il file SSIF della sua
   clip si legge decifrato con `bd_open_file_dec`, e ffprobe su quei byte vede
   sia `0x1011` sia `0x1012`. _Criterio per decidere se andare avanti: il disco
   si decifra con almeno un'opzione._
