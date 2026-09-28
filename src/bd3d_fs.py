@@ -60,6 +60,8 @@ SUB_TAG = "sub"                      # ITAsubENG: Italian audio, English subtitl
 LIGHT_DIR = "Light"                  # lower-bitrate copies, for weak Wi-Fi
 RATE_WINDOW = 20                     # seconds of continuous reading to judge the network
 SIBLING_IDLE = 3                     # a file of the same disc unread this long is left behind
+STALE_KEEP = 15                      # seconds a replaced pipeline's data still answers reads
+BOTH_READ = 1.0                      # reads this close in time at two positions = one is stale
 
 
 # files served from the same optical disc (all languages, Light, Multi-audio):
@@ -135,6 +137,11 @@ class Generator:
         with self.cond:
             return self.buf_start <= offset <= self.end + JUMP_TOLERANCE
 
+    def holds(self, offset: int, size: int) -> bool:
+        """The bytes are already in the buffer (also after the pipeline stopped)."""
+        with self.cond:
+            return self.buf_start <= offset and offset + size <= self.end
+
     def read(self, offset: int, size: int) -> Optional[bytes]:
         """The bytes, or None if this pipeline was stopped meanwhile (read elsewhere)."""
         self.last_used = time.monotonic()
@@ -145,7 +152,7 @@ class Generator:
             while (self.end < offset + size and not self.eof and not self.stopped
                    and time.monotonic() < deadline):
                 self.cond.wait(timeout=1)
-            if self.stopped:
+            if self.stopped and not (self.buf_start <= offset and offset + size <= self.end):
                 return None
             lo = offset - self.buf_start
             data = bytes(self.buf[max(lo, 0):max(lo, 0) + size])
@@ -190,6 +197,13 @@ class VirtualFile:
         self.mtime_ns = source.mtime_ns
         self.lock = threading.Lock()
         self.gens: list[Generator] = []
+        # the pipeline replaced by the last jump, with its data, and until when
+        # it answers: after a jump the player still has reads for the old position
+        # in flight. Starting a pipeline for them would stop the new one, and the
+        # two positions would take turns restarting (seen: 16 restarts in a second)
+        self.stale: Optional[Generator] = None
+        self.stale_until = 0.0
+        self.stale_logged = False
         self.head: Optional[bytes] = None
         self.tail: Optional[bytes] = None
         self.last_read = 0.0
@@ -201,7 +215,19 @@ class VirtualFile:
         self.rate_next = 0               # offset the next sequential read would start at
         self.slow_since: Optional[float] = None
 
-    def _generator_for(self, offset: int) -> Generator:
+    def _stale_read(self, offset: int) -> bool:
+        """A read the player sent for the position it just left: near the replaced
+        pipeline while the new one is being read too. Its answer is thrown away,
+        and a pipeline for it would stop the new one. If the user really goes back
+        there, the new position stops being read and this turns false within
+        BOTH_READ seconds."""
+        now = time.monotonic()
+        with self.lock:
+            return (self.stale is not None and now < self.stale_until
+                    and self.stale.covers(offset)
+                    and any(now - g.last_used < BOTH_READ for g in self.gens))
+
+    def _generator_for(self, offset: int, size: int) -> Optional[Generator]:
         """A pipeline covering `offset`: an existing one, or a new one. Players read
         several places at once (playback + the end of the file for the duration),
         so a new pipeline replaces the least recently used one, not the only one."""
@@ -211,6 +237,17 @@ class VirtualFile:
                 if g.covers(offset):
                     g.last_used = time.monotonic()
                     return g
+            if self.stale is not None:
+                if time.monotonic() < self.stale_until and self.stale.holds(offset, size):
+                    return self.stale
+                if time.monotonic() >= self.stale_until:
+                    self.stale = None             # free its memory
+        if self._stale_read(offset):
+            if not self.stale_logged:
+                log.info("%s: ignoring the player's late reads for the position it left",
+                         self.path)
+                self.stale_logged = True
+            return None
         # a new pipeline: on an optical disc, first stop the other files' ones
         # that nobody reads any more (switching from the Italian to the English
         # file, for instance). Files read right now stay: two people may be
@@ -230,6 +267,8 @@ class VirtualFile:
                 old = min(self.gens, key=lambda g: g.last_used)
                 self.gens.remove(old)
                 old.stop()
+                self.stale, self.stale_until = old, time.monotonic() + STALE_KEEP
+                self.stale_logged = False
             g = Generator(self, offset / self.bytes_per_sec)
             self.gens.append(g)
             return g
@@ -300,7 +339,9 @@ class VirtualFile:
             return self.read(offset, tail_start - offset) + self.tail[:offset + size - tail_start]
 
         for _ in range(5):
-            gen = self._generator_for(offset)
+            gen = self._generator_for(offset, size)
+            if gen is None:
+                return null_padding(offset, size)
             data = gen.read(offset, size)
             if data is None:          # that pipeline was replaced meanwhile: try again
                 continue
@@ -323,6 +364,7 @@ class VirtualFile:
     def stop(self):
         with self.lock:
             gens, self.gens = self.gens, []
+            self.stale = None
         for g in gens:
             g.stop()
 
