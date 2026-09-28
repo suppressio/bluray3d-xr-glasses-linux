@@ -43,12 +43,42 @@ def _extensions(data: bytes, start: int) -> dict[tuple[int, int], int]:
     return out
 
 
+AUDIO_CODECS = {0x80: "lpcm", 0x81: "ac3", 0x82: "dts", 0x83: "truehd", 0x84: "eac3",
+                0x85: "dts-hd", 0x86: "dts-hd ma", 0xA1: "eac3", 0xA2: "dts-hd"}
+
+
+@dataclass
+class AudioStream:
+    pid: int
+    codec: str
+    lang: str
+
+
+def _parse_stn_audio(data: bytes, stn: int) -> list[AudioStream]:
+    """Primary audio streams of a play item's STN table."""
+    n_video, n_audio = data[stn + 4], data[stn + 5]
+    q = stn + 16
+    for _ in range(n_video):                     # skip video entries
+        q += 1 + data[q]
+        q += 1 + data[q]
+    out = []
+    for _ in range(n_audio):
+        entry, q = q, q + 1 + data[q]
+        attr, q = q, q + 1 + data[q]
+        pid = _u16(data, entry + 2) if data[entry + 1] == 1 else _u16(data, entry + 3)
+        coding = data[attr + 1]
+        lang = data[attr + 3:attr + 6].decode("ascii", "replace")
+        out.append(AudioStream(pid, AUDIO_CODECS.get(coding, hex(coding)), lang))
+    return out
+
+
 @dataclass
 class PlayItem:
     clip: str            # base view clip id, e.g. "00131"
     in_time: int         # 45 kHz, clip timeline
     out_time: int
     dep_clip: str = ""   # clip with the MVC dependent view, e.g. "00132"
+    audio: list = None   # AudioStream list from the STN table
 
     @property
     def duration(self) -> float:
@@ -64,8 +94,12 @@ def parse_mpls(data: bytes) -> list[PlayItem]:
     p = pos + 10
     for _ in range(count):
         length = _u16(data, p)
+        stn = p + 34
+        if data[p + 12] & 0x10:                  # multi angle: angle count, flags, extra clips
+            stn += 2 + (data[p + 34] - 1) * 10
         items.append(PlayItem(clip=data[p + 2:p + 7].decode(),
-                              in_time=_u32(data, p + 14), out_time=_u32(data, p + 18)))
+                              in_time=_u32(data, p + 14), out_time=_u32(data, p + 18),
+                              audio=_parse_stn_audio(data, stn)))
         p += 2 + length
 
     sub = _extensions(data, _u32(data, 16)).get((2, 2))

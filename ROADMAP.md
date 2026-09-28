@@ -89,9 +89,20 @@ Ordered from the cheapest to the most expensive, so that we can stop early.
   2-3.5 s. Entry points every 0.9 s on average (max 2 s).
   Note for phase 3: align audio on the real PTS of the first frame, not on the
   EP_map time (truncated to 5.7 ms).
-- [ ] **Phase 3 — Audio.** Take the selected audio PID from the same decrypted
-  stream and feed it to the encoder. This means extending `Source.audio_input`
-  beyond "a file ffmpeg can open" (e.g. a FIFO fed by the helper).
+- [x] **Phase 3 — Audio.** `src/disc_reader.py` reads the disc once and splits
+  the stream. Annex B video goes to stdout for edge264. The chosen audio track
+  goes, as a small MPEG-TS, to a file or FIFO for ffmpeg. Each has its own
+  thread and queue: ffmpeg opens its inputs one at a time and does not read the
+  video while it analyses the audio, and with a shared, blocking reader the
+  pipeline stalled. Audio languages come from the playlist STN table (Tron:
+  `0x1102` = ita DTS). Three details: (1) the .ssif carries two PMTs on the
+  same PID (base and dependent clip), so only the base one is forwarded,
+  filtered to the forwarded streams (new CRC); ffmpeg otherwise waits for
+  streams that never come. (2) Video travels ahead of its presentation time,
+  so audio starts at the first PES with PTS ≥ the keyframe's. (3) The keyframe
+  itself is forwarded in the audio TS as a timing anchor (never mapped), so
+  ffmpeg's start time for that input is exactly the video's. Result at 50 min
+  vs the MKV path: 719/719 video frames identical, audio offset 3.9 ms.
 - [ ] **Phase 4 — `BlurayDiscSource`.** Disc drive, ISO and BDMV folder as
   sources. **One virtual file per movie** (the main 3D playlist, not the whole
   disc), named from the disc metadata. For a drive the file **appears when a

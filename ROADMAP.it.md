@@ -99,10 +99,22 @@ In ordine dalla più economica alla più costosa, per potersi fermare presto.
   0,9 s (al massimo ogni 2 s).
   Nota per la Fase 3: allineare l'audio sul PTS reale del primo fotogramma,
   non sul tempo dell'EP_map (arrotondato a 5,7 ms).
-- [ ] **Fase 3 — Audio.** Prendere il PID audio scelto dallo stesso flusso
-  decifrato e passarlo all'encoder. Vuol dire estendere `Source.audio_input`
-  oltre "un file che ffmpeg sa aprire" (per esempio una FIFO alimentata dal
-  programma di supporto).
+- [x] **Fase 3 — Audio.** `src/disc_reader.py` legge il disco una volta e
+  divide il flusso. Il video Annex B va su stdout, verso edge264. La traccia
+  audio scelta va, come piccolo MPEG-TS, in un file o in una FIFO per ffmpeg.
+  Ognuno ha il suo thread e la sua coda: ffmpeg apre gli input uno alla volta
+  e non legge il video mentre analizza l'audio, e con un unico lettore
+  bloccante la catena si fermava. Le lingue audio si leggono dalla tabella STN
+  della playlist (Tron: `0x1102` = italiano DTS). Tre dettagli: (1) il file
+  .ssif contiene due PMT sullo stesso PID (clip base e dipendente), quindi si
+  inoltra solo quella base, filtrata sulle tracce inoltrate (con nuovo CRC);
+  altrimenti ffmpeg aspetta tracce che non arrivano mai. (2) Il video viaggia
+  in anticipo sul suo tempo di presentazione, quindi l'audio parte dal primo
+  PES con PTS ≥ a quello del fotogramma chiave. (3) Il fotogramma chiave
+  stesso viene inoltrato nel TS dell'audio come ancora temporale (mai usato
+  come traccia), così per ffmpeg quell'input parte esattamente dal tempo del
+  video. Risultato a 50 minuti rispetto alla strada MKV: 719 fotogrammi video
+  su 719 identici, scarto dell'audio 3,9 ms.
 - [ ] **Fase 4 — `BlurayDiscSource`.** Lettore, ISO e cartella BDMV come
   sorgenti. **Un file virtuale per ogni film** (la playlist 3D principale, non
   l'intero disco), con il nome preso dai metadati del disco. Per un lettore il
