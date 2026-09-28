@@ -54,9 +54,15 @@ class AudioStream:
     lang: str
 
 
-def _parse_stn_audio(data: bytes, stn: int) -> list[AudioStream]:
-    """Primary audio streams of a play item's STN table."""
-    n_video, n_audio = data[stn + 4], data[stn + 5]
+@dataclass
+class SubStream:
+    stream: int         # PID of the PGS stream
+    lang: str
+
+
+def _parse_stn(data: bytes, stn: int) -> tuple[list[AudioStream], list[SubStream]]:
+    """Primary audio and presentation graphics (PGS subtitle) streams of a play item's STN."""
+    n_video, n_audio, n_pg = data[stn + 4], data[stn + 5], data[stn + 6]
     q = stn + 16
     for _ in range(n_video):                     # skip video entries
         q += 1 + data[q]
@@ -69,7 +75,14 @@ def _parse_stn_audio(data: bytes, stn: int) -> list[AudioStream]:
         coding = data[attr + 1]
         lang = data[attr + 3:attr + 6].decode("ascii", "replace")
         out.append(AudioStream(pid, AUDIO_CODECS.get(coding, hex(coding)), lang))
-    return out
+    subs = []
+    for _ in range(n_pg):
+        entry, q = q, q + 1 + data[q]
+        attr, q = q, q + 1 + data[q]
+        pid = _u16(data, entry + 2) if data[entry + 1] == 1 else _u16(data, entry + 3)
+        if data[attr + 1] == 0x90:                      # PGS (0x91 would be menus)
+            subs.append(SubStream(pid, data[attr + 2:attr + 5].decode("ascii", "replace")))
+    return out, subs
 
 
 @dataclass
@@ -79,6 +92,7 @@ class PlayItem:
     out_time: int
     dep_clip: str = ""   # clip with the MVC dependent view, e.g. "00132"
     audio: list = None   # AudioStream list from the STN table
+    subs: list = None    # SubStream list from the STN table
 
     @property
     def duration(self) -> float:
@@ -97,9 +111,10 @@ def parse_mpls(data: bytes) -> list[PlayItem]:
         stn = p + 34
         if data[p + 12] & 0x10:                  # multi angle: angle count, flags, extra clips
             stn += 2 + (data[p + 34] - 1) * 10
+        audio, subs = _parse_stn(data, stn)
         items.append(PlayItem(clip=data[p + 2:p + 7].decode(),
                               in_time=_u32(data, p + 14), out_time=_u32(data, p + 18),
-                              audio=_parse_stn_audio(data, stn)))
+                              audio=audio, subs=subs))
         p += 2 + length
 
     sub = _extensions(data, _u32(data, 16)).get((2, 2))

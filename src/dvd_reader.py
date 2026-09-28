@@ -38,6 +38,23 @@ def _shift(pack: bytearray, pes: int, delta: int):
         pack[o + 4] = ((ts << 1) & 0xFE) | 1
 
 
+def empty_subpicture_pack(pack_header: bytes, stream: int, pts: int) -> bytes:
+    """A 2048-byte pack holding a subpicture that shows nothing, at `pts`.
+
+    ffmpeg creates a program-stream track only when a packet of it shows up while
+    it probes the start: after a seek into a silent scene the subtitle track
+    would not exist and could not be drawn. This announces it right away."""
+    spu = bytes([0x00, 0x0A, 0x00, 0x04,          # SPU size 10, control at offset 4
+                 0x00, 0x00, 0x00, 0x04,          # date 0, next control = this one
+                 0x02, 0xFF])                     # STP_DSP (hide), end
+    ts = bytes([0x21 | ((pts >> 29) & 0x0E), (pts >> 22) & 0xFF, ((pts >> 14) & 0xFE) | 1,
+                (pts >> 7) & 0xFF, ((pts << 1) & 0xFE) | 1])
+    body = bytes([0x81, 0x80, 0x05]) + ts + bytes([stream]) + spu
+    pes = b"\x00\x00\x01\xbd" + len(body).to_bytes(2, "big") + body
+    pad = SECTOR - len(pack_header) - len(pes) - 6
+    return pack_header + pes + b"\x00\x00\x01\xbe" + pad.to_bytes(2, "big") + b"\xff" * pad
+
+
 class PackFilter:
     def __init__(self, audio: set[int], anchor_pts: int, sub: int = None):
         self.audio, self.anchor, self.sub = audio, anchor_pts, sub
@@ -100,8 +117,9 @@ def main():
         nav = seek(vobs, title, args.start)
         print(f"dvd_reader: title {args.title}, VOBU at {nav.time:.3f}s (sector {nav.sector})",
               file=sys.stderr)
-        filt = PackFilter({int(a, 0) for a in args.audio}, nav.pts,
-                          int(args.sub, 0) if args.sub else None)
+        sub = int(args.sub, 0) if args.sub else None
+        filt = PackFilter({int(a, 0) for a in args.audio}, nav.pts, sub)
+        announce = sub is not None
         first = next(i for i, c in enumerate(title.cells) if c.first <= nav.sector <= c.last)
         try:
             for i in range(first, len(title.cells)):
@@ -125,6 +143,10 @@ def main():
                     for o in range(0, len(data), SECTOR):
                         pack = filt.keep(data[o:o + SECTOR])
                         if pack is not None:
+                            if announce:
+                                kept += empty_subpicture_pack(pack[:14 + (pack[13] & 7)],
+                                                              sub, nav.pts)
+                                announce = False
                             kept += pack
                     if kept:
                         out.write(kept)

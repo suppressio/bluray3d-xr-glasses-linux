@@ -659,6 +659,9 @@ def main():
                         help="subtitle languages to offer as extra versions drawn into the "
                              "picture, e.g. ita,eng; all (default) or none. Forced subtitles "
                              "of the audio language are always drawn in")
+    parser.add_argument("--sub-depth", type=int, default=8,
+                        help="3D subtitles: pixels each eye's copy is moved inward; more = "
+                             "closer to you (default 8, 0 = on the screen plane)")
     parser.add_argument("--light", action=argparse.BooleanOptionalAction, default=True,
                         help=f"also offer every movie at a lower bitrate in {LIGHT_DIR}/, for "
                              "weak Wi-Fi (default: on)")
@@ -679,6 +682,7 @@ def main():
     others = [a for a in args.sources if a not in drives]
 
     fs = Bd3dFS()
+    Source.sub_depth = args.sub_depth
     subs = args.subs.strip().lower()
     sub_langs = None if subs in ("", "all") else [] if subs == "none" else \
         [x.strip() for x in args.subs.split(",")]

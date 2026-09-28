@@ -73,7 +73,7 @@ def decode_command(source: Source, start: float, output_args: str) -> str:
         pre, post = source.pre_filter or "null", source.post_filter or "null"
         if source.sub is not None:
             graph = (f"[{source.video_map}]{pre}[pre];"
-                     f"[pre][0:i:{source.sub.stream:#x}]overlay=eof_action=pass[ov];[ov]{post}[v]")
+                     f"[pre][{source.sub_ref(0)}]overlay=eof_action=pass[ov];[ov]{post}[v]")
             sub_args = source.sub_decoder_args()
         else:
             graph, sub_args = f"[{source.video_map}]{pre},{post}[v]", ""
@@ -83,9 +83,19 @@ def decode_command(source: Source, start: float, output_args: str) -> str:
             f"-analyzeduration 2000000 -probesize 10000000 -i - "
             f"-filter_complex {shlex.quote(graph)} -map '[v]' {source.audio_map(0)} {output_args}"
         )
+    # 3D: the subtitle comes with the audio (input #1) and is drawn on both halves,
+    # each copy moved inward so that it floats slightly in front of the screen
+    if source.sub is not None:
+        d, half = source.sub_depth, int(source.frame_size.split("x")[0]) // 2
+        graph = (f"[{source.sub_ref(1)}]split[sa][sb];"
+                 f"[0:v][sa]overlay=x={d}:y=0:eof_action=pass[l];"
+                 f"[l][sb]overlay=x={half - d}:y=0:eof_action=pass[v]")
+        video, sub_args = f"-filter_complex {shlex.quote(graph)} -map '[v]'", source.sub_decoder_args()
+    else:
+        video, sub_args = "-map 0:v", ""
     return (
         f"{source.video_command(start)} "
         f"| edge264_test - -Ok "
-        f"| ffmpeg -nostdin -v warning -i - {source.audio_input(start)} "
-        f"-map 0:v {source.audio_map()} {output_args}"
+        f"| ffmpeg -nostdin -v warning -i - {sub_args} {source.audio_input(start)} "
+        f"{video} {source.audio_map()} {output_args}"
     )

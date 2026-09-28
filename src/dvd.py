@@ -199,6 +199,7 @@ class DvdTitle:
     audio: list = field(default_factory=list)
     subs: list = field(default_factory=list)
     palette: list = field(default_factory=list)  # 16 "rrggbb" colours for the subpictures
+    palette_raw: bytes = b""                     # the same 16 entries as stored in the PGC
     frame_size: str = "1024x576"   # square-pixel display size
     frame_rate: str = "25"
     tmap_unit: int = 0
@@ -259,6 +260,7 @@ def parse_title(vts_ifo: bytes, number: int, vts: int, ttn: int) -> DvdTitle:
         t.subs.append(DvdSub(0x20 + n, LANG3.get(lang2, lang2), SUB_KINDS.get(v[a + 5], "other")))
     t.palette = [_rgb(v[pgc + 0xA4 + i * 4 + 1], v[pgc + 0xA4 + i * 4 + 2], v[pgc + 0xA4 + i * 4 + 3])
                  for i in range(16)]
+    t.palette_raw = bytes(v[pgc + 0xA4:pgc + 0xA4 + 64])
 
     # cells, skipping the non-first angles of angle blocks
     playback = pgc + _u16(v, pgc + 0xE8)

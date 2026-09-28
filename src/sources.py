@@ -30,6 +30,7 @@ import tempfile
 import threading
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -65,6 +66,11 @@ class Source(ABC):
     subs: list = []                 # subtitle tracks that can be drawn in (.stream, .lang)
     sub = None                      # the track drawn into this file, if any
     forced_only: bool = False       # draw only its forced subtitles (foreign-language parts)
+    sub_depth: int = 8              # 3D: pixels each eye's copy is moved inward (in front of the screen)
+
+    def sub_ref(self, input_index: int) -> str:
+        """The subtitle stream as an ffmpeg stream specifier on that input."""
+        return f"{input_index}:i:{self.sub.stream:#x}"
 
     def sub_decoder_args(self) -> str:
         """ffmpeg input options for the subtitle decoder."""
@@ -126,6 +132,9 @@ class MkvSource(Source):
             chosen = [audio[0]]
         self.audio_indexes = [s["index"] for s in chosen]
         self.audio_langs = [s.get("tags", {}).get("language", "und") for s in chosen]
+        # PGS subtitle tracks, one per language, drawn from the same file (input #1)
+        pgs = [s for s in info["streams"] if s.get("codec_name") == "hdmv_pgs_subtitle"]
+        self.subs = _first_per_lang(SubTrack(s["index"], lang_of(s)) for s in pgs)
         self.audio_desc = ", ".join(
             f"#{s['index']} {s.get('tags', {}).get('language', '?')} {s.get('codec_name')}"
             for s in chosen) or "none"
@@ -174,6 +183,9 @@ class MkvSource(Source):
         ss = f"-ss {start:.3f} " if start > 0 else ""
         return f"{ss}-i {shlex.quote(self.path)}"
 
+    def sub_ref(self, input_index: int) -> str:
+        return f"{input_index}:{self.sub.stream}"
+
     def audio_map(self) -> str:
         return " ".join(f"-map 1:{i}" for i in self.audio_indexes)
 
@@ -209,6 +221,20 @@ def find_sidecars(movie_path: str) -> list[tuple[str, str]]:
 
 
 HERE = Path(__file__).resolve().parent
+
+
+def _first_per_lang(tracks) -> list:
+    """The first track of each language, in the disc's order."""
+    seen: dict = {}
+    for t in tracks:
+        seen.setdefault(t.lang, t)
+    return list(seen.values())
+
+
+@dataclass
+class SubTrack:
+    stream: int         # stream index (MKV) or PID (Blu-ray)
+    lang: str
 _fifo_ids = itertools.count()
 
 
@@ -318,6 +344,7 @@ class BlurayDiscSource(Source):
         self.mtime_ns = time.time_ns() if stat.S_ISBLK(st.st_mode) else st.st_mtime_ns
         self.sidecars = [] if stat.S_ISBLK(st.st_mode) else find_sidecars(path)
 
+        self.subs = _first_per_lang(items[0].subs or [])
         chosen_audio = _pick_audio(items[0].audio or [], audio_langs)
         self.audio_pids = [a.pid for a in chosen_audio]
         self.audio_langs = [a.lang for a in chosen_audio]
@@ -349,7 +376,9 @@ class BlurayDiscSource(Source):
 
     def video_command(self, start: float) -> str:
         env = " ".join(f"{k}={v}" for k, v in self.env.items())
-        pids = " ".join(f"--audio-pid {p:#x}" for p in self.audio_pids)
+        # the subtitle stream travels like an audio one (same filtering and start)
+        pids = " ".join(f"--audio-pid {p:#x}" for p in
+                        self.audio_pids + ([self.sub.stream] if self.sub is not None else []))
         # +2 ms: `start` is an EP_map time (truncated), make sure the same entry is found
         cmd = (f"{env} {shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'disc_reader.py'))} "
                f"{shlex.quote(self.path)} --playlist {self.playlist} --start {start + 0.002:.3f} "
@@ -392,6 +421,7 @@ class DvdSource(Source):
             raise
         self._vobs = self._dvd.title_vobs(self.title.vts)
         self._lock = threading.Lock()
+        self._ifo_copy = None
         self.name = _safe_name(label.replace("_", " ").title() if label else Path(path).stem)
         self.duration = self.title.duration
         self.frame_size, self.frame_rate = self.title.frame_size, self.title.frame_rate
@@ -401,7 +431,7 @@ class DvdSource(Source):
         self.pre_filter = "bwdif=deint=interlaced"
         self.post_filter = f"scale={w}:{h},setsar=1"
         # one normal track per language (commentary and other kinds left out)
-        self.subs = list({s.lang: s for s in reversed(self.title.subs) if s.kind == "normal"}.values())[::-1]
+        self.subs = _first_per_lang(s for s in self.title.subs if s.kind == "normal")
         st = os.stat(path)
         self.mtime_ns = time.time_ns() if stat.S_ISBLK(st.st_mode) else st.st_mtime_ns
         self.sidecars = [] if stat.S_ISBLK(st.st_mode) else find_sidecars(path)
@@ -417,7 +447,24 @@ class DvdSource(Source):
         return BlurayDiscSource.variants(self)
 
     def sub_decoder_args(self) -> str:
-        return f"-palette {','.join(self.title.palette)} " + super().sub_decoder_args()
+        # the subpicture colours come from the disc's IFO. ffmpeg refuses -palette as
+        # an input option (the dvdsub encoder has an option of the same name), but
+        # takes -ifo_palette: a copy of the title's IFO in a temporary folder
+        if self._ifo_copy is None:
+            self._ifo_copy = os.path.join(tempfile.mkdtemp(prefix="bd3d-dvd-"), "VTS.IFO")
+            with open(self._ifo_copy, "wb") as f:
+                f.write(self._ifo_for_palette())
+        return f"-ifo_palette {shlex.quote(self._ifo_copy)} " + super().sub_decoder_args()
+
+    def _ifo_for_palette(self) -> bytes:
+        """The VTS IFO with the main title's palette in its first PGC, where
+        ffmpeg reads it (the main title is not always the first PGC)."""
+        from dvd import _u32
+        v = bytearray(self._dvd.ifo(self.title.vts))
+        pgci = _u32(v, 0xCC) * 2048
+        first = pgci + _u32(v, pgci + 8 + 4)
+        v[first + 0xA4:first + 0xA4 + 64] = self.title.palette_raw
+        return bytes(v)
 
     def keyframe_at_or_before(self, seconds: float) -> float:
         from dvd import seek
