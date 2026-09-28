@@ -1,0 +1,11 @@
+# NVIDIA GPU encoding (NVENC). Requires the NVIDIA Container Toolkit on the host.
+# Use with: docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
+services:
+  bd3d:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, video]

@@ -1,0 +1,22 @@
+# Settings go in .env (copy .env.example). Start with: docker compose up -d --build
+services:
+  bd3d:
+    build: .
+    image: bluray3d-xr:local
+    container_name: bluray3d-xr
+    ports:
+      # SMB. The host must not run its own Samba on 445 at the same time.
+      - "${SMB_PORT:-445}:445"
+    volumes:
+      - "${MOVIES_DIR:?set MOVIES_DIR in .env}:/films:ro"
+    environment:
+      AUDIO_LANG: "${AUDIO_LANG:-}"
+      ENCODER: "${ENCODER:-auto}"
+    # FUSE inside the container needs the device and SYS_ADMIN
+    devices:
+      - /dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    restart: "no"
