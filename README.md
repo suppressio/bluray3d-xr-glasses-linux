@@ -1,11 +1,9 @@
 🇬🇧 English | [🇮🇹 Italiano](README.it.md)
 
 # 3D Blu-ray on XR glasses, from Linux
-#### _Watch your 3D Blu-ray discs on XR glasses (VITURE & co.) in real 3D: the 3D is decoded on the fly by your Linux PC and served over the LAN as a side-by-side video. No conversion, no extra disk space._
+#### _Put a 3D Blu-ray in your Linux PC's drive and watch it on XR glasses (VITURE & co.) in real 3D. The PC reads, decrypts and decodes the disc on the fly and serves it over the LAN as a side-by-side video. No rip, no conversion, no disk space._
 
-> 🎯 **Scope today:** you already have **3D Blu-ray rips in MKV** (MakeMKV keeps the MVC 3D) and want to watch them in 3D **without converting** them. If you only have the disc and do not mind converting, existing tools can rip straight to SBS. **Next goal: play the disc itself**, with no rip at all: see the [roadmap](ROADMAP.md).
-
-***Note:*** _Tested with a VITURE Pro XR + VITURE Pro Neckband and its official **3D Player**. Any player able to open videos from a network share (SMB) and show side-by-side 3D should work the same way._
+***Note:*** _Tested with a VITURE Pro XR + VITURE Pro Neckband and its official **3D Player**. Any player able to open videos from a network share (SMB) and show side-by-side 3D should work the same way. Tested with one disc so far (Tron: Legacy 3D): see [Limits](#limits)._
 
 ---
 
@@ -15,27 +13,28 @@ A 3D Blu-ray does not contain two videos side by side. It stores the 3D as **MVC
 
 - XR glasses (and almost every 3D video player) want **SBS**, _side-by-side_: both eyes in one frame.
 - Practically **nothing decodes MVC** outside dedicated Blu-ray players: Android and its players cannot, and FFmpeg silently drops the dependent view (you get 2D).
-- The usual answer is to **convert** every movie to SBS: hours of encoding and 10-20 GB more for each movie.
+- The usual answer is to **rip and convert** every movie to SBS: hours of work and 10-20 GB for each movie.
 
 ## The idea
 
-Your PC decodes the MVC **while you watch** and serves the result to the glasses as if it were an ordinary SBS file.
+The PC reads the disc and decodes the MVC **while you watch**, and serves the result to the glasses as if it were an ordinary SBS file.
 
 ```
-3D Blu-ray ──MakeMKV──► movie.mkv (MVC, the 3D is still there)
-                              │
-                              ▼   Linux PC, while you watch
-   ffmpeg (demux) ─► edge264 (MVC → SBS 3840×1080) ─► encoder (NVENC or x264) + audio
-                              │
-                              ▼
-   "movie - 3D SBS.ts"  a virtual file in an SMB share (it does not exist on disk)
-                              │   Wi-Fi
-                              ▼
-   Glasses: 3D Player ► Local network ► 3D ► movie   → automatic 3D, pause, seek
+3D Blu-ray in the drive (or an ISO / BDMV folder / MKV rip)
+        │  libbluray + libaacs: read and decrypt on the fly
+        ▼
+   base + dependent view ─► edge264 (MVC → SBS 3840×1080) ─► encoder (NVENC or x264) + audio
+        │
+        ▼
+   "ITA - movie - 3D SBS.ts"  a virtual file in an SMB share (it does not exist on disk)
+        │   Wi-Fi
+        ▼
+   Glasses: 3D Player ► Local network ► Disks ► movie   → automatic 3D, pause, seek
 ```
 
-- **Nothing is written to disk.** The `.ts` file shows a size of ~22 GB but takes no space: every piece is decoded when the player reads it.
-- **Seeking works.** The file has a constant bitrate, so every byte matches a precise second of the movie. When the player jumps, the PC restarts decoding from there (1-2 seconds).
+- **Insert the disc, the movie appears.** About 15 seconds after closing the tray the file shows up in the share, named after the disc; eject the disc and it goes away.
+- **Nothing is written to disk.** The `.ts` file shows a size of ~22 GB but takes no space: every piece is produced when the player reads it.
+- **Seeking works.** The file has a constant bitrate, so every byte matches a precise second of the movie. When the player jumps, the PC restarts reading the disc from there (a few seconds: the optical drive has to move).
 - **The glasses see a normal file.** No special app or streaming protocol: the player's own interface, 3D detection, pause and seek.
 
 All the procedures described here are a balanced compromise between "manual" and guided processes. This is one of the possible ways to do it.
@@ -43,38 +42,34 @@ All the procedures described here are a balanced compromise between "manual" and
 ## Requirements
 
 #### Hardware
-- **A Blu-ray drive** that can read your discs (only for ripping; any BD drive supported by MakeMKV).
-- **A Linux PC** on the same network as the glasses. Decoding MVC is CPU work: tested on a Ryzen 9 5900X (decoding runs at ~9× real time). Weaker CPUs have not been tested.
+- **A Blu-ray drive** in the Linux PC (tested: TSSTcorp SH-B123L).
+- **A Linux PC** on the same network as the glasses. Decoding MVC is CPU work: tested on a Ryzen 9 5900X (decoding ~9× real time). Weaker CPUs have not been tested.
 - **Optional: an NVIDIA GPU** to encode with NVENC. Without it the video is encoded by the CPU with x264 (on the 5900X still ~6× real time).
 - **XR glasses + a player** that opens videos from an SMB network share and plays SBS 3D. Tested: VITURE Pro XR + Pro Neckband, official 3D Player.
 - **A good Wi-Fi connection** (5 GHz recommended): the stream is 24 Mbit/s.
 
+#### Decryption: bring your own keys
+Commercial Blu-rays are encrypted (AACS, some also BD+). The project **does not provide or download any key**; it uses what you have, in this order:
+1. **libaacs + `KEYDB.cfg`**: fully open source. Put a key database in `~/.config/aacs/KEYDB.cfg` (for Docker: the folder you set as `AACS_DIR`).
+2. **MakeMKV**, if installed and registered: its `libmmbd` library decrypts in place of libaacs (BD+ too).
+3. Unencrypted **ISO / BDMV folders** need no keys.
+
+> ⚖️ In many countries (Italy and most of the EU included) circumventing copy protection is not allowed, not even for a private copy. Check the law where you live.
+
 #### Software on the PC
-- [MakeMKV](https://www.makemkv.com/): rips the Blu-ray into an MKV **keeping the 3D (MVC)**. Linux version available (free while in beta).
 - **Docker** (path A) _or_ a **Debian/Ubuntu** system (path B). Everything else is installed for you:
   - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc): the only open-source decoder of the MVC dependent view;
-  - FFmpeg, Samba (the network share), FUSE + pyfuse3 (the virtual file).
+  - libbluray, libaacs, libbdplus (read and decrypt the disc), FFmpeg, Samba (the network share), FUSE + pyfuse3 (the virtual file).
 
 ---
 
-## Step 1 — Rip the Blu-ray to MKV
-
-- [ ] Open the disc in **MakeMKV** and save the main title as MKV.
-
-With default settings MakeMKV keeps the 3D (MVC) data inside the MKV. You do not need to do anything special: the program checks every MKV at startup and **skips the ones without 3D**, with a message in the log.
-
-> ⚖️ Ripping discs you own for personal use is legal in some countries and not in others: check yours.
-
-Put your 3D MKVs in one folder, e.g. `~/Videos/3D`. Subfolders are fine.
-
----
-
-## Step 2 — Install: choose your path
+## Step 1 — Install: choose your path
 
 | | **A. Docker** | **B. Native script** |
 |---|---|---|
 | For | anyone who already uses Docker | Debian / Ubuntu |
 | Touches the system | no: Samba, FUSE and libraries live in the container | yes: packages, `/opt`, `smb.conf`, `fuse.conf` (removable with `uninstall.sh`) |
+| Decryption | libaacs + your KEYDB (MakeMKV is not in the image) | libaacs + KEYDB, or MakeMKV if installed |
 | NVIDIA encoding | needs the NVIDIA Container Toolkit | works out of the box |
 | Samba already installed on the PC | conflicts on port 445: stop it first | the share is added next to yours |
 
@@ -90,19 +85,23 @@ cd bluray3d-xr-glasses-linux
 ```console
 cp .env.example .env
 ```
-- [ ] Edit `.env`: set `MOVIES_DIR` to your movies folder and `AUDIO_LANG` to your language (`eng`, `ita`, `deu`, `fra`...).
+- [ ] Edit `.env`:
+  - `DRIVE=/dev/sr0` to watch the Blu-ray drive, and in `docker-compose.yml` uncomment the `- /dev/sr0` line under `devices`;
+  - `AACS_DIR` = the folder containing your `KEYDB.cfg`;
+  - `MOVIES_DIR` = a folder with ISO, BDMV folders or MKV rips (can be empty if you only use the drive);
+  - `AUDIO_LANG` = your languages, e.g. `ita,eng`.
 - [ ] Build and start (the first build takes a few minutes: it compiles edge264 for your CPU):
 ```console
 docker compose up -d --build
 ```
-- [ ] Check it found your movies:
+- [ ] Insert a 3D Blu-ray and check the log:
 ```console
-docker compose logs
+docker compose logs -f
 ```
 ```
-video encoder: x264
-Tron- Legacy 3D_t04 - 3D SBS.ts  (125 min, audio #4 ita dts Surround 5.1)
-mounted on /srv/bd3d — Ctrl+C to unmount
+watching /dev/sr0: insert a 3D Blu-ray
+/dev/sr0: disc inserted, opening it
++ ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, audio 0x1102 ita dts)
 ```
 
 Stop it with `docker compose down`.
@@ -124,30 +123,32 @@ If the PC already runs Samba, the container cannot take port 445. Players on pho
 ```console
 ./scripts/install.sh
 ```
-It installs the packages, compiles edge264, installs the `bluray3d-xr` command and adds the read-only guest share `[3D]` to Samba. The header of [`scripts/install.sh`](scripts/install.sh) lists every change it makes.
+It installs the packages, compiles edge264, installs the `bluray3d-xr` command and adds the read-only guest share `[Disks]` to Samba. The header of [`scripts/install.sh`](scripts/install.sh) lists every change it makes.
 
 - [ ] If `ufw` is active, the script prints the command to open the share to your LAN, e.g.:
 ```console
 sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
 ```
+- [ ] Your user must be able to read the drive (on Debian/Ubuntu: the `cdrom` group, usually already set for desktop users).
 - [ ] Start it when you want to watch something:
 ```console
-bluray3d-xr --audio-lang eng ~/Videos/3D
+bluray3d-xr --audio-lang ita,eng /dev/sr0
 ```
 Stop it with `Ctrl+C`. To remove everything: `./scripts/uninstall.sh`.
 
-The script is tested on clean Debian 13 (trixie) and Ubuntu 24.04 containers; the program runs on my Debian testing PC.
+The script is tested with the real drive and disc in clean Debian 13 (trixie) and Ubuntu 24.04 containers; the program runs on my Debian testing PC.
 
 ---
 
-## Step 3 — Watch it on the glasses
+## Step 2 — Watch it on the glasses
 
 ##### From your VITURE Neckband:
 - [ ] Open the **3D Player**, go to the **Local network** tab and add the PC: its IP address (`hostname -I` on the PC tells you), guest / anonymous access.
-- [ ] Open the **3D** folder: every movie is there as `<movie> - 3D SBS.ts`.
+- [ ] Insert the disc in the PC and wait about 15 seconds.
+- [ ] Open the **Disks** folder (go back and in again if it looks empty): the movie is there as `ITA - <movie> - 3D SBS.ts`, one file per audio language.
 - [ ] Open it. The player recognizes the side-by-side format and switches to 3D by itself. 🎉
 
-The first opening and every jump with the seek bar take 1-2 seconds: that is the PC restarting decoding from the new point.
+The first opening and every jump with the seek bar take a few seconds: that is the drive moving to the new point.
 
 **PLEASE NOTE!** In some movies part of the scenes are 2D on purpose (in _Tron: Legacy_, the "real world" parts). There the two eyes get the same picture: it is not a bug.
 
@@ -155,15 +156,32 @@ The first opening and every jump with the seek bar take 1-2 seconds: that is the
 Anything that opens videos from an SMB share and shows SBS 3D should work. Some notes from my tests on the Neckband:
 - **VLC** plays it, but you must leave the SpaceWalker interface for Android mode, start the video and _only then_ switch the glasses to 3D mode. It works but it is clumsy, and sometimes the glasses stayed stuck in 3D mode (I had to unplug the cable).
 - **XPlayer2** did not work on my Neckband, with any video.
-- The **3D Player cannot open the original MKV**: it does not start at all. This is why the project exists.
+- The **3D Player cannot open a 3D Blu-ray MKV rip**: it does not start at all.
 
 ---
+
+## Sources
+
+Besides a drive, the program accepts the same content in other forms (all at once is fine):
+
+| Source | Example | Notes |
+|---|---|---|
+| Blu-ray drive | `/dev/sr0` | the movie appears when a 3D disc is inserted, disappears on eject |
+| ISO image | `~/Videos/3D/Tron.iso` | read and decrypted like the disc |
+| BDMV folder | `~/Videos/3D/Tron/` (contains `BDMV/`) | e.g. a MakeMKV "backup"; unencrypted ones need no keys |
+| MKV rip | `~/Videos/3D/Tron.mkv` | a MakeMKV rip that kept the 3D (MVC); files without 3D are skipped |
+| Folder | `~/Videos/3D` | scanned recursively for all of the above |
+
+```console
+bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
+```
 
 ## Options
 
 | Option | `.env` (Docker) | Command line (native) | Default |
 |---|---|---|---|
-| Movies folder(s) | `MOVIES_DIR` | positional arguments | — |
+| Blu-ray drive | `DRIVE` | positional argument, e.g. `/dev/sr0` | — |
+| Folder with ISO / BDMV / MKV | `MOVIES_DIR` | positional arguments | — |
 | Audio languages | `AUDIO_LANG` | `--audio-lang ita,eng` | first track |
 | One file per language, one with all, or both | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
 | Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
@@ -172,16 +190,17 @@ Anything that opens videos from an SMB share and shows SBS 3D should work. Some 
 
 #### Audio languages and subtitles
 - **Several languages**: with `--audio-lang ita,eng` each language becomes **its own file**
-  (`ITA - movie - 3D SBS.ts`, `ENG - movie - 3D SBS.ts`; the language comes first because players cut long names). The VITURE 3D Player has no audio track menu
-  and picks a track on its own, so this is the default. If your player does have an audio
-  menu, `--audio-files single` puts all languages in one file. `both` offers both at once:
-  the per-language files, plus the all-languages file in a `Multi-audio/` folder. Useful
-  with several devices; the files are virtual, so the extra ones cost nothing.
-- **Subtitles**: put subtitle files next to the MKV with the same name
+  (`ITA - movie - 3D SBS.ts`, `ENG - movie - 3D SBS.ts`; the language comes first because
+  players cut long names). The VITURE 3D Player has no audio track menu and picks a track
+  on its own, so this is the default. If your player does have an audio menu,
+  `--audio-files single` puts all languages in one file. `both` offers both at once: the
+  per-language files, plus the all-languages file in a `Multi-audio/` folder. Useful with
+  several devices; the files are virtual, so the extra ones cost nothing.
+- **Subtitles**: put subtitle files next to an ISO/BDMV/MKV with the same name
   (`movie.srt`, `movie.ita.srt`, also `.ass`, `.sup`...). They show up next to every
   virtual video with the matching name, and the player loads them as external subtitles.
-  Whether they are shown correctly in 3D is up to the player: the VITURE 3D Player loads
-  them.
+  The VITURE 3D Player loads them and shows them correctly in both eyes. Subtitles are
+  not read from the disc itself yet.
 
 Output format: H.264 Full-SBS 3840×1080 at 20 Mbit/s CBR, AAC stereo 192 kbit/s per language, in a 24 Mbit/s MPEG-TS. Audio is converted to stereo (DTS/TrueHD are not supported by most mobile players).
 
@@ -189,21 +208,33 @@ Output format: H.264 Full-SBS 3840×1080 at 20 Mbit/s CBR, AAC stereo 192 kbit/s
 
 ## Troubleshooting
 
-- **A movie is missing, the log says `skipped (no MVC 3D video)`**: that MKV has no 3D data. It is a 2D rip, or the rip lost the MVC stream: rip it again with MakeMKV.
+- **The movie does not appear, the log says `cannot decrypt`**: no working key for that disc. Update your `KEYDB.cfg`, or install and register MakeMKV (native path).
+- **The log says `no 3D title found` / `no 3D content`**: it is a 2D Blu-ray; only 3D discs are handled for now (2D Blu-ray and DVD are on the [roadmap](ROADMAP.md)).
+- **Nothing happens when inserting the disc**: check that your user can read the drive (`ls -l /dev/sr0`, `cdrom` group), and for Docker that the device is passed to the container.
 - **The glasses do not see the share**: check that the PC and the glasses are on the same network, and the firewall (port 445/TCP). From another Linux PC: `smbclient -N -L //<pc-ip>`.
 - **The picture stutters**: check the Wi-Fi first (5 GHz, close to the router). Then the log of the last pipeline (`/tmp/bd3d-pipeline.log`, or `docker compose logs`).
-- **A new movie does not appear**: the folder is scanned at startup. Restart the program / the container.
+- **A new file in `MOVIES_DIR` does not appear**: folders are scanned at startup. Restart the program / the container (drives are watched continuously).
 
 ---
 
 ## How it works (for the curious)
 
-- **edge264-mvc** decodes both views of the MVC stream and writes them side by side (`edge264_test -Ok`) as raw frames. FFmpeg alone cannot do it: it drops the dependent view.
-- The encoder uses **constant bitrate** and the MPEG-TS muxer pads to exactly 24 Mbit/s (`-muxrate`). So byte _X_ of the virtual file is second _X_ / 3,000,000 of the movie.
-- A small **FUSE** file system (`src/bd3d_fs.py`) exposes the files. Sequential reads continue from the running pipeline, which pauses itself when it gets too far ahead of the player. A jump restarts the pipeline from the previous keyframe. The first and last 8 MB stay cached, because players re-read them for headers and duration.
-- **A/V sync detail**: when seeking in formats with B-frames, FFmpeg moves the seek point back by 3/23 s. Asking for exactly keyframe _K_ lands on the keyframe before it and the picture ends up ~1 s behind the audio. The video is therefore asked for _K_ + 0.2 s and the audio for exactly _K_ (see `src/pipeline.py`). Measured result: 1 ms.
+- **Reading the disc.** libbluray reads the disc (or ISO/BDMV) and decrypts it through libaacs or MakeMKV's libmmbd (`src/bluray.py`, a small ctypes binding). The movie is the longest playlist whose clips all have an MVC dependent view (`src/bdmv.py` reads playlists and clip info).
+- **Both views.** The `.ssif` file of a 3D clip interleaves base (PID 0x1011) and dependent (0x1012) view in extents. `src/ssif_demux.py` pairs the two PES packets of each frame on their DTS and writes them as Annex B for edge264. It drops the Blu-ray delimiter, filler and end-of-sequence NAL units, as MakeMKV does. libbluray older than 1.4 cannot open `.ssif` files, so the same bytes are rebuilt from the two `.m2ts` files.
+- **edge264-mvc** decodes both views and writes them side by side (`edge264_test -Ok`). FFmpeg alone cannot: it drops the dependent view.
+- **Seeking.** A time goes through the EP_map (keyframe positions) and the extent table of the clip to a byte of the `.ssif`. Movies made of several clips (Tron: two) are played in sequence, and the audio timestamps of later clips are moved onto one timeline.
+- **Audio.** `src/disc_reader.py` reads the disc once: video to edge264, the chosen audio track (with its language from the playlist) to FFmpeg through a FIFO, each from its own thread. The keyframe is forwarded with the audio as a timing anchor, so audio and video start exactly together. Measured against the MKV path: 4 ms.
+- **The virtual file.** The encoder uses **constant bitrate** and the MPEG-TS muxer pads to exactly 24 Mbit/s, so byte _X_ is second _X_ / 3,000,000 of the movie. A **FUSE** file system (`src/bd3d_fs.py`) serves the files. It restarts decoding when the player jumps and pauses the pipeline when it gets too far ahead. Only one pipeline per drive runs at a time, because two would make the optical drive seek back and forth. The end of the file, which players read to get the duration, is synthetic: black and silence with the right timestamps, so the drive is not sent to the end of the disc.
+- **Drives.** Every few seconds the drive is asked whether a disc is in (no reads). On insertion the disc is opened and its movie added; on eject it is removed.
 
 ---
+
+## Limits
+
+- Tested with **one 3D disc** (Tron: Legacy 3D), AACS only. BD+ discs (through MakeMKV) and discs with unusual structures are untested.
+- The last ~2.7 seconds of every movie (after the end credits) are black: the tail of the file is synthetic.
+- Only 3D Blu-ray for now; 2D Blu-ray and DVD are next ([roadmap](ROADMAP.md)).
+- Subtitles only as external files; audio is converted to AAC stereo.
 
 ## Windows?
 
@@ -212,5 +243,5 @@ This project is Linux only. On Windows you can look at [**SyLC**](https://github
 ## Credits and references
 
 - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc) (BSD), fork of [edge264](https://github.com/tvlabs/edge264): the MVC decoder that makes all this possible;
-- [FFmpeg](https://ffmpeg.org/), [Samba](https://www.samba.org/), [pyfuse3](https://github.com/libfuse/pyfuse3), [MakeMKV](https://www.makemkv.com/);
-- [Play 3D Blu-ray in SBS directly from the disc…](https://cybereality.com/play-3d-blu-ray-in-sbs-directly-from-the-disc-for-playback-on-3d-monitors-xr-glasses-and-vr-headsets-using-free-and-open-source-tools/) (cybereality): a similar goal, approached differently.
+- [libbluray / libaacs](https://www.videolan.org/developers/libbluray.html), [FFmpeg](https://ffmpeg.org/), [Samba](https://www.samba.org/), [pyfuse3](https://github.com/libfuse/pyfuse3), [MakeMKV](https://www.makemkv.com/);
+- [Play 3D Blu-ray in SBS directly from the disc…](https://cybereality.com/play-3d-blu-ray-in-sbs-directly-from-the-disc-for-playback-on-3d-monitors-xr-glasses-and-vr-headsets-using-free-and-open-source-tools/) (cybereality): a Windows approach (LAV Filters + madVR).

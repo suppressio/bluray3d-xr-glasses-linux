@@ -9,7 +9,7 @@
 #   - /usr/local/bin/bluray3d-xr  command to start it
 #   - /srv/bd3d                   mount point of the virtual files
 #   - /etc/fuse.conf              enables user_allow_other (Samba must read the mount)
-#   - /etc/samba/smb.conf         adds the read-only guest share [3D]
+#   - /etc/samba/smb.conf         adds the read-only guest share [Disks]
 set -euo pipefail
 
 PREFIX=/opt/bluray3d-xr
@@ -62,16 +62,16 @@ if ! grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null; then
 fi
 echo "$MOUNT ready, user_allow_other enabled"
 
-step "5/5 Samba share [3D]"
+step "5/5 Samba share [Disks]"
 if grep -qF "$MARK_BEGIN" /etc/samba/smb.conf; then
     echo "share already configured"
 else
     sudo tee -a /etc/samba/smb.conf >/dev/null <<SHARE
 
 $MARK_BEGIN
-[3D]
+[Disks]
    path = $MOUNT
-   comment = 3D Blu-ray, SBS on the fly
+   comment = Blu-ray and DVD, played on the fly
    read only = yes
    guest ok = yes
    browseable = yes
@@ -81,7 +81,7 @@ SHARE
 fi
 testparm -s >/dev/null 2>&1 || { echo "smb.conf check failed: run 'testparm' to see why"; exit 1; }
 sudo systemctl restart smbd 2>/dev/null || sudo service smbd restart
-echo "Samba share [3D] active"
+echo "Samba share [Disks] active"
 
 # Firewall: only suggest, never open ports on our own
 if command -v ufw >/dev/null && sudo ufw status | grep -q "Status: active"; then
@@ -98,6 +98,6 @@ Done. Start it with:
     bluray3d-xr --audio-lang eng /path/to/your/3D/movies   # ISO, BDMV folders, MKV rips
 Commercial discs need a decryption key database for libaacs in ~/.config/aacs/KEYDB.cfg
 (this project does not provide one), or MakeMKV installed (used via its libmmbd).
-Then on the glasses open the network share \\\\$(hostname -I | awk '{print $1}')\\3D
+Then on the glasses open the network share \\\\$(hostname -I | awk '{print $1}')\\Disks
 Stop it with Ctrl+C.
 DONE

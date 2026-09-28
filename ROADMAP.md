@@ -1,27 +1,35 @@
 🇬🇧 English | [🇮🇹 Italiano](ROADMAP.it.md)
 
-# Roadmap: from the disc, with no rip
+# Roadmap
 
-Today the project starts from an **MKV rip** that kept the 3D (MVC). That is useful
-if you already have such rips and do not want to convert them, but it is one step
-more than needed: whoever has the disc and accepts converting can already rip
-straight to SBS with existing tools.
+## Status
 
-The real goal is to **read the 3D Blu-ray itself** (disc in the drive, ISO or BDMV
-folder), decrypt and decode it on the fly, and serve it to the glasses exactly
-as today: no rip, no conversion, no disk space.
+**Done: the 3D Blu-ray plays straight from the disc.** Insert the disc, the movie
+appears in the share, it plays in 3D on the glasses with working seek and audio,
+and it disappears on eject. It also works from ISO, BDMV folders and MKV rips.
+The phases below record how it was built and verified, step by step, on Tron:
+Legacy 3D.
 
-## What is already in place
+Next steps, in this order:
 
-- **The pipeline does not care where the movie comes from.** `src/sources.py`
-  defines a `Source`: an Annex B H.264 stream with the MVC dependent view, the
-  audio, the duration, and the keyframe to start from when seeking. `MkvSource`
-  implements it for rips; a `BlurayDiscSource` only has to implement the same
-  four things. Decoder, encoder, virtual file and SMB share stay as they are.
-- **Available on Debian today**: libbluray (with `bd_open_file_dec`,
-  `bd_get_clpi`, `bd_get_playlist_info`), libudfread, libaacs, libbdplus.
+- [ ] **2D Blu-ray.** Same flow (insert the disc, the movie appears) for normal
+  Blu-rays. Almost everything is reused: libbluray, decryption, playlists, EP_map
+  seeking, audio, clip joins. What changes: plain `.m2ts` instead of `.ssif`,
+  FFmpeg decodes (no edge264), output 1920×1080 re-encoded at constant bitrate.
+- [ ] **DVD.** A new source through FFmpeg's `dvdvideo` demuxer (libdvdnav +
+  libdvdread, libdvdcss for CSS). Main title = the longest. To be checked:
+  seeking, which works differently on DVDs.
+- [ ] **One folder per kind** in the `Disks` share: `Blu-ray 3D/`, `Blu-ray/`, `DVD/`.
+- [ ] **More discs.** Only Tron: Legacy 3D is tested; discs with BD+, several
+  angles or unusual structures may need work.
 
-## The open problem: decryption
+Later, maybe:
+- subtitles read from the disc (PGS), progressively while watching, cached;
+- a "passthrough" mode for 2D discs: serve the original stream, no re-encoding
+  (full quality, but seeking depends more on the player);
+- NVIDIA encoding inside Docker (the compose file exists, untested).
+
+## Decryption
 
 Commercial discs use AACS (and some BD+). libbluray decrypts through a plugin
 chosen at runtime, so the project does not have to depend on any single tool.
@@ -58,7 +66,7 @@ MakeMKV built for FFmpeg 7 does not start on FFmpeg 8 systems (rebuild
 makemkv-oss). The beta key goes in `~/.MakeMKV/settings.conf`
 (`app_Key = "T-..."`): `makemkvcon reg` rejects it.
 
-## Phases
+## Phases (how it was built)
 
 Ordered from the cheapest to the most expensive, so that we can stop early.
 
@@ -103,21 +111,31 @@ Ordered from the cheapest to the most expensive, so that we can stop early.
   itself is forwarded in the audio TS as a timing anchor (never mapped), so
   ffmpeg's start time for that input is exactly the video's. Result at 50 min
   vs the MKV path: 719/719 video frames identical, audio offset 3.9 ms.
-- [ ] **Phase 4 — `BlurayDiscSource`.** Disc drive, ISO and BDMV folder as
-  sources. **One virtual file per movie** (the main 3D playlist, not the whole
-  disc), named from the disc metadata. For a drive the file **appears when a
-  disc is inserted and disappears when it is ejected**, so the file system has
-  to watch the drives. A single generic file whose content changes with the
-  disc would confuse players and SMB clients, which remember resume position,
-  duration and size by file name. Playlists made of several clips (Tron: 2),
-  2D/3D title detection. External subtitles: a user-provided `.srt` in a folder
-  named after the movie shows up next to it. Extracting them from the disc
-  means reading the whole disc, so that is left for later (progressive
-  extraction while watching, cached).
-- [ ] **Phase 5 — Long run on a real drive.** A whole movie plus seeks back and
-  forth. Check the drive throughput: the SSIF is ~1.3× the 1× BD speed, well
-  within any drive, but spin-up and seek latency of an optical drive are real.
-  Test on several discs, not just one.
+- [x] **Phase 4 — `BlurayDiscSource`.** Disc drive, ISO and BDMV folder as
+  sources (`src/sources.py`). **One virtual file per movie** (the main 3D
+  playlist), named from the disc metadata. For a drive the file **appears when
+  a disc is inserted and disappears when it is ejected**: a watcher asks the
+  drive for a disc every 3 s without reading it. Decryption tries libaacs, then
+  libmmbd. Titles made of several clips are played in sequence (Tron: 2); the
+  audio timestamps of later clips are moved onto the first clip's timeline.
+  What the real use taught:
+  - Blu-ray clips end with filler and an end-of-sequence NAL; after the latter
+    edge264 rejected the next clip. The demuxer now drops NAL 10/11/12, like
+    MakeMKV.
+  - The first keyframe can sit a few ms before the play item's in time; the
+    movie start mapped to a negative time and nothing played.
+  - Players read the end of the file (duration) while playing the beginning.
+    With one pipeline per file this killed playback; with two, the optical drive
+    seeked back and forth and both crawled. Now reads retry instead of returning
+    nothing, there is one pipeline per disc, and the tail of the file is
+    synthetic (black + silence with the right timestamps).
+  - libbluray < 1.4 (Debian 13, Ubuntu 24.04) cannot open `.ssif`: it is rebuilt
+    from the two `.m2ts` files, byte for byte identical.
+  Result: watched from the disc on the VITURE Neckband, seeks OK (a few seconds,
+  the drive), clip boundary seamless, eject/insert OK (file back 14 s after
+  closing the tray).
+- [~] **Phase 5 — Long run on a real drive.** Done: Tron: Legacy 3D, playback,
+  seeks, eject/insert. To do: a whole movie in one go, more discs.
 
 ## Risks
 

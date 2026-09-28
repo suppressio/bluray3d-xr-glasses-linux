@@ -12,7 +12,7 @@ fi
 if grep -qF "$MARK_BEGIN" /etc/samba/smb.conf; then
     sudo sed -i "/^$MARK_BEGIN\$/,/^$MARK_END\$/d" /etc/samba/smb.conf
     sudo systemctl restart smbd 2>/dev/null || sudo service smbd restart
-    echo "Samba share [3D] removed"
+    echo "Samba share [Disks] removed"
 fi
 sudo rm -rf /opt/bluray3d-xr /usr/local/bin/bluray3d-xr
 sudo rmdir /srv/bd3d 2>/dev/null || true

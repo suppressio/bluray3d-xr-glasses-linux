@@ -1,28 +1,38 @@
 [🇬🇧 English](ROADMAP.md) | 🇮🇹 Italiano
 
-# Roadmap: dal disco, senza rip
+# Roadmap
 
-Oggi il progetto parte da un **rip MKV** che ha conservato il 3D (MVC). È utile se
-questi rip li hai già e non vuoi convertirli, ma è un passaggio in più del
-necessario: chi ha il disco e accetta di convertire può già copiarlo
-direttamente in SBS con gli strumenti esistenti.
+## Stato
 
-Il vero obiettivo è **leggere il Blu-ray 3D stesso** (disco nel lettore, ISO o
-cartella BDMV), decifrarlo e decodificarlo al volo, e servirlo agli occhiali
-esattamente come oggi: niente rip, niente conversione, niente spazio su disco.
+**Fatto: il Blu-ray 3D si guarda direttamente dal disco.** Inserisci il disco, il
+film compare nella condivisione, si vede in 3D sugli occhiali con seek e audio
+funzionanti, e sparisce quando togli il disco. Funziona anche da ISO, cartelle
+BDMV e rip MKV. Le fasi qui sotto raccontano come è stato costruito e
+verificato, passo per passo, su Tron: Legacy 3D.
 
-## Cosa c'è già
+Prossimi passi, in quest'ordine:
 
-- **La pipeline non sa da dove arriva il film.** `src/sources.py` definisce una
-  `Source`, che deve fornire quattro cose: un flusso H.264 Annex B con la vista
-  dipendente MVC, l'audio, la durata e il keyframe da cui partire per un seek.
-  `MkvSource` le fornisce per i rip; una `BlurayDiscSource` dovrà fornire le
-  stesse quattro cose. Decoder, encoder, file virtuale e condivisione SMB
-  restano come sono.
-- **Già disponibili su Debian**: libbluray (con `bd_open_file_dec`,
-  `bd_get_clpi`, `bd_get_playlist_info`), libudfread, libaacs, libbdplus.
+- [ ] **Blu-ray 2D.** Stesso funzionamento (inserisci il disco, compare il film)
+  per i Blu-ray normali. Si riusa quasi tutto: libbluray, decifratura, playlist,
+  seek con l'EP_map, audio, passaggio tra le clip. Cosa cambia: si leggono i
+  normali `.m2ts` invece dell'`.ssif`, decodifica FFmpeg (niente edge264), uscita
+  1920×1080 ricodificata a bitrate costante.
+- [ ] **DVD.** Una nuova sorgente con il demuxer `dvdvideo` di FFmpeg (libdvdnav
+  + libdvdread, libdvdcss per il CSS). Titolo principale = il più lungo. Da
+  verificare: il seek, che sui DVD funziona in modo diverso.
+- [ ] **Una cartella per tipo** nella condivisione `Disks`: `Blu-ray 3D/`,
+  `Blu-ray/`, `DVD/`.
+- [ ] **Altri dischi.** È provato solo Tron: Legacy 3D; dischi con BD+, più
+  angolazioni o strutture insolite potrebbero richiedere lavoro.
 
-## Il problema aperto: la decifratura
+Più avanti, forse:
+- sottotitoli letti dal disco (PGS), estratti gradualmente mentre si guarda e
+  salvati;
+- una modalità "passthrough" per i dischi 2D: servire il flusso originale senza
+  ricodifica (qualità piena, ma il seek dipende di più dal player);
+- codifica NVIDIA dentro Docker (il file compose c'è, non è provato).
+
+## La decifratura
 
 I dischi commerciali usano AACS (e alcuni anche BD+). libbluray decifra tramite
 un plugin scelto al momento dell'esecuzione, quindi il progetto non deve
@@ -64,7 +74,7 @@ un'unità AACS (6144 byte). MakeMKV compilato per FFmpeg 7 non parte sui sistemi
 con FFmpeg 8 (va ricompilato makemkv-oss). La chiave beta va scritta in
 `~/.MakeMKV/settings.conf` (`app_Key = "T-..."`): `makemkvcon reg` la rifiuta.
 
-## Fasi
+## Fasi (come è stato costruito)
 
 In ordine dalla più economica alla più costosa, per potersi fermare presto.
 
@@ -115,23 +125,36 @@ In ordine dalla più economica alla più costosa, per potersi fermare presto.
   come traccia), così per ffmpeg quell'input parte esattamente dal tempo del
   video. Risultato a 50 minuti rispetto alla strada MKV: 719 fotogrammi video
   su 719 identici, scarto dell'audio 3,9 ms.
-- [ ] **Fase 4 — `BlurayDiscSource`.** Lettore, ISO e cartella BDMV come
-  sorgenti. **Un file virtuale per ogni film** (la playlist 3D principale, non
-  l'intero disco), con il nome preso dai metadati del disco. Per un lettore il
-  file **compare quando si inserisce un disco e sparisce quando lo si toglie**,
-  quindi il file system deve tenere d'occhio i lettori. Un unico file generico
-  che cambia contenuto col disco confonderebbe player e client SMB, che
-  ricordano posizione di ripresa, durata e dimensione in base al nome del
-  file. Playlist composte da più clip (Tron: 2), riconoscimento dei titoli
-  2D/3D. Sottotitoli esterni: un `.srt` fornito dall'utente in una cartella
-  col nome del film compare accanto al video. Estrarli dal disco vuol dire
-  leggerlo tutto, quindi è rimandato (estrazione graduale mentre si guarda,
-  salvata per le volte successive).
-- [ ] **Fase 5 — Prova lunga su un lettore vero.** Un film intero più seek
-  avanti e indietro. Verificare la velocità di lettura del lettore: il file
-  SSIF richiede circa 1,3 volte la velocità 1× dei Blu-ray, alla portata di
-  qualsiasi lettore, ma i tempi di avvio del disco e dei salti di un lettore
-  ottico si fanno sentire. Provare più dischi, non uno solo.
+- [x] **Fase 4 — `BlurayDiscSource`.** Lettore, ISO e cartella BDMV come
+  sorgenti (`src/sources.py`). **Un file virtuale per ogni film** (la playlist
+  3D principale), con il nome preso dai metadati del disco. Per un lettore il
+  file **compare quando inserisci un disco e sparisce quando lo togli**: ogni 3
+  secondi si chiede al lettore se c'è un disco, senza leggerlo. La decifratura
+  prova libaacs, poi libmmbd. I titoli fatti di più clip vengono letti in
+  sequenza (Tron: 2); i timestamp audio delle clip successive vengono riportati
+  sulla linea temporale della prima.
+  Cosa ha insegnato l'uso vero:
+  - le clip dei Blu-ray finiscono con riempitivo e un NAL di fine sequenza; dopo
+    quest'ultimo edge264 rifiutava la clip successiva. Il demuxer ora toglie i
+    NAL 10/11/12, come MakeMKV;
+  - il primo fotogramma chiave può stare qualche millisecondo prima dell'inizio
+    ufficiale della play item; l'inizio del film finiva a un tempo negativo e
+    non partiva niente;
+  - i player leggono la fine del file (per la durata) mentre riproducono
+    l'inizio. Con una catena per file questo fermava la riproduzione; con due,
+    il lettore ottico saltava avanti e indietro e andavano piano entrambe. Ora
+    le letture interrotte riprovano invece di restituire niente, gira una
+    catena per disco, e la fine del file è sintetica (nero + silenzio con i
+    timestamp giusti);
+  - libbluray < 1.4 (Debian 13, Ubuntu 24.04) non apre i file `.ssif`: vengono
+    ricostruiti dai due `.m2ts`, identici byte per byte.
+  Risultato: visto dal disco sul Neckband VITURE, seek funzionanti (qualche
+  secondo, per il lettore), passaggio tra le clip senza interruzioni,
+  espulsione/reinserimento funzionanti (il file torna 14 s dopo la chiusura
+  dello sportello).
+- [~] **Fase 5 — Prova lunga su un lettore vero.** Fatto: Tron: Legacy 3D,
+  riproduzione, seek, espulsione/reinserimento. Da fare: un film intero tutto
+  di seguito, altri dischi.
 
 ## Rischi
 
