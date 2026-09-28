@@ -28,14 +28,13 @@ import stat
 import subprocess
 import threading
 import time
-from pathlib import Path
 from typing import Optional
 
 import pyfuse3
 import trio
 
-from pipeline import (ENCODERS, FilmInfo, decode_command, has_mvc, keyframe_at_or_before,
-                      pick_encoder, probe_file)
+from pipeline import ENCODERS, decode_command, pick_encoder
+from sources import Source, discover
 
 log = logging.getLogger("bd3d_fs")
 
@@ -63,8 +62,8 @@ def null_padding(offset: int, size: int) -> bytes:
 class Generator:
     """A running pipeline producing the virtual file from offset `base` on."""
 
-    def __init__(self, film: FilmInfo, seconds: float, encode_args: str, log_path: str):
-        start = keyframe_at_or_before(film.path, seconds)
+    def __init__(self, source: Source, seconds: float, encode_args: str, log_path: str):
+        start = source.keyframe_at_or_before(seconds)
         # base aligned to TS packets, so bytes match the global grid
         self.base = int(start * BYTES_PER_SEC) // TS_PACKET * TS_PACKET
         self.buf = bytearray()
@@ -75,7 +74,7 @@ class Generator:
         self.cond = threading.Condition()
 
         cmd = decode_command(
-            film, start,
+            source, start,
             f"{encode_args} {COMMON_ARGS}"
             f"-output_ts_offset {start:.3f} -f mpegts -muxrate {MUXRATE} -",
         )
@@ -146,14 +145,14 @@ class Generator:
 
 
 class VirtualFile:
-    def __init__(self, inode: int, film: FilmInfo, encode_args: str, log_path: str):
+    def __init__(self, inode: int, source: Source, encode_args: str, log_path: str):
         self.inode = inode
-        self.film = film
+        self.source = source
         self.encode_args = encode_args
         self.log_path = log_path
-        self.name = f"{Path(film.path).stem} - 3D SBS.ts"
-        self.size = int(film.duration * BYTES_PER_SEC) // TS_PACKET * TS_PACKET
-        self.mtime_ns = os.stat(film.path).st_mtime_ns
+        self.name = f"{source.name} - 3D SBS.ts"
+        self.size = int(source.duration * BYTES_PER_SEC) // TS_PACKET * TS_PACKET
+        self.mtime_ns = source.mtime_ns
         self.lock = threading.Lock()
         self.gen: Optional[Generator] = None
         self.head: Optional[bytes] = None
@@ -179,7 +178,7 @@ class VirtualFile:
             if gen is None or gen.stopped or not gen.covers(offset):
                 if gen is not None:
                     gen.stop()
-                gen = self.gen = Generator(self.film, offset / BYTES_PER_SEC,
+                gen = self.gen = Generator(self.source, offset / BYTES_PER_SEC,
                                            self.encode_args, self.log_path)
 
         data = gen.read(offset, size)
@@ -281,19 +280,6 @@ class Bd3dFS(pyfuse3.Operations):
         return await trio.to_thread.run_sync(self.files[fh].read, off, size)
 
 
-def find_mkvs(sources: list[str]) -> list[str]:
-    paths = []
-    for s in sources:
-        p = Path(s).expanduser()
-        if p.is_dir():
-            paths += sorted(str(x) for x in p.rglob("*") if x.suffix.lower() == ".mkv")
-        elif p.is_file():
-            paths.append(str(p))
-        else:
-            raise SystemExit(f"not found: {s}")
-    return paths
-
-
 async def idle_watchdog(files: list[VirtualFile]):
     while True:
         await trio.sleep(10)
@@ -321,7 +307,8 @@ async def run(files: list[VirtualFile]):
 def main():
     parser = argparse.ArgumentParser(
         description="Expose 3D Blu-ray MKVs (MVC) as virtual Full-SBS .ts files.")
-    parser.add_argument("sources", nargs="+", help="MKV files or folders to scan (recursively)")
+    parser.add_argument("sources", nargs="+",
+                        help="3D Blu-ray MKV files, or folders to scan recursively")
     parser.add_argument("--mount", default="/srv/bd3d", help="mount point (default /srv/bd3d)")
     parser.add_argument("--audio-lang", help="preferred audio language, e.g. eng, ita "
                                              "(default: first audio track)")
@@ -335,19 +322,14 @@ def main():
 
     encoder = pick_encoder(args.encoder)
     log.info("video encoder: %s", encoder)
-    encode_args = ENCODERS[encoder] + (" -forced-idr 1" if encoder == "nvenc" else "")
-
     files = []
-    for path in find_mkvs(args.sources):
-        if not has_mvc(path):
-            log.info("skipped (no MVC 3D video): %s", path)
-            continue
-        film = probe_file(path, args.audio_lang)
-        vf = VirtualFile(pyfuse3.ROOT_INODE + 1 + len(files), film, encode_args, args.log_file)
+    for source in discover(args.sources, args.audio_lang):
+        vf = VirtualFile(pyfuse3.ROOT_INODE + 1 + len(files), source, ENCODERS[encoder],
+                         args.log_file)
         files.append(vf)
-        log.info("%s  (%.0f min, audio %s)", vf.name, film.duration / 60, film.audio_desc)
+        log.info("%s  (%.0f min, audio %s)", vf.name, source.duration / 60, source.audio_desc)
     if not files:
-        raise SystemExit("no 3D (MVC) MKV found")
+        raise SystemExit("no 3D (MVC) source found")
 
     options = set(pyfuse3.default_options)
     options |= {"fsname=bd3d", "ro", "allow_other"}
