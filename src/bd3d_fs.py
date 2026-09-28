@@ -205,8 +205,31 @@ class VirtualFile:
                 self.gen = None
 
 
+class SidecarFile:
+    """A real file shown next to a virtual movie (external subtitles): plain passthrough."""
+
+    def __init__(self, inode: int, name: str, path: str):
+        self.inode = inode
+        self.name = name
+        self.path = path
+        st = os.stat(path)
+        self.size = st.st_size
+        self.mtime_ns = st.st_mtime_ns
+
+    def read(self, offset: int, size: int) -> bytes:
+        with open(self.path, "rb") as f:
+            f.seek(offset)
+            return f.read(size)
+
+    def stop_if_idle(self):
+        pass
+
+    def stop(self):
+        pass
+
+
 class Bd3dFS(pyfuse3.Operations):
-    def __init__(self, files: list[VirtualFile]):
+    def __init__(self, files: list):
         super().__init__()
         self.files = {f.inode: f for f in files}
         self.by_name = {f.name.encode(): f for f in files}
@@ -280,7 +303,7 @@ class Bd3dFS(pyfuse3.Operations):
         return await trio.to_thread.run_sync(self.files[fh].read, off, size)
 
 
-async def idle_watchdog(files: list[VirtualFile]):
+async def idle_watchdog(files: list):
     while True:
         await trio.sleep(10)
         for f in files:
@@ -296,7 +319,7 @@ async def terminate_on_sigterm():
             return
 
 
-async def run(files: list[VirtualFile]):
+async def run(files: list):
     async with trio.open_nursery() as nursery:
         nursery.start_soon(idle_watchdog, files)
         nursery.start_soon(terminate_on_sigterm)
@@ -310,8 +333,9 @@ def main():
     parser.add_argument("sources", nargs="+",
                         help="3D Blu-ray MKV files, or folders to scan recursively")
     parser.add_argument("--mount", default="/srv/bd3d", help="mount point (default /srv/bd3d)")
-    parser.add_argument("--audio-lang", help="preferred audio language, e.g. eng, ita "
-                                             "(default: first audio track)")
+    parser.add_argument("--audio-lang",
+                        help="audio track languages to include, in order, e.g. ita,eng "
+                             "(the player lets you switch; default: first audio track)")
     parser.add_argument("--encoder", choices=["auto", *ENCODERS], default="auto",
                         help="auto = NVENC if available, else x264 on the CPU")
     parser.add_argument("--log-file", default="/tmp/bd3d-pipeline.log",
@@ -322,12 +346,20 @@ def main():
 
     encoder = pick_encoder(args.encoder)
     log.info("video encoder: %s", encoder)
+    audio_langs = [x.strip() for x in args.audio_lang.split(",")] if args.audio_lang else None
     files = []
-    for source in discover(args.sources, args.audio_lang):
+    for source in discover(args.sources, audio_langs):
         vf = VirtualFile(pyfuse3.ROOT_INODE + 1 + len(files), source, ENCODERS[encoder],
                          args.log_file)
         files.append(vf)
         log.info("%s  (%.0f min, audio %s)", vf.name, source.duration / 60, source.audio_desc)
+        # external subtitles: "movie.ita.srt" -> "movie - 3D SBS.ita.srt", so that
+        # players pair them with the video (whether they show them in 3D is up to them)
+        for suffix, path in source.sidecars:
+            sc = SidecarFile(pyfuse3.ROOT_INODE + 1 + len(files),
+                             vf.name[:-len(".ts")] + suffix, path)
+            files.append(sc)
+            log.info("  + %s", sc.name)
     if not files:
         raise SystemExit("no 3D (MVC) source found")
 

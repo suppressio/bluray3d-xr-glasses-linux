@@ -42,6 +42,7 @@ class Source(ABC):
     name: str            # shown in the share as "<name> - 3D SBS.ts"
     duration: float      # seconds
     audio_desc: str      # for the log
+    sidecars: list       # (suffix, path) of external subtitle files, e.g. (".ita.srt", "/x/movie.ita.srt")
     mtime_ns: int        # timestamp shown for the virtual file
 
     @abstractmethod
@@ -64,10 +65,11 @@ class Source(ABC):
 class MkvSource(Source):
     """A MakeMKV rip. MakeMKV keeps the MVC NAL units inside the video track."""
 
-    def __init__(self, path: str, audio_lang: Optional[str] = None):
+    def __init__(self, path: str, audio_langs: Optional[list[str]] = None):
         self.path = path
         self.name = Path(path).stem
         self.mtime_ns = os.stat(path).st_mtime_ns
+        self.sidecars = find_sidecars(path)
         info = ffprobe_json(
             "-show_entries", "format=duration:stream=index,codec_type,codec_name,channels"
             ":stream_tags=language,title",
@@ -75,15 +77,19 @@ class MkvSource(Source):
         )
         self.duration = float(info["format"].get("duration", 0))
         audio = [s for s in info["streams"] if s.get("codec_type") == "audio"]
-        chosen = next((s for s in audio if s.get("tags", {}).get("language") == audio_lang),
-                      audio[0] if audio else None)
-        self.audio_index = chosen["index"] if chosen else None
-        if chosen is None:
-            self.audio_desc = "none"
-        else:
-            tags = chosen.get("tags", {})
-            self.audio_desc = (f"#{chosen['index']} {tags.get('language', '?')} "
-                               f"{chosen.get('codec_name')} {tags.get('title', '')}").strip()
+        # one track per requested language, in the requested order (the player
+        # lists them in this order); none found -> the first track
+        chosen = []
+        for lang in audio_langs or []:
+            track = next((s for s in audio if s.get("tags", {}).get("language") == lang), None)
+            if track is not None:
+                chosen.append(track)
+        if not chosen and audio:
+            chosen = [audio[0]]
+        self.audio_indexes = [s["index"] for s in chosen]
+        self.audio_desc = ", ".join(
+            f"#{s['index']} {s.get('tags', {}).get('language', '?')} {s.get('codec_name')}"
+            for s in chosen) or "none"
 
     @staticmethod
     def has_mvc(path: str) -> bool:
@@ -130,10 +136,28 @@ class MkvSource(Source):
         return f"{ss}-i {shlex.quote(self.path)}"
 
     def audio_map(self) -> str:
-        return f"-map 1:{self.audio_index}" if self.audio_index is not None else ""
+        return " ".join(f"-map 1:{i}" for i in self.audio_indexes)
 
 
-def discover(paths: list[str], audio_lang: Optional[str] = None) -> list[Source]:
+SUBTITLE_EXTENSIONS = (".srt", ".ass", ".ssa", ".sup", ".sub", ".idx", ".vtt")
+
+
+def find_sidecars(movie_path: str) -> list[tuple[str, str]]:
+    """External subtitle files next to the movie: "movie.srt", "movie.ita.srt", ...
+
+    Returned as (suffix after the movie name, path), so they can be exposed next
+    to the virtual file with the same suffix and players pick them up.
+    """
+    movie = Path(movie_path)
+    found = []
+    for p in sorted(movie.parent.iterdir()):
+        if (p.is_file() and p.suffix.lower() in SUBTITLE_EXTENSIONS
+                and p.name.startswith(movie.stem + ".")):
+            found.append((p.name[len(movie.stem):], str(p)))
+    return found
+
+
+def discover(paths: list[str], audio_langs: Optional[list[str]] = None) -> list[Source]:
     """Turn command line arguments (files, folders) into sources."""
     candidates = []
     for s in paths:
@@ -152,5 +176,5 @@ def discover(paths: list[str], audio_lang: Optional[str] = None) -> list[Source]
         elif not MkvSource.has_mvc(str(p)):
             log.info("skipped (no MVC 3D video): %s", p)
         else:
-            sources.append(MkvSource(str(p), audio_lang))
+            sources.append(MkvSource(str(p), audio_langs))
     return sources
