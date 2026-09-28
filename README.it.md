@@ -43,9 +43,9 @@ Tutte le procedure descritte sono un compromesso ragionato tra il "manuale" e il
 ## Requisiti
 
 #### Hardware
-- **Un lettore Blu-ray** nel PC Linux, che legge anche i DVD (provato: TSSTcorp SH-B123L).
-- **Un PC Linux** sulla stessa rete degli occhiali. Decodificare l'MVC è lavoro per la CPU: provato su un Ryzen 9 5900X (decodifica a circa 9 volte il tempo reale). Non ho provato CPU meno potenti.
-- **Facoltativa: una GPU NVIDIA**, per codificare con NVENC. Senza, il video viene codificato dalla CPU con x264 (sul 5900X comunque circa 6 volte il tempo reale).
+- **Un lettore Blu-ray** nel PC Linux (interno o USB), che legge anche i DVD.
+- **Un PC Linux** sulla stessa rete degli occhiali. Decodificare l'MVC è lavoro per la CPU: basta una CPU desktop recente con più core (sul PC di prova la decodifica va a circa 9 volte il tempo reale). CPU a basso consumo non sono state provate.
+- **Facoltativa: una GPU NVIDIA**, per codificare con NVENC. Senza, il video viene codificato dalla CPU con x264 (sulla stessa CPU comunque circa 6 volte il tempo reale).
 - **Occhiali XR + un player** che apra video da una cartella di rete SMB e riproduca il 3D SBS. Provato: VITURE Pro XR + Pro Neckband, 3D Player ufficiale.
 - **RAM**: circa 0,5 GB liberi mentre guardi un film. Su disco non si scrive nulla: la pipeline prepara in memoria fino a circa 256 MB in anticipo sul player e ne tiene circa 190 già letti per i piccoli salti indietro, più 16 MB (inizio e fine) per ogni file aperto.
 - **Un buon Wi-Fi** (consigliati i 5 GHz): 15 Mbit/s per il 2D, 24 Mbit/s per il 3D, meno con le copie in `Light/` (vedi [Rete e qualità](OPTIONS.it.md#rete-e-qualità)).
@@ -140,7 +140,7 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
 Si ferma con `Ctrl+C`. Per aggiornare all'ultima versione: `./scripts/update.sh`. Per togliere tutto: `./scripts/uninstall.sh`.
 
-Lo script è provato con lettore e disco veri in container puliti Debian 13 (trixie) e Ubuntu 24.04; il programma gira sul mio PC con Debian testing.
+Lo script è provato con lettore e disco veri in container puliti Debian 13 (trixie) e Ubuntu 24.04; il programma gira ogni giorno su Debian testing.
 
 ---
 

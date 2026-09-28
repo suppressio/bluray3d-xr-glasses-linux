@@ -44,8 +44,8 @@ Più avanti, forse:
   ricodifica (qualità piena, ma il seek dipende di più dal player);
 - codifica NVIDIA dentro Docker (il file compose c'è, non è provato);
 - codifica VAAPI per le GPU Intel e AMD (`h264_vaapi`, non provata: qui non ce
-  ne sono). Senza NVIDIA codifica la CPU (x264): su un Ryzen 9 5900X la sola
-  codifica 3D va a 1,4x il tempo reale con 2 core, 3,5x con tutti e 12.
+  ne sono). Senza NVIDIA codifica la CPU (x264): su una CPU desktop recente a
+  12 core la sola codifica 3D va a 1,4x il tempo reale con 2 core, 3,5x con tutti e 12.
 
 ## La decifratura
 

@@ -43,9 +43,9 @@ All the procedures described here are a balanced compromise between "manual" and
 ## Requirements
 
 #### Hardware
-- **A Blu-ray drive** in the Linux PC, which reads DVDs too (tested: TSSTcorp SH-B123L).
-- **A Linux PC** on the same network as the glasses. Decoding MVC is CPU work: tested on a Ryzen 9 5900X (decoding ~9× real time). Weaker CPUs have not been tested.
-- **Optional: an NVIDIA GPU** to encode with NVENC. Without it the video is encoded by the CPU with x264 (on the 5900X still ~6× real time).
+- **A Blu-ray drive** in the Linux PC (internal or USB), which reads DVDs too.
+- **A Linux PC** on the same network as the glasses. Decoding MVC is CPU work: a recent multi-core desktop CPU is plenty (on the test PC decoding runs at ~9× real time). Low-power CPUs have not been tested.
+- **Optional: an NVIDIA GPU** to encode with NVENC. Without it the video is encoded by the CPU with x264 (on the same CPU still ~6× real time).
 - **XR glasses + a player** that opens videos from an SMB network share and plays SBS 3D. Tested: VITURE Pro XR + Pro Neckband, official 3D Player.
 - **RAM**: about 0.5 GB free while a movie plays. Nothing is written to disk: the pipeline prepares up to ~256 MB ahead of the player in memory and keeps ~190 MB behind for short jumps back, plus 16 MB (start and end) per file opened.
 - **A good Wi-Fi connection** (5 GHz recommended): 15 Mbit/s for 2D, 24 Mbit/s for 3D, less with the `Light/` copies (see [Network and quality](OPTIONS.md#network-and-quality)).
@@ -140,7 +140,7 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
 Stop it with `Ctrl+C`. To update to the latest version: `./scripts/update.sh`. To remove everything: `./scripts/uninstall.sh`.
 
-The script is tested with the real drive and disc in clean Debian 13 (trixie) and Ubuntu 24.04 containers; the program runs on my Debian testing PC.
+The script is tested with the real drive and disc in clean Debian 13 (trixie) and Ubuntu 24.04 containers; the program itself runs daily on Debian testing.
 
 ---
 

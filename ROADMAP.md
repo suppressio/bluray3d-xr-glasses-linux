@@ -43,8 +43,8 @@ Later, maybe:
   (full quality, but seeking depends more on the player);
 - NVIDIA encoding inside Docker (the compose file exists, untested);
 - VAAPI encoding for Intel and AMD GPUs (`h264_vaapi`, untested: no such GPU
-  here). Without NVIDIA the CPU encodes (x264): on a Ryzen 9 5900X the 3D
-  encode alone runs at 1.4x real time on 2 cores, 3.5x on all 12.
+  here). Without NVIDIA the CPU encodes (x264): on a recent 12-core desktop
+  CPU the 3D encode alone runs at 1.4x real time on 2 cores, 3.5x on all 12.
 
 ## Decryption
 
