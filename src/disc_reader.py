@@ -23,7 +23,7 @@ import queue
 import sys
 import threading
 
-from bdmv import open_ssif, parse_clpi, parse_mpls, ssif_seek
+from bdmv import m2ts_seek, open_ssif, parse_clpi, parse_mpls, ssif_seek
 from bluray import Disc
 from ssif_demux import BASE_PID, SOURCE_PACKET, SsifDemuxer, _timestamp
 
@@ -225,6 +225,104 @@ class AudioTap:
         self.thread.join()
 
 
+class Remux2D:
+    """2D Blu-ray: the clip's transport stream filtered for ffmpeg. Keeps PAT, the
+    PMT (only the forwarded streams), video 0x1011 and the chosen audio PIDs.
+    Video starts at the keyframe, audio at its first PES presented at or after it,
+    so both start together. PES outside the play item's [in, out) are dropped and
+    later clips are moved onto the first clip's timeline, like the 3D audio."""
+
+    def __init__(self, out, audio_pids: set[int], start_pts: int):
+        self.out = out
+        self.pids = audio_pids | {BASE_PID}
+        self.pmt_filter = AudioTap.__new__(AudioTap)   # reuse its PMT rewriting
+        self.pmt_filter.pmt, self.pmt_filter.pmt_cc = bytearray(), 0
+        self.pmt_filter.keep = self.pids
+        self.start = start_pts & ~0x1FF
+        self.anchor_pts = None
+        self.keeping: dict[int, bool] = {}
+        self.started: set[int] = set()
+        self.delta, self.lo, self.hi = 0, None, None
+        self.broken = False
+
+    def set_clip(self, delta: int, in_pts: int, out_pts: int):
+        self.delta, self.lo, self.hi = delta, in_pts, out_pts
+
+    def feed(self, unit: bytes):
+        buf = bytearray()
+        for off in range(0, len(unit) - SOURCE_PACKET + 1, SOURCE_PACKET):
+            p = unit[off + 4:off + SOURCE_PACKET]
+            pid = ((p[1] & 0x1F) << 8) | p[2]
+            pusi = p[1] & 0x40
+            if pid == PAT_PID:
+                buf += p
+                continue
+            if pid == PMT_PID:
+                buf += self.pmt_filter._pmt(p, pusi)
+                continue
+            if pid not in self.pids:
+                continue
+            if pusi:
+                pts = AudioTap._pes_pts(p)
+                keep = pts is not None
+                if keep and self.anchor_pts is None:
+                    # nothing until the keyframe we start from
+                    keep = pid == BASE_PID and pts & ~0x1FF == self.start
+                    if keep:
+                        self.anchor_pts = pts
+                elif keep and pid != BASE_PID and pid not in self.started:
+                    keep = (pts - self.anchor_pts) % (1 << 33) < 1 << 32
+                if keep and self.lo is not None:
+                    keep = self.lo <= pts < self.hi
+                self.keeping[pid] = keep
+                if keep:
+                    self.started.add(pid)
+                if keep and self.delta:
+                    p = bytearray(p)
+                    AudioTap._shift_timestamps(p, self.delta)
+            if self.keeping.get(pid):
+                buf += p
+        if buf:
+            try:
+                self.out.write(buf)
+            except BrokenPipeError:
+                self.broken = True
+
+
+def run_2d(disc, items, starts, first, args):
+    out = sys.stdout.buffer
+    remux = None
+    try:
+        for i in range(first, len(items)):
+            item = items[i]
+            clip = parse_clpi(disc.read_file(f"BDMV/CLIPINF/{item.clip}.clpi"))
+            if i == first:
+                sp = m2ts_seek(item, clip, args.start - starts[i])
+                offset = sp.ssif_offset
+                remux = Remux2D(out, {int(p, 0) for p in args.audio_pid}, sp.pts90)
+                print(f"disc_reader: clip {item.clip}, keyframe {starts[i] + sp.time:.3f}s,"
+                      f" m2ts offset {offset}", file=sys.stderr)
+            else:
+                offset = 0
+                print(f"disc_reader: clip {item.clip} from {starts[i]:.3f}s", file=sys.stderr)
+            ref = items[first]
+            remux.set_clip(round((starts[i] - starts[first]) * 90000)
+                           - 2 * (item.in_time - ref.in_time),
+                           2 * item.in_time, 2 * item.out_time)
+            with disc.open(f"BDMV/STREAM/{item.clip}.m2ts") as f:
+                f.seek(offset)
+                while (unit := f.read_unit()) and not remux.broken:
+                    remux.feed(unit)
+            if remux.broken:
+                break
+    finally:
+        try:
+            out.flush()
+            sys.stdout.close()
+        except BrokenPipeError:
+            pass
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("disc", help="/dev/sr0, an .iso or a folder containing BDMV/")
@@ -233,7 +331,9 @@ def main():
                     help="seconds from the start of the title (all its clips)")
     ap.add_argument("--audio-pid", action="append", default=[],
                     help="audio PID to forward (repeatable), e.g. 0x1102")
-    ap.add_argument("--audio-out", help="file or FIFO for the audio TS")
+    ap.add_argument("--audio-out", help="3D: file or FIFO for the audio TS")
+    ap.add_argument("--mode", choices=["3d", "2d"], default="3d",
+                    help="3d: Annex B MVC on stdout + audio TS; 2d: one filtered TS on stdout")
     args = ap.parse_args()
 
     out = sys.stdout.buffer
@@ -243,6 +343,8 @@ def main():
         for it in items[:-1]:
             starts.append(starts[-1] + it.duration)
         first = max(i for i, t in enumerate(starts) if t <= max(0.0, args.start))
+        if args.mode == "2d":
+            return run_2d(disc, items, starts, first, args)
 
         video = VideoWriter(out)
         tap = None
@@ -295,4 +397,9 @@ def main():
 
 if __name__ == "__main__":
     os.environ.setdefault("PYTHONUNBUFFERED", "1")
-    main()
+    try:
+        main()
+    except BrokenPipeError:
+        pass
+    # the consumer may be gone (seek, stop): keep Python quiet when it flushes stdout at exit
+    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())

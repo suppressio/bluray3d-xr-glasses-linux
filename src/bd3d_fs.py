@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-bd3d_fs.py — virtual file system (FUSE): every 3D Blu-ray MKV shows up as a file
-"<movie> - 3D SBS.ts" (Full-SBS 3840x1080) that does not exist on disk. When a
-player reads a piece of it, that piece is decoded on the fly from the MKV.
+bd3d_fs.py — virtual file system (FUSE): every Blu-ray (disc in the drive, ISO,
+BDMV folder, 3D MKV rip) shows up as a file that does not exist on disk, e.g.
+"Blu-ray 3D/ITA - <movie> - 3D SBS.ts" (Full-SBS 3840x1080) or
+"Blu-ray/ITA - <movie>.ts". When a player reads a piece of it, that piece is
+decoded on the fly from the source.
 
 The trick is a constant-bitrate MPEG-TS (-muxrate): byte X of the file always
 matches second X / bytes_per_sec of the movie. So:
@@ -52,7 +54,8 @@ IDLE_STOP = 120                      # seconds without reads before stopping the
 TAIL_ALIGN = 47 * 4096               # multiple of both a TS packet (188) and a memory page
 
 COMMON_ARGS = "-g 24 -c:a aac -ac 2 -b:a 192k "
-MULTI_AUDIO_DIR = "Multi-audio"      # --audio-files both: where the all-tracks files go
+MULTI_AUDIO_DIR = "Multi-audio"
+KINDS = ["Blu-ray 3D", "Blu-ray"]    # one folder per kind of disc in the share      # --audio-files both: where the all-tracks files go
 
 
 def null_padding(offset: int, size: int) -> bytes:
@@ -161,7 +164,7 @@ class VirtualFile:
         self.encode_args = encode_args
         self.log_path = log_path
         # the language goes first: players cut long names, and it must stay visible
-        self.name = f"{source.label + ' - ' if source.label else ''}{source.name} - 3D SBS.ts"
+        self.name = f"{source.label + ' - ' if source.label else ''}{source.name}{source.name_suffix}.ts"
         self.size = int(source.duration * BYTES_PER_SEC) // TS_PACKET * TS_PACKET
         # the tail is served synthetic; aligned so the kernel's page-aligned reads
         # never start just before it
@@ -200,7 +203,7 @@ class VirtualFile:
         length = self.size - tail_start
         t0 = tail_start / BYTES_PER_SEC
         n_audio = max(1, len(self.source.audio_langs))
-        inputs = " ".join(["-f lavfi -i color=black:s=3840x1080:r=24000/1001"] +
+        inputs = " ".join([f"-f lavfi -i color=black:s={self.source.frame_size}:r=24000/1001"] +
                           ["-f lavfi -i anullsrc=r=48000:cl=stereo"] * n_audio)
         maps = " ".join(["-map 0:v"] + [f"-map {i + 1}:a" for i in range(n_audio)])
         langs = " ".join(f"-metadata:s:a:{i} language={lang}"
@@ -324,11 +327,11 @@ class Bd3dFS(pyfuse3.Operations):
         # drop what the kernel cached about the name, or it would linger
         pyfuse3.invalidate_entry_async(e.parent, e.name.encode(), ignore_enoent=True)
 
-    def folder(self, name: str) -> Folder:
-        """Sub-folder of the root, created on first use."""
-        e = self.by_name.get((pyfuse3.ROOT_INODE, name.encode()))
+    def folder(self, name: str, parent: int = pyfuse3.ROOT_INODE) -> Folder:
+        """Sub-folder, created on first use."""
+        e = self.by_name.get((parent, name.encode()))
         if e is None:
-            e = Folder(self.new_inode(), name)
+            e = Folder(self.new_inode(), name, parent)
             self.add(e)
         return e
 
@@ -419,7 +422,9 @@ class Library:
     def _add_movie(self, source: Source, parent: int) -> list:
         vf = VirtualFile(self.fs.new_inode(), source, self.encode_args, self.log_file, parent)
         added = [vf]
-        where = f"{MULTI_AUDIO_DIR}/" if parent != pyfuse3.ROOT_INODE else ""
+        where, node = "", self.fs.nodes.get(parent)
+        while node is not None and node.inode != pyfuse3.ROOT_INODE:
+            where, node = f"{node.name}/{where}", self.fs.nodes.get(node.parent)
         log.info("+ %s%s  (%.0f min, audio %s)", where, vf.name, source.duration / 60,
                  source.audio_desc)
         # external subtitles: "movie.ita.srt" -> "movie - 3D SBS.ita.srt", so that
@@ -433,14 +438,16 @@ class Library:
         return added
 
     def add(self, source: Source) -> list:
+        """Files go in the folder of their kind: Blu-ray 3D/, Blu-ray/ ..."""
+        category = self.fs.folder(source.category).inode
         variants = source.variants()
         if self.audio_files == "single" or len(variants) == 1:
-            return self._add_movie(source, pyfuse3.ROOT_INODE)
+            return self._add_movie(source, category)
         added = []
         for v in variants:
-            added += self._add_movie(v, pyfuse3.ROOT_INODE)
+            added += self._add_movie(v, category)
         if self.audio_files == "both":
-            added += self._add_movie(source, self.fs.folder(MULTI_AUDIO_DIR).inode)
+            added += self._add_movie(source, self.fs.folder(MULTI_AUDIO_DIR, category).inode)
         return added
 
     def remove(self, entries: list) -> None:
@@ -448,11 +455,12 @@ class Library:
             e.stop()
             self.fs.remove(e)
             log.info("- %s", e.name)
-        # a sub-folder left empty (e.g. Multi-audio/ after the last disc) goes too
+        # a Multi-audio/ left empty goes too; the folders of each kind stay
         folders = {e.parent for e in entries} - {pyfuse3.ROOT_INODE}
         for inode in folders:
             folder = self.fs.nodes.get(inode)
-            if folder is not None and not self.fs.children.get(inode):
+            if (folder is not None and folder.parent != pyfuse3.ROOT_INODE
+                    and not self.fs.children.get(inode)):
                 self.fs.remove(folder)
 
 
@@ -523,7 +531,7 @@ async def run(fs: Bd3dFS, library: Library, drives: list[str], audio_langs):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Expose 3D Blu-rays (MVC) as virtual Full-SBS .ts files.")
+        description="Expose Blu-rays (3D as Full-SBS) as virtual .ts files on a share.")
     parser.add_argument("sources", nargs="+",
                         help="Blu-ray drives (/dev/sr0: the movie appears when a disc is "
                              "inserted), ISO files, BDMV folders, 3D MKV rips, or folders "
@@ -554,12 +562,14 @@ def main():
 
     fs = Bd3dFS()
     library = Library(fs, ENCODERS[encoder], args.log_file, args.audio_files)
+    for kind in KINDS:                  # always visible, so one knows where to look
+        fs.folder(kind)
     for source in discover(others, audio_langs) if others else []:
         library.add(source)
     if not fs.files() and not drives:
-        raise SystemExit("no 3D (MVC) source found")
+        raise SystemExit("no source found")
     for device in drives:
-        log.info("watching %s: insert a 3D Blu-ray", device)
+        log.info("watching %s: insert a Blu-ray", device)
 
     options = set(pyfuse3.default_options)
     options |= {"fsname=bd3d", "ro", "allow_other"}

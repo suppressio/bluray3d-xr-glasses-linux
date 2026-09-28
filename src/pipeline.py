@@ -32,6 +32,13 @@ def pick_encoder(requested: str = "auto") -> str:
 
 def decode_command(source: Source, start: float, output_args: str) -> str:
     """Full shell pipeline from keyframe `start`; output_args = codecs + output of the last ffmpeg."""
+    if source.two_d:
+        # 2D disc: one transport stream with video and audio, ffmpeg decodes it all
+        return (
+            f"{source.video_command(start)} "
+            f"| ffmpeg -nostdin -v warning -f mpegts -analyzeduration 2000000 "
+            f"-probesize 10000000 -i - -map 0:i:0x1011 {source.audio_map(0)} {output_args}"
+        )
     return (
         f"{source.video_command(start)} "
         f"| edge264_test - -Ok "

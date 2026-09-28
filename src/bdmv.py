@@ -179,6 +179,15 @@ def ssif_seek(item: PlayItem, base: Clip, dep: Clip, seconds: float) -> SeekPoin
     return SeekPoint((pts45 - item.in_time) / 45000, pts45 * 2, offset)
 
 
+def m2ts_seek(item: PlayItem, clip: Clip, seconds: float) -> SeekPoint:
+    """2D clip: where to start reading the .m2ts to decode from the keyframe <= seconds."""
+    target = item.in_time + int(seconds * 45000)
+    i = max(0, bisect.bisect_right(clip.ep_pts, target) - 1)
+    pts45, spn = clip.ep_pts[i], clip.ep_spn[i]
+    offset = spn // AACS_UNIT_PACKETS * AACS_UNIT_PACKETS * SOURCE_PACKET
+    return SeekPoint((pts45 - item.in_time) / 45000, pts45 * 2, offset)
+
+
 class EmulatedSsif:
     """The .ssif byte stream rebuilt from the base and dependent .m2ts files.
 

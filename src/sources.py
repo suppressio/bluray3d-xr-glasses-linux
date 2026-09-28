@@ -51,6 +51,10 @@ class Source(ABC):
     mtime_ns: int        # timestamp shown for the virtual file
 
     label: str = ""      # prefix of the file name of a variant, e.g. "ITA"
+    category: str = "Blu-ray 3D"    # folder of the share it goes in
+    name_suffix: str = " - 3D SBS"  # after the movie name in the file name
+    two_d: bool = False  # True: video_command gives one TS with video and audio for ffmpeg
+    frame_size: str = "3840x1080"   # output picture size (Full-SBS for 3D)
     audio_langs: list    # languages of the audio tracks the pipeline outputs, in order
     # Pipelines that may run at once on this source. A disc is one optical drive:
     # two pipelines reading far-apart places make its head jump back and forth
@@ -232,8 +236,28 @@ def _safe_name(name: str) -> str:
     return re.sub(r"\s+", " ", name).strip(" .-") or "Blu-ray"
 
 
+AUDIO_PREFERENCE = ["dts-hd ma", "dts-hd", "dts", "ac3", "eac3", "lpcm", "truehd"]
+
+
+def _pick_audio(audio: list, langs: Optional[list[str]]) -> list:
+    """One track per requested language, in that order; none found -> the first track.
+    Within a language, TrueHD comes last: its PID also carries an AC-3 core that
+    ffmpeg shows as a second stream, and players rarely decode it anyway."""
+    rank = {c: n for n, c in enumerate(AUDIO_PREFERENCE)}
+    chosen = []
+    for lang in langs or []:
+        tracks = [a for a in audio if a.lang == lang]
+        if tracks:
+            chosen.append(min(tracks, key=lambda a: rank.get(a.codec, len(rank))))
+    return chosen or audio[:1]
+
+
 class BlurayDiscSource(Source):
-    """A 3D Blu-ray title read straight from a drive, an ISO or a BDMV folder."""
+    """A Blu-ray title read straight from a drive, an ISO or a BDMV folder.
+
+    3D: the longest playlist whose clips all have an MVC dependent view, decoded
+    by edge264 into Full-SBS. Otherwise 2D: the longest playlist, decoded by ffmpeg.
+    """
 
     max_pipelines = 1
 
@@ -242,24 +266,33 @@ class BlurayDiscSource(Source):
         self.path = path
         disc, info, self.env = _open_disc(path)
         try:
-            if not info.has_3d:
-                raise OSError(f"{path}: no 3D content")
-            # main title: the longest playlist whose every clip has an MVC dependent view
-            for title in sorted(disc.titles(), key=lambda t: -t.duration):
-                items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
-                if items and all(it.dep_clip for it in items):
-                    break
-            else:
-                raise OSError(f"{path}: no 3D title found")
+            titles = sorted(disc.titles(), key=lambda t: -t.duration)
+            if not titles:
+                raise OSError(f"{path}: no title found")
+            chosen = None
+            if info.has_3d:
+                for title in titles:
+                    items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
+                    if items and all(it.dep_clip for it in items):
+                        chosen = (title, items)
+                        break
+            self.two_d = chosen is None
+            if self.two_d:
+                title = titles[0]
+                chosen = (title, parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls")))
+            title, items = chosen
             self.playlist, self.items = title.playlist, items
             self.clips = {}
             for it in items:
-                self.clips[it.clip] = (
-                    parse_clpi(disc.read_file(f"BDMV/CLIPINF/{it.clip}.clpi")),
-                    parse_clpi(disc.read_file(f"BDMV/CLIPINF/{it.dep_clip}.clpi"), pid=0x1012))
+                base = parse_clpi(disc.read_file(f"BDMV/CLIPINF/{it.clip}.clpi"))
+                dep = None if self.two_d else \
+                    parse_clpi(disc.read_file(f"BDMV/CLIPINF/{it.dep_clip}.clpi"), pid=0x1012)
+                self.clips[it.clip] = (base, dep)
         finally:
             disc.close()
 
+        if self.two_d:
+            self.category, self.name_suffix, self.frame_size = "Blu-ray", "", "1920x1080"
         self.name = _safe_name(info.name or info.volume_id.replace("_", " ").title())
         self.duration = sum(it.duration for it in items)
         self.starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
@@ -267,13 +300,11 @@ class BlurayDiscSource(Source):
         self.mtime_ns = time.time_ns() if stat.S_ISBLK(st.st_mode) else st.st_mtime_ns
         self.sidecars = [] if stat.S_ISBLK(st.st_mode) else find_sidecars(path)
 
-        audio = items[0].audio or []
-        chosen = [a for lang in audio_langs or [] for a in audio if a.lang == lang]
-        chosen = list({a.lang: a for a in reversed(chosen)}.values())[::-1] or audio[:1]
-        self.audio_pids = [a.pid for a in chosen]
-        self.audio_langs = [a.lang for a in chosen]
-        self.audio_desc = ", ".join(f"{a.pid:#x} {a.lang} {a.codec}" for a in chosen) or "none"
-        self._fifo_dir = tempfile.mkdtemp(prefix="bd3d-")
+        chosen_audio = _pick_audio(items[0].audio or [], audio_langs)
+        self.audio_pids = [a.pid for a in chosen_audio]
+        self.audio_langs = [a.lang for a in chosen_audio]
+        self.audio_desc = ", ".join(f"{a.pid:#x} {a.lang} {a.codec}" for a in chosen_audio) or "none"
+        self._fifo_dir = None if self.two_d else tempfile.mkdtemp(prefix="bd3d-")
         self._fifo = None
 
     def variants(self) -> list[Source]:
@@ -288,33 +319,38 @@ class BlurayDiscSource(Source):
         return out
 
     def keyframe_at_or_before(self, seconds: float) -> float:
-        from bdmv import ssif_seek
+        from bdmv import m2ts_seek, ssif_seek
         i = max(n for n, t in enumerate(self.starts) if t <= max(0.0, seconds))
         item = self.items[i]
         base, dep = self.clips[item.clip]
+        rel = seconds - self.starts[i]
+        sp = m2ts_seek(item, base, rel) if self.two_d else ssif_seek(item, base, dep, rel)
         # the first keyframe of a clip can sit a few ms before the play item's
         # in time: never report a start before the clip itself (or before 0)
-        return self.starts[i] + max(0.0, ssif_seek(item, base, dep, seconds - self.starts[i]).time)
+        return self.starts[i] + max(0.0, sp.time)
 
     def video_command(self, start: float) -> str:
-        # one FIFO per pipeline start: disc_reader writes the audio TS into it
+        env = " ".join(f"{k}={v}" for k, v in self.env.items())
+        pids = " ".join(f"--audio-pid {p:#x}" for p in self.audio_pids)
+        # +2 ms: `start` is an EP_map time (truncated), make sure the same entry is found
+        cmd = (f"{env} {shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'disc_reader.py'))} "
+               f"{shlex.quote(self.path)} --playlist {self.playlist} --start {start + 0.002:.3f} "
+               f"{pids}")
+        if self.two_d:
+            return f"{cmd} --mode 2d".strip()
+        # 3D: one FIFO per pipeline start, disc_reader writes the audio TS into it
         if self._fifo and os.path.exists(self._fifo):
             os.unlink(self._fifo)
         self._fifo = os.path.join(self._fifo_dir, f"audio{next(_fifo_ids)}.ts")
         os.mkfifo(self._fifo)
-        env = " ".join(f"{k}={v}" for k, v in self.env.items())
-        pids = " ".join(f"--audio-pid {p:#x}" for p in self.audio_pids)
-        # +2 ms: `start` is an EP_map time (truncated), make sure the same entry is found
-        return (f"{env} {shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'disc_reader.py'))} "
-                f"{shlex.quote(self.path)} --playlist {self.playlist} --start {start + 0.002:.3f} "
-                f"{pids} --audio-out {shlex.quote(self._fifo)}").strip()
+        return f"{cmd} --audio-out {shlex.quote(self._fifo)}".strip()
 
     def audio_input(self, start: float) -> str:
         return f"-f mpegts -analyzeduration 1000000 -probesize 5000000 -i {shlex.quote(self._fifo)}"
 
-    def audio_map(self) -> str:
+    def audio_map(self, input_index: int = 1) -> str:
         # the disc's PMT carries no language: take it from the playlist's STN table
-        return " ".join(f"-map 1:i:{p:#x} -metadata:s:a:{n} language={lang}"
+        return " ".join(f"-map {input_index}:i:{p:#x} -metadata:s:a:{n} language={lang}"
                         for n, (p, lang) in enumerate(zip(self.audio_pids, self.audio_langs)))
 
 
