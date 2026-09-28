@@ -25,6 +25,12 @@ Next steps, in this order:
   structures may need work.
 
 Later, maybe:
+- **watching together**, two people with their own glasses in sync: a shared
+  live stream (RTSP/HLS via mediamtx) with shared pause/seek from a web remote.
+  Two players reading the same file already works, but each has its own
+  position. Limits: the VITURE 3D Player opens only SMB files, not network
+  streams, and separate players stay ~1 s apart unless they support a sync
+  protocol;
 - a "passthrough" mode for 2D discs: serve the original stream, no re-encoding
   (full quality, but seeking depends more on the player);
 - NVIDIA encoding inside Docker (the compose file exists, untested).

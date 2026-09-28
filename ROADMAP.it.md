@@ -26,6 +26,12 @@ Prossimi passi, in quest'ordine:
   strutture insolite potrebbero richiedere lavoro.
 
 Più avanti, forse:
+- **visione di coppia**, due persone con i propri occhiali, sincronizzate: un
+  flusso live condiviso (RTSP/HLS con mediamtx) con pausa e salti comuni da un
+  telecomando web. Due player che leggono lo stesso file funzionano già, ma
+  ognuno ha la sua posizione. Limiti: il 3D Player VITURE apre solo file SMB,
+  non flussi di rete, e player separati restano a circa 1 s di distanza a meno
+  che supportino un protocollo di sincronizzazione;
 - una modalità "passthrough" per i dischi 2D: servire il flusso originale senza
   ricodifica (qualità piena, ma il seek dipende di più dal player);
 - codifica NVIDIA dentro Docker (il file compose c'è, non è provato).
