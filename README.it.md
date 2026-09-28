@@ -43,7 +43,7 @@ Tutte le procedure descritte sono un compromesso ragionato tra il "manuale" e il
 ## Requisiti
 
 #### Hardware
-- **Un lettore Blu-ray** nel PC Linux (interno o USB), che legge anche i DVD.
+- **Un lettore Blu-ray** nel PC Linux (interno o USB), che legge anche i DVD. Di solito si chiama `/dev/sr0`; se ce n'è più di uno, `lsblk -d -o NAME,MODEL | grep sr` dice qual è quale.
 - **Un PC Linux** sulla stessa rete degli occhiali. Decodificare l'MVC è lavoro per la CPU: basta una CPU desktop recente con più core (sul PC di prova la decodifica va a circa 9 volte il tempo reale). CPU a basso consumo non sono state provate.
 - **Facoltativa: una GPU NVIDIA**, per codificare con NVENC. Senza, il video viene codificato dalla CPU con x264 (sulla stessa CPU comunque circa 6 volte il tempo reale).
 - **Occhiali XR + un player** che apra video da una cartella di rete SMB e riproduca il 3D SBS. Provato: VITURE Pro XR + Pro Neckband, 3D Player ufficiale.
@@ -98,14 +98,14 @@ cp .env.example .env
 ```console
 docker compose up -d --build
 ```
-- [ ] Inserisci un Blu-ray 3D e guarda il log:
+- [ ] Inserisci un disco (Blu-ray 3D o 2D, DVD) e guarda il log:
 ```console
 docker compose logs -f
 ```
 ```
-watching /dev/sr0: insert a 3D Blu-ray
+watching /dev/sr0: insert a Blu-ray
 /dev/sr0: disc inserted, opening it
-+ ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, audio 0x1102 ita dts)
++ Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts)
 ```
 
 Per fermarlo: `docker compose down`. Per aggiornare: `git pull && docker compose up -d --build`.
@@ -192,7 +192,7 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 
 - **Il film non compare e il log dice `cannot decrypt`**: nessuna chiave funzionante per quel disco. Aggiorna il `KEYDB.cfg`, oppure installa e registra MakeMKV (strada nativa).
 - **La riproduzione si ferma ogni pochi secondi**: il Wi-Fi è troppo lento per quel file: aprilo da `Light/`, altro in [Rete e qualità](OPTIONS.it.md#rete-e-qualità).
-- **Inserendo il disco non succede niente**: verifica che il tuo utente possa leggere il lettore (`ls -l /dev/sr0`, gruppo `cdrom`) e, con Docker, che il dispositivo sia passato al container.
+- **Inserendo il disco non succede niente**: verifica che il lettore sia davvero `/dev/sr0` (`lsblk -d -o NAME,MODEL | grep sr`), che il tuo utente possa leggerlo (`ls -l /dev/sr0`, gruppo `cdrom`) e, con Docker, che il dispositivo sia passato al container.
 - **Gli occhiali non vedono la cartella condivisa**: verifica che PC e occhiali siano sulla stessa rete, e controlla il firewall (porta 445/TCP). Da un altro PC Linux: `smbclient -N -L //<ip-del-pc>`.
 - **L'immagine va a scatti**: controlla prima il Wi-Fi (5 GHz, vicino al router). Poi il log dell'ultima pipeline (`/tmp/bd3d-pipeline.log`, oppure `docker compose logs`).
 - **Un file nuovo in `MOVIES_DIR` non compare**: le cartelle vengono lette all'avvio. Riavvia il programma o il container (i lettori invece sono controllati di continuo).

@@ -43,7 +43,7 @@ All the procedures described here are a balanced compromise between "manual" and
 ## Requirements
 
 #### Hardware
-- **A Blu-ray drive** in the Linux PC (internal or USB), which reads DVDs too.
+- **A Blu-ray drive** in the Linux PC (internal or USB), which reads DVDs too. Its name is usually `/dev/sr0`; with more than one drive, `lsblk -d -o NAME,MODEL | grep sr` tells which is which.
 - **A Linux PC** on the same network as the glasses. Decoding MVC is CPU work: a recent multi-core desktop CPU is plenty (on the test PC decoding runs at ~9× real time). Low-power CPUs have not been tested.
 - **Optional: an NVIDIA GPU** to encode with NVENC. Without it the video is encoded by the CPU with x264 (on the same CPU still ~6× real time).
 - **XR glasses + a player** that opens videos from an SMB network share and plays SBS 3D. Tested: VITURE Pro XR + Pro Neckband, official 3D Player.
@@ -98,14 +98,14 @@ cp .env.example .env
 ```console
 docker compose up -d --build
 ```
-- [ ] Insert a 3D Blu-ray and check the log:
+- [ ] Insert a disc (3D or 2D Blu-ray, DVD) and check the log:
 ```console
 docker compose logs -f
 ```
 ```
-watching /dev/sr0: insert a 3D Blu-ray
+watching /dev/sr0: insert a Blu-ray
 /dev/sr0: disc inserted, opening it
-+ ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, audio 0x1102 ita dts)
++ Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts)
 ```
 
 Stop it with `docker compose down`. To update: `git pull && docker compose up -d --build`.
@@ -192,7 +192,7 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 
 - **The movie does not appear, the log says `cannot decrypt`**: no working key for that disc. Update your `KEYDB.cfg`, or install and register MakeMKV (native path).
 - **Playback pauses every few seconds**: the Wi-Fi is too slow for the file: open it from `Light/`, more in [Network and quality](OPTIONS.md#network-and-quality).
-- **Nothing happens when inserting the disc**: check that your user can read the drive (`ls -l /dev/sr0`, `cdrom` group), and for Docker that the device is passed to the container.
+- **Nothing happens when inserting the disc**: check that the drive really is `/dev/sr0` (`lsblk -d -o NAME,MODEL | grep sr`), that your user can read it (`ls -l /dev/sr0`, `cdrom` group), and for Docker that the device is passed to the container.
 - **The glasses do not see the share**: check that the PC and the glasses are on the same network, and the firewall (port 445/TCP). From another Linux PC: `smbclient -N -L //<pc-ip>`.
 - **The picture stutters**: check the Wi-Fi first (5 GHz, close to the router). Then the log of the last pipeline (`/tmp/bd3d-pipeline.log`, or `docker compose logs`).
 - **A new file in `MOVIES_DIR` does not appear**: folders are scanned at startup. Restart the program / the container (drives are watched continuously).
