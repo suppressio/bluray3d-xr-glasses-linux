@@ -20,7 +20,7 @@ Next steps, in this order:
   does (Blu-ray PGS, 2D and 3D, DVD subpictures): one version per subtitle
   language, forced subtitles always in. Reading them out as external files would
   mean reading the whole disc first, too slow. 3D ones sit at a fixed depth.
-  Verified on the DVD and the 3D Blu-ray; 2D Blu-ray ones not yet on a real disc.
+  Verified on all three kinds of disc.
 - [x] **Faster jumps.** After a jump the player still sends reads for the
   position it left; on a disc (one pipeline at a time) they kept restarting the
   old position and stopping the new one. Now they are answered from the old
@@ -84,8 +84,6 @@ makemkv-oss). The beta key goes in `~/.MakeMKV/settings.conf`
 (`app_Key = "T-..."`): `makemkvcon reg` rejects it.
 
 ## Phases (how it was built)
-
-Ordered from the cheapest to the most expensive, so that we can stop early.
 
 - [x] **Phase 0 — Access**, once per decryption backend (libaacs, libmmbd,
   decrypted BDMV). With the disc in the drive: libbluray opens it, lists the
@@ -153,19 +151,3 @@ Ordered from the cheapest to the most expensive, so that we can stop early.
   closing the tray).
 - [~] **Phase 5 — Long run on a real drive.** Done: Tron: Legacy 3D, playback,
   seeks, eject/insert. To do: a whole movie in one go, more discs.
-
-## Risks
-
-| Risk | Impact | Mitigation |
-|---|---|---|
-| Decryption keys (AACS revocations, BD+) | new discs stop opening even if the code is right | rely on libmmbd/MakeMKV or a user-maintained KEYDB; never ship keys |
-| Demux bugs (wrong base/dependent interleaving) | wrong 3D with no visible error | Phase 1 validates against the MKV path frame by frame |
-| Seek granularity / latency on a real drive | worse experience than with the MKV | measure in Phase 2 and 5 before claiming an improvement |
-| Unusual disc structures (seamless branching, several clips) | some titles fail | Phase 4, several discs in testing |
-| Effort | time spent without a result | phases ordered to stop early |
-
-## Stop if
-
-- the discs that matter do not decrypt with libmmbd / libaacs;
-- Phase 1 turns out disproportionate for the benefit;
-- the MKV path is enough for real use.

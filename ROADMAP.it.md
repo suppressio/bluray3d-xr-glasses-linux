@@ -21,7 +21,7 @@ Prossimi passi, in quest'ordine:
   salotto (PGS dei Blu-ray, 2D e 3D, sottotitoli dei DVD): una versione per ogni
   lingua, quelli forzati sempre presenti. Estrarli come file esterni vorrebbe dire
   leggere prima tutto il disco, troppo lento. Quelli 3D hanno una profondità fissa.
-  Verificati sul DVD e sul Blu-ray 3D; quelli dei Blu-ray 2D non ancora su un disco vero.
+  Verificati su tutti e tre i tipi di disco.
 - [x] **Salti più rapidi.** Dopo un salto il player manda ancora letture per la
   posizione che ha lasciato; su un disco (una pipeline alla volta) facevano
   ripartire la posizione vecchia e fermavano quella nuova. Ora ricevono i dati
@@ -90,8 +90,6 @@ con FFmpeg 8 (va ricompilato makemkv-oss). La chiave beta va scritta in
 `~/.MakeMKV/settings.conf` (`app_Key = "T-..."`): `makemkvcon reg` la rifiuta.
 
 ## Fasi (come è stato costruito)
-
-In ordine dalla più economica alla più costosa, per potersi fermare presto.
 
 - [x] **Fase 0 — Accesso**, una volta per ogni opzione di decifratura (libaacs,
   libmmbd, BDMV decifrato). Con il disco nel lettore: libbluray lo apre,
@@ -170,19 +168,3 @@ In ordine dalla più economica alla più costosa, per potersi fermare presto.
 - [~] **Fase 5 — Prova lunga su un lettore vero.** Fatto: Tron: Legacy 3D,
   riproduzione, seek, espulsione/reinserimento. Da fare: un film intero tutto
   di seguito, altri dischi.
-
-## Rischi
-
-| Rischio | Impatto | Mitigazione |
-|---|---|---|
-| Chiavi di decifratura (revoche AACS, BD+) | dischi nuovi che smettono di aprirsi anche con il codice giusto | appoggiarsi a libmmbd/MakeMKV o a un KEYDB mantenuto dall'utente; mai distribuire chiavi |
-| Errori nel demux (base e dipendente interlacciate male) | 3D sbagliato senza errori visibili | la Fase 1 confronta con l'MKV fotogramma per fotogramma |
-| Precisione e lentezza del seek su un lettore vero | esperienza peggiore rispetto all'MKV | misurarle nelle Fasi 2 e 5 prima di dichiarare un miglioramento |
-| Dischi con struttura insolita (seamless branching, più clip) | alcuni titoli non funzionano | Fase 4, prove su più dischi |
-| Impegno di sviluppo | tempo speso senza risultato | fasi ordinate per fermarsi presto |
-
-## Fermarsi se
-
-- i dischi che contano non si decifrano con libmmbd / libaacs;
-- la Fase 1 si rivela sproporzionata rispetto al beneficio;
-- la strada MKV basta per l'uso reale.
