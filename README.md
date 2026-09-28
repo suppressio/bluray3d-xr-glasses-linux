@@ -48,7 +48,7 @@ All the procedures described here are a balanced compromise between "manual" and
 - **Optional: an NVIDIA GPU** to encode with NVENC. Without it the video is encoded by the CPU with x264 (on the 5900X still ~6× real time).
 - **XR glasses + a player** that opens videos from an SMB network share and plays SBS 3D. Tested: VITURE Pro XR + Pro Neckband, official 3D Player.
 - **RAM**: about 0.5 GB free while a movie plays. Nothing is written to disk: the pipeline prepares up to ~256 MB ahead of the player in memory and keeps ~190 MB behind for short jumps back, plus 16 MB (start and end) per file opened.
-- **A good Wi-Fi connection** (5 GHz recommended): 15 Mbit/s for 2D, 24 Mbit/s for 3D, less with the `Light/` copies (see [Network and quality](#network-and-quality)).
+- **A good Wi-Fi connection** (5 GHz recommended): 15 Mbit/s for 2D, 24 Mbit/s for 3D, less with the `Light/` copies (see [Network and quality](OPTIONS.md#network-and-quality)).
 
 #### Decryption: bring your own keys
 Commercial Blu-rays are encrypted (AACS, some also BD+). The project **does not provide or download any key**; it uses what you have, in this order:
@@ -93,7 +93,7 @@ cp .env.example .env
   - `DRIVE=/dev/sr0` to watch the Blu-ray drive, and in `docker-compose.yml` uncomment the `- /dev/sr0` line under `devices`;
   - `AACS_DIR` = the folder containing your `KEYDB.cfg`;
   - `MOVIES_DIR` = a folder with ISO, BDMV folders or MKV rips (can be empty if you only use the drive);
-  - `AUDIO_LANG` = the languages you want, e.g. `ita,eng`; empty or `all` = every language on the disc.
+  - `AUDIO_LANG` and `SUBS` = the audio and subtitle languages you want, e.g. `ita,eng` (the rest: [OPTIONS.md](OPTIONS.md)).
 - [ ] Build and start (the first build takes a few minutes: it compiles edge264 for your CPU):
 ```console
 docker compose up -d --build
@@ -149,7 +149,7 @@ The script is tested with the real drive and disc in clean Debian 13 (trixie) an
 ##### From your VITURE Neckband:
 - [ ] Open the **3D Player**, go to the **Local network** tab and add the PC: its IP address (`hostname -I` on the PC tells you), guest / anonymous access.
 - [ ] Insert the disc in the PC and wait about 15 seconds.
-- [ ] Open the **Disks** folder (go back and in again if it looks empty). 3D discs are in `Blu-ray 3D/` as `ITA - <movie> - 3D SBS.ts`, normal ones in `Blu-ray/` as `ITA - <movie>.ts`: one file per audio language, plus one per subtitle language (`ITAsubENG - ...`: Italian audio, English subtitles). A folder shows up only while there is a movie in it. `Light/` has the same movies at a lower bitrate (see [Network and quality](#network-and-quality)).
+- [ ] Open the **Disks** folder (go back and in again if it looks empty). 3D discs are in `Blu-ray 3D/` as `ITA - <movie> - 3D SBS.ts`, normal ones in `Blu-ray/` as `ITA - <movie>.ts`: one file per audio language, plus versions with subtitles (`ITAsubENG - ...`: Italian audio, English subtitles). `Light/` has the same movies at a lower bitrate, for weak Wi-Fi.
 
 ```
 Disks/
@@ -167,7 +167,7 @@ Disks/
 ```
 - [ ] Open it. The player recognizes the side-by-side format and switches to 3D by itself. 🎉
 
-The first opening and every jump with the seek bar take a few seconds: that is the drive moving to the new point. With `--loader spinner.mp4` (any short looping video), a jump made while playing shows it until the movie is ready, instead of a frozen picture; it costs the first seconds after the landing point. When paused, the player just waits for the movie's frame.
+The first opening and every jump with the seek bar take a few seconds: that is the drive moving to the new point.
 
 **PLEASE NOTE!** In some movies part of the scenes are 2D on purpose (in _Tron: Legacy_, the "real world" parts). There the two eyes get the same picture: it is not a bug.
 
@@ -179,96 +179,25 @@ Anything that opens videos from an SMB share and shows SBS 3D should work. Some 
 
 ---
 
-## Sources
+## Languages, subtitles, quality
 
-Besides a drive, the program accepts the same content in other forms (all at once is fine):
-
-| Source | Example | Notes |
-|---|---|---|
-| Blu-ray drive | `/dev/sr0` | the movie appears when a disc is inserted, disappears on eject |
-| ISO image | `~/Videos/3D/Tron.iso` | read and decrypted like the disc |
-| BDMV folder | `~/Videos/3D/Tron/` (contains `BDMV/`) | e.g. a MakeMKV "backup"; unencrypted ones need no keys |
-| VIDEO_TS folder | `~/Videos/DVD/BTTF/` (contains `VIDEO_TS/`) | a DVD copied to disk; ISO files can be Blu-ray or DVD |
-| MKV rip | `~/Videos/3D/Tron.mkv` | a MakeMKV rip that kept the 3D (MVC); files without 3D are skipped |
-| Folder | `~/Videos/3D` | scanned recursively for all of the above |
-
+The defaults offer everything on the disc. Most people want only their languages:
 ```console
-bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
+bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
-
-## Options
-
-| Option | `.env` (Docker) | Command line (native) | Default |
-|---|---|---|---|
-| Blu-ray drive | `DRIVE` | positional argument, e.g. `/dev/sr0` | — |
-| Folder with ISO / BDMV / MKV | `MOVIES_DIR` | positional arguments | — |
-| Audio languages | `AUDIO_LANG` | `--audio-lang ita,eng` or `all` | `all`: every language on the disc |
-| One file per language, one with all, or both | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
-| Subtitle languages (versions with subtitles drawn in) | `SUBS` | `--subs ita,eng`, `all` or `none` | `all` |
-| 3D subtitle depth (pixels) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
-| Lower-bitrate copies in `Light/` | `LIGHT=on\|off` | `--light` / `--no-light` | on |
-| Animation after a jump | — | `--loader video.mp4` or `none` | `none` |
-| Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
-| Mount point | — | `--mount` | `/srv/bd3d` |
-| Pipeline log | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
-
-#### Audio languages and subtitles
-- **Languages**: by default every language on the disc is offered, one track each (the best one: DTS-HD MA, DTS, AC-3... before TrueHD); `--audio-lang ita,eng` limits the choice and sets the order. Each language becomes **its own file**
-  (`ITA - movie - 3D SBS.ts`, `ENG - movie - 3D SBS.ts`; the language comes first because
-  players cut long names). The VITURE 3D Player has no audio track menu and picks a track
-  on its own, so this is the default. If your player does have an audio menu,
-  `--audio-files single` puts all languages in one file. `both` offers both at once: the
-  per-language files, plus the all-languages file in a `Multi-audio/` folder. Useful with
-  several devices; the files are virtual, so the extra ones cost nothing.
-- **Subtitles from the disc** (Blu-ray, 3D Blu-ray, DVD, 3D MKV) are **drawn into the
-  picture**, like a disc player does: no external files, so they work in any player.
-  Every subtitle language is an extra version of each audio file: `ITAsubITA - movie`,
-  `ITAsubENG - movie` (Italian audio with Italian / English subtitles); in `Multi-audio/`
-  they are `subITA - movie`. The plain `ITA - movie` has no subtitles, except the
-  **forced** ones of its language (the lines for foreign-language dialogue), which are
-  always drawn in.
-  Discs often carry 10+ subtitle languages and the default `all` offers them all, times
-  every audio language: **set `--subs` to the ones you read**, e.g. `--subs ita,eng`
-  (`none` for no subtitle versions).
-- **3D subtitles** are drawn in both eyes, each copy moved inward by `--sub-depth` pixels
-  (default 8), so they float slightly in front of the screen. Raise it if they look
-  "inside" the scene, `0` puts them on the screen plane.
-- **External subtitle files** also work: put them next to an ISO/BDMV/MKV with the same
-  name (`movie.srt`, `movie.ita.srt`, also `.ass`, `.sup`...). They show up next to every
-  virtual video with the matching name, and the player loads them as external subtitles
-  (the VITURE 3D Player shows them correctly in both eyes).
-
-## Network and quality
-
-Every file has a **constant bitrate**: that is what lets a byte of the file match a second of the movie. So a file **cannot adapt to the network** the way YouTube does. Instead, every movie is offered at two bitrates:
-
-| | Normal | `Light/` |
-|---|---|---|
-| **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) |
-| **2D** (1920×1080) | 15 Mbit/s (video 12) | 6.5 Mbit/s (video 5) |
-| **DVD** (1024×576 PAL, 854×480 NTSC) | 5 Mbit/s (video 4) | 2.4 Mbit/s (video 1.8) |
-
-Audio: AAC stereo 192 kbit/s per language (DTS/TrueHD are not supported by most mobile players); a file with several languages (`Multi-audio/`) is 0.22 Mbit/s bigger for each extra one. Video: H.264.
-
-If playback **pauses every few seconds**, the Wi-Fi cannot keep up with that bitrate (a thick wall is enough):
-- open the same movie from **`Light/`**;
-- in **VLC**, raise the network cache (*Settings → Advanced → Network caching*) to 5000-10000 ms: it rides out short Wi-Fi drops;
-- the program notices it and says so in its log:
-  ```
-  Blu-ray/ITA - Ready Player One.ts: the player receives 77% of the data rate the movie needs:
-  the network is too slow for this file, playback will pause (try Light/)
-  ```
+(Docker: `AUDIO_LANG=ita,eng` and `SUBS=ita,eng` in `.env`.) Every other option, and ISO files, BDMV/VIDEO_TS folders or MKV rips instead of a drive: [**OPTIONS.md**](OPTIONS.md).
 
 ---
 
 ## Troubleshooting
 
 - **The movie does not appear, the log says `cannot decrypt`**: no working key for that disc. Update your `KEYDB.cfg`, or install and register MakeMKV (native path).
-- **Playback pauses every few seconds**: the Wi-Fi is too slow for the file; see [Network and quality](#network-and-quality).
+- **Playback pauses every few seconds**: the Wi-Fi is too slow for the file: open it from `Light/`, more in [Network and quality](OPTIONS.md#network-and-quality).
 - **Nothing happens when inserting the disc**: check that your user can read the drive (`ls -l /dev/sr0`, `cdrom` group), and for Docker that the device is passed to the container.
 - **The glasses do not see the share**: check that the PC and the glasses are on the same network, and the firewall (port 445/TCP). From another Linux PC: `smbclient -N -L //<pc-ip>`.
 - **The picture stutters**: check the Wi-Fi first (5 GHz, close to the router). Then the log of the last pipeline (`/tmp/bd3d-pipeline.log`, or `docker compose logs`).
 - **A new file in `MOVIES_DIR` does not appear**: folders are scanned at startup. Restart the program / the container (drives are watched continuously).
+- **After a jump the picture freezes for a few seconds**: that is the drive moving to the new point. [OPTIONS.md](OPTIONS.md#loading-animation-after-a-jump) explains an optional loading animation, and what it costs.
 
 ---
 

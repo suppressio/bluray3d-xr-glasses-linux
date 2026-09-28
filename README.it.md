@@ -48,7 +48,7 @@ Tutte le procedure descritte sono un compromesso ragionato tra il "manuale" e il
 - **Facoltativa: una GPU NVIDIA**, per codificare con NVENC. Senza, il video viene codificato dalla CPU con x264 (sul 5900X comunque circa 6 volte il tempo reale).
 - **Occhiali XR + un player** che apra video da una cartella di rete SMB e riproduca il 3D SBS. Provato: VITURE Pro XR + Pro Neckband, 3D Player ufficiale.
 - **RAM**: circa 0,5 GB liberi mentre guardi un film. Su disco non si scrive nulla: la pipeline prepara in memoria fino a circa 256 MB in anticipo sul player e ne tiene circa 190 già letti per i piccoli salti indietro, più 16 MB (inizio e fine) per ogni file aperto.
-- **Un buon Wi-Fi** (consigliati i 5 GHz): 15 Mbit/s per il 2D, 24 Mbit/s per il 3D, meno con le copie in `Light/` (vedi [Rete e qualità](#rete-e-qualità)).
+- **Un buon Wi-Fi** (consigliati i 5 GHz): 15 Mbit/s per il 2D, 24 Mbit/s per il 3D, meno con le copie in `Light/` (vedi [Rete e qualità](OPTIONS.it.md#rete-e-qualità)).
 
 #### Decifratura: le chiavi le porti tu
 I Blu-ray commerciali sono cifrati (AACS, alcuni anche BD+). Il progetto **non fornisce e non scarica chiavi**; usa quello che hai, in quest'ordine:
@@ -93,7 +93,7 @@ cp .env.example .env
   - `DRIVE=/dev/sr0` per tenere d'occhio il lettore Blu-ray; in `docker-compose.yml` togli il commento alla riga `- /dev/sr0` sotto `devices`;
   - `AACS_DIR` = la cartella che contiene il tuo `KEYDB.cfg`;
   - `MOVIES_DIR` = una cartella con ISO, cartelle BDMV o rip MKV (può essere vuota se usi solo il lettore);
-  - `AUDIO_LANG` = le lingue che vuoi, per esempio `ita,eng`; vuoto o `all` = tutte le lingue del disco.
+  - `AUDIO_LANG` e `SUBS` = le lingue audio e dei sottotitoli che vuoi, per esempio `ita,eng` (il resto: [OPTIONS.it.md](OPTIONS.it.md)).
 - [ ] Costruisci e avvia. La prima volta ci vuole qualche minuto, perché compila edge264 per la tua CPU:
 ```console
 docker compose up -d --build
@@ -149,7 +149,7 @@ Lo script è provato con lettore e disco veri in container puliti Debian 13 (tri
 ##### Dal Neckband VITURE:
 - [ ] Apri il **3D Player**, vai nella scheda **Rete locale** e aggiungi il PC: il suo indirizzo IP (sul PC lo trovi con `hostname -I`), accesso ospite / anonimo.
 - [ ] Inserisci il disco nel PC e aspetta circa 15 secondi.
-- [ ] Apri la cartella **Disks** (se sembra vuota, torna indietro e rientra). I dischi 3D sono in `Blu-ray 3D/` come `ITA - <film> - 3D SBS.ts`, quelli normali in `Blu-ray/` come `ITA - <film>.ts`: un file per ogni lingua audio, più uno per ogni lingua dei sottotitoli (`ITAsubENG - ...`: audio italiano, sottotitoli inglesi). Una cartella compare solo quando contiene un film. In `Light/` ci sono gli stessi film a un bitrate più basso (vedi [Rete e qualità](#rete-e-qualità)).
+- [ ] Apri la cartella **Disks** (se sembra vuota, torna indietro e rientra). I dischi 3D sono in `Blu-ray 3D/` come `ITA - <film> - 3D SBS.ts`, quelli normali in `Blu-ray/` come `ITA - <film>.ts`: un file per ogni lingua audio, più le versioni con i sottotitoli (`ITAsubENG - ...`: audio italiano, sottotitoli inglesi). In `Light/` ci sono gli stessi film a un bitrate più basso, per il Wi-Fi debole.
 
 ```
 Disks/
@@ -167,7 +167,7 @@ Disks/
 ```
 - [ ] Aprilo. Il player riconosce il formato affiancato e passa in 3D da solo. 🎉
 
-La prima apertura e ogni salto con la barra richiedono qualche secondo: è il lettore che si sposta nel nuovo punto. Con `--loader spinner.mp4` (un qualsiasi video breve in loop), un salto fatto durante la riproduzione lo mostra finché il film non è pronto, invece dell'immagine ferma; costa i primi secondi dopo il punto di arrivo. In pausa il player aspetta semplicemente il fotogramma del film.
+La prima apertura e ogni salto con la barra richiedono qualche secondo: è il lettore che si sposta nel nuovo punto.
 
 **ATTENZIONE!** In alcuni film una parte delle scene è in 2D per scelta (in _Tron: Legacy_ le parti nel "mondo reale"). Lì i due occhi ricevono la stessa immagine: non è un errore.
 
@@ -179,96 +179,25 @@ Qualsiasi cosa apra video da una cartella SMB e mostri il 3D SBS dovrebbe andare
 
 ---
 
-## Sorgenti
+## Lingue, sottotitoli, qualità
 
-Oltre al lettore, il programma accetta lo stesso contenuto in altre forme (anche tutte insieme):
-
-| Sorgente | Esempio | Note |
-|---|---|---|
-| Lettore Blu-ray | `/dev/sr0` | il film compare quando inserisci un disco e sparisce quando lo togli |
-| Immagine ISO | `~/Video/3D/Tron.iso` | letta e decifrata come il disco |
-| Cartella BDMV | `~/Video/3D/Tron/` (contiene `BDMV/`) | per esempio un "backup" di MakeMKV; quelle non cifrate non richiedono chiavi |
-| Cartella VIDEO_TS | `~/Video/DVD/RAF/` (contiene `VIDEO_TS/`) | un DVD copiato su disco; i file ISO possono essere Blu-ray o DVD |
-| Rip MKV | `~/Video/3D/Tron.mkv` | un rip di MakeMKV che ha conservato il 3D (MVC); i file senza 3D vengono saltati |
-| Cartella | `~/Video/3D` | esplorata con tutte le sottocartelle, per tutto quanto sopra |
-
+Le impostazioni predefinite offrono tutto quello che c'è sul disco. Di solito si vogliono solo le proprie lingue:
 ```console
-bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
+bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
-
-## Opzioni
-
-| Opzione | `.env` (Docker) | Riga di comando (nativo) | Predefinito |
-|---|---|---|---|
-| Lettore Blu-ray | `DRIVE` | argomento, per esempio `/dev/sr0` | — |
-| Cartella con ISO / BDMV / MKV | `MOVIES_DIR` | argomenti posizionali | — |
-| Lingue audio | `AUDIO_LANG` | `--audio-lang ita,eng` oppure `all` | `all`: tutte le lingue del disco |
-| Un file per lingua, uno con tutte, o entrambi | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
-| Lingue dei sottotitoli (versioni con i sottotitoli disegnati) | `SUBS` | `--subs ita,eng`, `all` oppure `none` | `all` |
-| Profondità dei sottotitoli 3D (pixel) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
-| Copie a bitrate ridotto in `Light/` | `LIGHT=on\|off` | `--light` / `--no-light` | attive |
-| Animazione dopo un salto | — | `--loader video.mp4` oppure `none` | `none` |
-| Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
-| Punto di montaggio | — | `--mount` | `/srv/bd3d` |
-| Log della pipeline | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
-
-#### Lingue audio e sottotitoli
-- **Lingue**: per default vengono offerte tutte le lingue del disco, una traccia ciascuna (la migliore: DTS-HD MA, DTS, AC-3… prima della TrueHD); `--audio-lang ita,eng` limita la scelta e ne fissa l'ordine. Ogni lingua diventa **un file a sé**
-  (`ITA - film - 3D SBS.ts`, `ENG - film - 3D SBS.ts`; la lingua è all'inizio perché i player
-  tagliano i nomi lunghi). Il 3D Player VITURE non ha un menu per le tracce audio e ne sceglie
-  una da solo, per questo è il comportamento predefinito. Se il tuo player il menu ce l'ha,
-  `--audio-files single` mette tutte le lingue in un file solo. `both` offre le due cose
-  insieme: i file per lingua, più quello con tutte le lingue in una cartella `Multi-audio/`.
-  È utile con più dispositivi; i file sono virtuali, quindi quelli in più non costano nulla.
-- **I sottotitoli del disco** (Blu-ray, Blu-ray 3D, DVD, MKV 3D) vengono **disegnati
-  nell'immagine**, come fa un lettore da salotto: niente file esterni, quindi funzionano con
-  qualsiasi player. Ogni lingua dei sottotitoli è una versione in più di ogni file audio:
-  `ITAsubITA - film`, `ITAsubENG - film` (audio italiano con sottotitoli italiani / inglesi);
-  in `Multi-audio/` si chiamano `subITA - film`. Il semplice `ITA - film` è senza
-  sottotitoli, tranne quelli **forzati** della sua lingua (le battute in lingua straniera),
-  che vengono sempre disegnati.
-  I dischi hanno spesso più di 10 lingue di sottotitoli e il predefinito `all` le offre
-  tutte, per ogni lingua audio: **imposta `--subs` con quelle che leggi**, per esempio
-  `--subs ita,eng` (`none` per nessuna versione sottotitolata).
-- **I sottotitoli 3D** sono disegnati in entrambi gli occhi, ogni copia spostata verso
-  l'interno di `--sub-depth` pixel (predefinito 8), così galleggiano poco davanti allo
-  schermo. Aumentalo se sembrano "dentro" la scena, `0` li mette sul piano dello schermo.
-- Funzionano anche **file di sottotitoli esterni**: mettili accanto a un ISO/BDMV/MKV con lo
-  stesso nome (`film.srt`, `film.ita.srt`, anche `.ass`, `.sup`…). Compaiono accanto a ogni
-  video virtuale con il nome abbinato, e il player li carica come sottotitoli esterni (il 3D
-  Player VITURE li mostra correttamente in entrambi gli occhi).
-
-## Rete e qualità
-
-Ogni file ha un **bitrate costante**: è quello che permette di far corrispondere un byte del file a un secondo del film. Quindi un file **non può adattarsi alla rete** come fa YouTube. Ogni film viene invece offerto a due bitrate:
-
-| | Normale | `Light/` |
-|---|---|---|
-| **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) |
-| **2D** (1920×1080) | 15 Mbit/s (video 12) | 6,5 Mbit/s (video 5) |
-| **DVD** (1024×576 PAL, 854×480 NTSC) | 5 Mbit/s (video 4) | 2,4 Mbit/s (video 1,8) |
-
-Audio: AAC stereo 192 kbit/s per lingua (DTS e TrueHD non sono supportati dalla maggior parte dei player mobili); un file con più lingue (`Multi-audio/`) cresce di 0,22 Mbit/s per ogni lingua in più. Video: H.264.
-
-Se la riproduzione **si ferma ogni pochi secondi**, il Wi-Fi non regge quel bitrate (basta un muro spesso):
-- apri lo stesso film da **`Light/`**;
-- in **VLC** aumenta la cache di rete (*Impostazioni → Avanzate → Cache di rete*) a 5000-10000 ms: assorbe i brevi cali del Wi-Fi;
-- il programma se ne accorge e lo scrive nel suo log:
-  ```
-  Blu-ray/ITA - Ready Player One.ts: the player receives 77% of the data rate the movie needs:
-  the network is too slow for this file, playback will pause (try Light/)
-  ```
+(Docker: `AUDIO_LANG=ita,eng` e `SUBS=ita,eng` nel file `.env`.) Tutte le altre opzioni, e file ISO, cartelle BDMV/VIDEO_TS o rip MKV al posto del lettore: [**OPTIONS.it.md**](OPTIONS.it.md).
 
 ---
 
 ## Risoluzione dei problemi
 
 - **Il film non compare e il log dice `cannot decrypt`**: nessuna chiave funzionante per quel disco. Aggiorna il `KEYDB.cfg`, oppure installa e registra MakeMKV (strada nativa).
-- **La riproduzione si ferma ogni pochi secondi**: il Wi-Fi è troppo lento per quel file; vedi [Rete e qualità](#rete-e-qualità).
+- **La riproduzione si ferma ogni pochi secondi**: il Wi-Fi è troppo lento per quel file: aprilo da `Light/`, altro in [Rete e qualità](OPTIONS.it.md#rete-e-qualità).
 - **Inserendo il disco non succede niente**: verifica che il tuo utente possa leggere il lettore (`ls -l /dev/sr0`, gruppo `cdrom`) e, con Docker, che il dispositivo sia passato al container.
 - **Gli occhiali non vedono la cartella condivisa**: verifica che PC e occhiali siano sulla stessa rete, e controlla il firewall (porta 445/TCP). Da un altro PC Linux: `smbclient -N -L //<ip-del-pc>`.
 - **L'immagine va a scatti**: controlla prima il Wi-Fi (5 GHz, vicino al router). Poi il log dell'ultima pipeline (`/tmp/bd3d-pipeline.log`, oppure `docker compose logs`).
 - **Un file nuovo in `MOVIES_DIR` non compare**: le cartelle vengono lette all'avvio. Riavvia il programma o il container (i lettori invece sono controllati di continuo).
+- **Dopo un salto l'immagine resta ferma qualche secondo**: è il lettore che si sposta nel nuovo punto. In [OPTIONS.it.md](OPTIONS.it.md#animazione-di-caricamento-dopo-un-salto) c'è un'animazione di caricamento facoltativa, con quello che costa.
 
 ---
 
