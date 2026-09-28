@@ -18,6 +18,8 @@ services:
       AUDIO_LANG: "${AUDIO_LANG:-}"
       AUDIO_FILES: "${AUDIO_FILES:-per-language}"
       LIGHT: "${LIGHT:-on}"
+      SUBS: "${SUBS:-all}"
+      SUB_DEPTH: "${SUB_DEPTH:-8}"
       ENCODER: "${ENCODER:-auto}"
     # FUSE inside the container needs the device and SYS_ADMIN
     devices:

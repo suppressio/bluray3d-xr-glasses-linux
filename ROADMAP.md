@@ -16,10 +16,10 @@ Next steps, in this order:
   FFmpeg's `dvdvideo` demuxer seeks only approximately (seconds off, without
   knowing where it landed), so DVDs have their own reader: libdvdread + IFO
   parsing, seek through the time map and the navigation packs (exact).
-- [ ] **Subtitles from the disc**: as external files by default (the player
-  decides), with an option to draw them into the picture instead. They are
-  spread over the whole disc: read it once in the background after insertion,
-  keep the result for next time.
+- [x] **Subtitles from the disc**, drawn into the picture like a disc player
+  does (Blu-ray PGS, 2D and 3D, DVD subpictures): one version per subtitle
+  language, forced subtitles always in. Reading them out as external files would
+  mean reading the whole disc first, too slow. 3D ones sit at a fixed depth.
 - [ ] **More discs.** One per kind is tested (Tron: Legacy 3D, Ready Player One,
   Back to the Future PAL); discs with BD+, several angles, NTSC DVDs or unusual
   structures may need work.

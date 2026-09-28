@@ -136,7 +136,7 @@ sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
 - [ ] Il tuo utente deve poter leggere il lettore (su Debian/Ubuntu: il gruppo `cdrom`, di solito già assegnato agli utenti desktop).
 - [ ] Avvialo quando vuoi guardare qualcosa:
 ```console
-bluray3d-xr --audio-lang ita,eng /dev/sr0
+bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
 Si ferma con `Ctrl+C`. Per togliere tutto: `./scripts/uninstall.sh`.
 
@@ -149,12 +149,13 @@ Lo script è provato con lettore e disco veri in container puliti Debian 13 (tri
 ##### Dal Neckband VITURE:
 - [ ] Apri il **3D Player**, vai nella scheda **Rete locale** e aggiungi il PC: il suo indirizzo IP (sul PC lo trovi con `hostname -I`), accesso ospite / anonimo.
 - [ ] Inserisci il disco nel PC e aspetta circa 15 secondi.
-- [ ] Apri la cartella **Disks** (se sembra vuota, torna indietro e rientra). I dischi 3D sono in `Blu-ray 3D/` come `ITA - <film> - 3D SBS.ts`, quelli normali in `Blu-ray/` come `ITA - <film>.ts`: un file per ogni lingua audio. In `Light/` ci sono gli stessi film a un bitrate più basso (vedi [Rete e qualità](#rete-e-qualità)).
+- [ ] Apri la cartella **Disks** (se sembra vuota, torna indietro e rientra). I dischi 3D sono in `Blu-ray 3D/` come `ITA - <film> - 3D SBS.ts`, quelli normali in `Blu-ray/` come `ITA - <film>.ts`: un file per ogni lingua audio, più uno per ogni lingua dei sottotitoli (`ITAsubENG - ...`: audio italiano, sottotitoli inglesi). Una cartella compare solo quando contiene un film. In `Light/` ci sono gli stessi film a un bitrate più basso (vedi [Rete e qualità](#rete-e-qualità)).
 
 ```
 Disks/
 ├── Blu-ray 3D/
 │   ├── ITA - Tron - Legacy 3D - 3D SBS.ts
+│   ├── ITAsubENG - Tron - Legacy 3D - 3D SBS.ts
 │   ├── ENG - Tron - Legacy 3D - 3D SBS.ts
 │   └── Light/ ...
 ├── Blu-ray/
@@ -203,6 +204,8 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
 | Cartella con ISO / BDMV / MKV | `MOVIES_DIR` | argomenti posizionali | — |
 | Lingue audio | `AUDIO_LANG` | `--audio-lang ita,eng` oppure `all` | `all`: tutte le lingue del disco |
 | Un file per lingua, uno con tutte, o entrambi | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
+| Lingue dei sottotitoli (versioni con i sottotitoli disegnati) | `SUBS` | `--subs ita,eng`, `all` oppure `none` | `all` |
+| Profondità dei sottotitoli 3D (pixel) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | Copie a bitrate ridotto in `Light/` | `LIGHT=on\|off` | `--light` / `--no-light` | attive |
 | Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |
@@ -216,11 +219,23 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
   `--audio-files single` mette tutte le lingue in un file solo. `both` offre le due cose
   insieme: i file per lingua, più quello con tutte le lingue in una cartella `Multi-audio/`.
   È utile con più dispositivi; i file sono virtuali, quindi quelli in più non costano nulla.
-- **Sottotitoli**: metti i file dei sottotitoli accanto a un ISO/BDMV/MKV con lo stesso nome
-  (`film.srt`, `film.ita.srt`, anche `.ass`, `.sup`…). Compaiono accanto a ogni video
-  virtuale con il nome abbinato, e il player li carica come sottotitoli esterni. Il 3D
-  Player VITURE li carica e li mostra correttamente in entrambi gli occhi. Dal disco stesso
-  i sottotitoli non vengono ancora letti.
+- **I sottotitoli del disco** (Blu-ray, Blu-ray 3D, DVD, MKV 3D) vengono **disegnati
+  nell'immagine**, come fa un lettore da salotto: niente file esterni, quindi funzionano con
+  qualsiasi player. Ogni lingua dei sottotitoli è una versione in più di ogni file audio:
+  `ITAsubITA - film`, `ITAsubENG - film` (audio italiano con sottotitoli italiani / inglesi);
+  in `Multi-audio/` si chiamano `subITA - film`. Il semplice `ITA - film` è senza
+  sottotitoli, tranne quelli **forzati** della sua lingua (le battute in lingua straniera),
+  che vengono sempre disegnati.
+  I dischi hanno spesso più di 10 lingue di sottotitoli e il predefinito `all` le offre
+  tutte, per ogni lingua audio: **imposta `--subs` con quelle che leggi**, per esempio
+  `--subs ita,eng` (`none` per nessuna versione sottotitolata).
+- **I sottotitoli 3D** sono disegnati in entrambi gli occhi, ogni copia spostata verso
+  l'interno di `--sub-depth` pixel (predefinito 8), così galleggiano poco davanti allo
+  schermo. Aumentalo se sembrano "dentro" la scena, `0` li mette sul piano dello schermo.
+- Funzionano anche **file di sottotitoli esterni**: mettili accanto a un ISO/BDMV/MKV con lo
+  stesso nome (`film.srt`, `film.ita.srt`, anche `.ass`, `.sup`…). Compaiono accanto a ogni
+  video virtuale con il nome abbinato, e il player li carica come sottotitoli esterni (il 3D
+  Player VITURE li mostra correttamente in entrambi gli occhi).
 
 ## Rete e qualità
 
@@ -274,7 +289,7 @@ Se la riproduzione **si ferma ogni pochi secondi**, il Wi-Fi non regge quel bitr
 - Provato con **un solo disco 3D** (Tron: Legacy 3D), solo AACS. I dischi con BD+ (tramite MakeMKV) e quelli con strutture insolite non sono provati.
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
 - Dischi provati: uno per tipo (3D: Tron: Legacy; 2D: Ready Player One; DVD: Ritorno al futuro, PAL). I DVD NTSC non sono provati.
-- Sottotitoli solo come file esterni; l'audio è convertito in AAC stereo.
+- I sottotitoli del disco sono disegnati nell'immagine (una versione per lingua), non si scelgono dal player; la profondità 3D è fissa, non presa dal disco. L'audio è convertito in AAC stereo.
 
 ## E Windows?
 

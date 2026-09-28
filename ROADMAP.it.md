@@ -17,10 +17,10 @@ Prossimi passi, in quest'ordine:
   (secondi di scarto, senza sapere dove è atterrato), quindi i DVD hanno un
   lettore proprio: libdvdread + lettura degli IFO, seek con la mappa dei tempi
   e i pacchetti di navigazione (esatto).
-- [ ] **Sottotitoli dal disco**: come file esterni per default (decide il
-  player), con un'opzione per disegnarli invece nell'immagine. Sono sparsi su
-  tutto il disco: leggerlo una volta in background dopo l'inserimento e
-  tenere il risultato per le volte successive.
+- [x] **Sottotitoli dal disco**, disegnati nell'immagine come fa un lettore da
+  salotto (PGS dei Blu-ray, 2D e 3D, sottotitoli dei DVD): una versione per ogni
+  lingua, quelli forzati sempre presenti. Estrarli come file esterni vorrebbe dire
+  leggere prima tutto il disco, troppo lento. Quelli 3D hanno una profondità fissa.
 - [ ] **Altri dischi.** È provato un disco per tipo (Tron: Legacy 3D, Ready Player
   One, Ritorno al futuro PAL); dischi con BD+, più angolazioni, DVD NTSC o
   strutture insolite potrebbero richiedere lavoro.
