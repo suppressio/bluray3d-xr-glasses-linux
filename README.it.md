@@ -3,6 +3,8 @@
 # Blu-ray 3D sugli occhiali XR, da Linux
 #### _Guarda i tuoi Blu-ray 3D sugli occhiali XR (VITURE & co.) in 3D vero: il PC Linux decodifica il 3D al volo e lo serve in rete locale come video affiancato. Nessuna conversione, nessuno spazio su disco in più._
 
+> 🎯 **Obiettivo attuale:** hai già dei **rip MKV di Blu-ray 3D** (MakeMKV conserva il 3D MVC) e vuoi guardarli in 3D **senza convertirli**. Se hai solo il disco e non ti importa convertire, gli strumenti esistenti copiano già direttamente in SBS. **Prossimo obiettivo: riprodurre il disco stesso**, senza nessun rip: vedi la [roadmap](ROADMAP.it.md).
+
 ***Nota:*** _Provato con VITURE Pro XR + VITURE Pro Neckband e il suo **3D Player** ufficiale. Qualsiasi player capace di aprire video da una cartella di rete (SMB) e di mostrare il 3D affiancato dovrebbe funzionare allo stesso modo._
 
 ---

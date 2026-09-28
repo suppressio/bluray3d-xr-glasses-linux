@@ -3,6 +3,8 @@
 # 3D Blu-ray on XR glasses, from Linux
 #### _Watch your 3D Blu-ray discs on XR glasses (VITURE & co.) in real 3D: the 3D is decoded on the fly by your Linux PC and served over the LAN as a side-by-side video. No conversion, no extra disk space._
 
+> 🎯 **Scope today:** you already have **3D Blu-ray rips in MKV** (MakeMKV keeps the MVC 3D) and want to watch them in 3D **without converting** them. If you only have the disc and do not mind converting, existing tools can rip straight to SBS. **Next goal: play the disc itself**, with no rip at all: see the [roadmap](ROADMAP.md).
+
 ***Note:*** _Tested with a VITURE Pro XR + VITURE Pro Neckband and its official **3D Player**. Any player able to open videos from a network share (SMB) and show side-by-side 3D should work the same way._
 
 ---
