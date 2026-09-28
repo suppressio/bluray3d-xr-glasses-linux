@@ -11,6 +11,7 @@ services:
       - "${MOVIES_DIR:?set MOVIES_DIR in .env}:/films:ro"
     environment:
       AUDIO_LANG: "${AUDIO_LANG:-}"
+      AUDIO_FILES: "${AUDIO_FILES:-per-language}"
       ENCODER: "${ENCODER:-auto}"
     # FUSE inside the container needs the device and SYS_ADMIN
     devices:

@@ -164,12 +164,26 @@ Qualsiasi cosa apra video da una cartella SMB e mostri il 3D SBS dovrebbe andare
 | Opzione | `.env` (Docker) | Riga di comando (nativo) | Predefinito |
 |---|---|---|---|
 | Cartella/e dei film | `MOVIES_DIR` | argomenti posizionali | — |
-| Lingua audio | `AUDIO_LANG` | `--audio-lang` | prima traccia |
+| Lingue audio | `AUDIO_LANG` | `--audio-lang ita,eng` | prima traccia |
+| Un file per lingua, uno con tutte, o entrambi | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
 | Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |
 | Log della pipeline | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 
-Formato in uscita: H.264 Full-SBS 3840×1080 a 20 Mbit/s CBR, audio AAC stereo 192 kbit/s, in un MPEG-TS a 24 Mbit/s. La traccia audio è convertita in stereo (DTS e TrueHD non sono supportati dalla maggior parte dei player mobili); i sottotitoli non sono inclusi.
+#### Lingue audio e sottotitoli
+- **Più lingue**: con `--audio-lang ita,eng` ogni lingua diventa **un file a sé**
+  (`film - 3D SBS - ITA.ts`, `... - ENG.ts`). Il 3D Player VITURE non ha un menu per le
+  tracce audio e ne sceglie una da solo, per questo è il comportamento predefinito. Se il
+  tuo player il menu ce l'ha, `--audio-files single` mette tutte le lingue in un file
+  solo. `both` offre le due cose insieme: i file per lingua, più quello con tutte le
+  lingue in una cartella `Multi-audio/`. È utile con più dispositivi; i file sono
+  virtuali, quindi quelli in più non costano nulla.
+- **Sottotitoli**: metti i file dei sottotitoli accanto all'MKV con lo stesso nome
+  (`film.srt`, `film.ita.srt`, anche `.ass`, `.sup`…). Compaiono accanto a ogni video
+  virtuale con il nome abbinato, e il player li carica come sottotitoli esterni. Se si
+  vedano bene in 3D dipende dal player: il 3D Player VITURE li carica.
+
+Formato in uscita: H.264 Full-SBS 3840×1080 a 20 Mbit/s CBR, audio AAC stereo 192 kbit/s per lingua, in un MPEG-TS a 24 Mbit/s. L'audio è convertito in stereo (DTS e TrueHD non sono supportati dalla maggior parte dei player mobili).
 
 ---
 

@@ -164,12 +164,26 @@ Anything that opens videos from an SMB share and shows SBS 3D should work. Some 
 | Option | `.env` (Docker) | Command line (native) | Default |
 |---|---|---|---|
 | Movies folder(s) | `MOVIES_DIR` | positional arguments | — |
-| Audio language | `AUDIO_LANG` | `--audio-lang` | first track |
+| Audio languages | `AUDIO_LANG` | `--audio-lang ita,eng` | first track |
+| One file per language, one with all, or both | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
 | Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
 | Mount point | — | `--mount` | `/srv/bd3d` |
 | Pipeline log | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 
-Output format: H.264 Full-SBS 3840×1080 at 20 Mbit/s CBR, AAC stereo 192 kbit/s, in a 24 Mbit/s MPEG-TS. The audio track is converted to stereo (DTS/TrueHD are not supported by most mobile players); subtitles are not included.
+#### Audio languages and subtitles
+- **Several languages**: with `--audio-lang ita,eng` each language becomes **its own file**
+  (`movie - 3D SBS - ITA.ts`, `... - ENG.ts`). The VITURE 3D Player has no audio track menu
+  and picks a track on its own, so this is the default. If your player does have an audio
+  menu, `--audio-files single` puts all languages in one file. `both` offers both at once:
+  the per-language files, plus the all-languages file in a `Multi-audio/` folder. Useful
+  with several devices; the files are virtual, so the extra ones cost nothing.
+- **Subtitles**: put subtitle files next to the MKV with the same name
+  (`movie.srt`, `movie.ita.srt`, also `.ass`, `.sup`...). They show up next to every
+  virtual video with the matching name, and the player loads them as external subtitles.
+  Whether they are shown correctly in 3D is up to the player: the VITURE 3D Player loads
+  them.
+
+Output format: H.264 Full-SBS 3840×1080 at 20 Mbit/s CBR, AAC stereo 192 kbit/s per language, in a 24 Mbit/s MPEG-TS. Audio is converted to stereo (DTS/TrueHD are not supported by most mobile players).
 
 ---
 
