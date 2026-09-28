@@ -11,19 +11,23 @@ Everything downstream (edge264 -> encoder -> virtual file -> SMB share) does
 not care where the movie comes from.
 
 Implemented:
-  MkvSource   MakeMKV rip (.mkv) that kept the MVC stream.
-
-Planned (see ROADMAP.md):
-  BlurayDisc  the disc itself / an ISO / a BDMV folder, read and decrypted on
-              the fly, with no rip at all.
+  MkvSource         MakeMKV rip (.mkv) that kept the MVC stream.
+  BlurayDiscSource  the disc itself, an ISO or a BDMV folder, read and decrypted
+                    on the fly (disc_reader.py), with no rip at all.
 """
 import copy
+import ctypes.util
+import itertools
 import json
 import logging
 import os
 import re
 import shlex
+import stat
 import subprocess
+import sys
+import tempfile
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
@@ -179,13 +183,153 @@ def find_sidecars(movie_path: str) -> list[tuple[str, str]]:
     return found
 
 
+HERE = Path(__file__).resolve().parent
+_fifo_ids = itertools.count()
+
+
+def _decrypt_backends() -> list[dict]:
+    """Environments to try for libbluray, in order: libaacs (+ KEYDB.cfg), then
+    MakeMKV's libmmbd when installed. Keys are never shipped with this project."""
+    envs = [{}]
+    if ctypes.util.find_library("mmbd") or os.path.exists("/usr/lib/libmmbd.so.0"):
+        envs.append({"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"})
+    return envs
+
+
+def _open_disc(path: str):
+    """Open a disc/ISO/BDMV with the first decryption backend that works."""
+    from bluray import Disc
+    last = None
+    for env in _decrypt_backends():
+        saved = {k: os.environ.get(k) for k in ("LIBAACS_PATH", "LIBBDPLUS_PATH")}
+        os.environ.update(env)
+        try:
+            disc = Disc(path)
+            info = disc.info()
+            if info.decrypted:
+                return disc, info, env
+            last = f"cannot decrypt (AACS error {info.aacs_error})"
+            disc.close()
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    raise OSError(f"{path}: {last or 'cannot open'}. Provide a KEYDB.cfg for libaacs "
+                  f"or install MakeMKV (libmmbd).")
+
+
+def _safe_name(name: str) -> str:
+    """Disc title -> file name: drop the 'Blu-ray' suffix, no characters SMB forbids."""
+    name = re.sub(r"\s*[-–]\s*Blu-ray.*$", "", name, flags=re.I).strip()
+    name = re.sub(r'\s*[:/\\*?"<>|]\s*', " - ", name)
+    return re.sub(r"\s+", " ", name).strip(" .-") or "Blu-ray"
+
+
+class BlurayDiscSource(Source):
+    """A 3D Blu-ray title read straight from a drive, an ISO or a BDMV folder."""
+
+    def __init__(self, path: str, audio_langs: Optional[list[str]] = None):
+        from bdmv import parse_clpi, parse_mpls
+        self.path = path
+        disc, info, self.env = _open_disc(path)
+        try:
+            if not info.has_3d:
+                raise OSError(f"{path}: no 3D content")
+            # main title: the longest playlist whose every clip has an MVC dependent view
+            for title in sorted(disc.titles(), key=lambda t: -t.duration):
+                items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
+                if items and all(it.dep_clip for it in items):
+                    break
+            else:
+                raise OSError(f"{path}: no 3D title found")
+            self.playlist, self.items = title.playlist, items
+            self.clips = {}
+            for it in items:
+                self.clips[it.clip] = (
+                    parse_clpi(disc.read_file(f"BDMV/CLIPINF/{it.clip}.clpi")),
+                    parse_clpi(disc.read_file(f"BDMV/CLIPINF/{it.dep_clip}.clpi"), pid=0x1012))
+        finally:
+            disc.close()
+
+        self.name = _safe_name(info.name or info.volume_id.replace("_", " ").title())
+        self.duration = sum(it.duration for it in items)
+        self.starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
+        st = os.stat(path)
+        self.mtime_ns = time.time_ns() if stat.S_ISBLK(st.st_mode) else st.st_mtime_ns
+        self.sidecars = [] if stat.S_ISBLK(st.st_mode) else find_sidecars(path)
+
+        audio = items[0].audio or []
+        chosen = [a for lang in audio_langs or [] for a in audio if a.lang == lang]
+        chosen = list({a.lang: a for a in reversed(chosen)}.values())[::-1] or audio[:1]
+        self.audio_pids = [a.pid for a in chosen]
+        self.audio_langs = [a.lang for a in chosen]
+        self.audio_desc = ", ".join(f"{a.pid:#x} {a.lang} {a.codec}" for a in chosen) or "none"
+        self._fifo_dir = tempfile.mkdtemp(prefix="bd3d-")
+        self._fifo = None
+
+    def variants(self) -> list[Source]:
+        if len(self.audio_pids) < 2:
+            return [self]
+        out = []
+        for pid, lang in zip(self.audio_pids, self.audio_langs):
+            v = copy.copy(self)
+            v.audio_pids, v.audio_langs, v.label = [pid], [lang], lang.upper()
+            v.audio_desc = next(d for d in self.audio_desc.split(", ") if d.startswith(f"{pid:#x} "))
+            out.append(v)
+        return out
+
+    def keyframe_at_or_before(self, seconds: float) -> float:
+        from bdmv import ssif_seek
+        i = max(n for n, t in enumerate(self.starts) if t <= max(0.0, seconds))
+        item = self.items[i]
+        base, dep = self.clips[item.clip]
+        return self.starts[i] + ssif_seek(item, base, dep, seconds - self.starts[i]).time
+
+    def video_command(self, start: float) -> str:
+        # one FIFO per pipeline start: disc_reader writes the audio TS into it
+        if self._fifo and os.path.exists(self._fifo):
+            os.unlink(self._fifo)
+        self._fifo = os.path.join(self._fifo_dir, f"audio{next(_fifo_ids)}.ts")
+        os.mkfifo(self._fifo)
+        env = " ".join(f"{k}={v}" for k, v in self.env.items())
+        pids = " ".join(f"--audio-pid {p:#x}" for p in self.audio_pids)
+        # +2 ms: `start` is an EP_map time (truncated), make sure the same entry is found
+        return (f"{env} {shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'disc_reader.py'))} "
+                f"{shlex.quote(self.path)} --playlist {self.playlist} --start {start + 0.002:.3f} "
+                f"{pids} --audio-out {shlex.quote(self._fifo)}").strip()
+
+    def audio_input(self, start: float) -> str:
+        return f"-f mpegts -analyzeduration 1000000 -probesize 5000000 -i {shlex.quote(self._fifo)}"
+
+    def audio_map(self) -> str:
+        # the disc's PMT carries no language: take it from the playlist's STN table
+        return " ".join(f"-map 1:i:{p:#x} -metadata:s:a:{n} language={lang}"
+                        for n, (p, lang) in enumerate(zip(self.audio_pids, self.audio_langs)))
+
+
+def is_bluray(path: Path) -> bool:
+    """A drive, an ISO or a folder with BDMV/ inside."""
+    try:
+        mode = path.stat().st_mode
+    except OSError:
+        return False
+    return (stat.S_ISBLK(mode) or path.suffix.lower() == ".iso"
+            or (path.is_dir() and (path / "BDMV" / "index.bdmv").exists()))
+
+
 def discover(paths: list[str], audio_langs: Optional[list[str]] = None) -> list[Source]:
     """Turn command line arguments (files, folders) into sources."""
     candidates = []
     for s in paths:
         p = Path(s).expanduser()
-        if p.is_dir():
-            candidates += sorted(x for x in p.rglob("*") if x.suffix.lower() == ".mkv")
+        if is_bluray(p):
+            candidates.append(p)
+        elif p.is_dir():
+            for x in sorted(p.rglob("*")):
+                if x.suffix.lower() in (".mkv", ".iso") or (x.name == "BDMV" and x.is_dir()):
+                    candidates.append(x.parent if x.name == "BDMV" else x)
         elif p.is_file():
             candidates.append(p)
         else:
@@ -193,8 +337,13 @@ def discover(paths: list[str], audio_langs: Optional[list[str]] = None) -> list[
 
     sources: list[Source] = []
     for p in candidates:
-        if p.suffix.lower() != ".mkv":
-            log.info("skipped (only .mkv is supported for now): %s", p)
+        if is_bluray(p):
+            try:
+                sources.append(BlurayDiscSource(str(p), audio_langs))
+            except OSError as e:
+                log.info("skipped: %s", e)
+        elif p.suffix.lower() != ".mkv":
+            log.info("skipped (not a 3D Blu-ray MKV, ISO or BDMV folder): %s", p)
         elif not MkvSource.has_mvc(str(p)):
             log.info("skipped (no MVC 3D video): %s", p)
         else:

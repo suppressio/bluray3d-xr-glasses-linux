@@ -9,7 +9,9 @@ libbluray picks the AACS/BD+ backend when the disc is opened:
 """
 import ctypes
 import ctypes.util
-from ctypes import CFUNCTYPE, POINTER, Structure, c_char_p, c_int, c_int32, c_int64, c_void_p
+from ctypes import (CFUNCTYPE, POINTER, Structure, c_char, c_char_p, c_int, c_int32, c_int64,
+                    c_uint8, c_uint32, c_uint64, c_void_p)
+from dataclasses import dataclass
 
 AACS_UNIT = 6144   # the decrypting reader returns exactly one aligned unit per call
 
@@ -38,12 +40,63 @@ _BDFile._fields_ = [
     ("write", CFUNCTYPE(c_int64, POINTER(_BDFile), c_void_p, c_int64)),
 ]
 
+
+class _TitleInfo(Structure):
+    _fields_ = [("idx", c_uint32), ("playlist", c_uint32), ("duration", c_uint64),
+                ("clip_count", c_uint32), ("angle_count", c_uint8),
+                ("chapter_count", c_uint32), ("mark_count", c_uint32),
+                ("clips", c_void_p), ("chapters", c_void_p), ("marks", c_void_p),
+                ("mvc_base_view_r_flag", c_uint8), ("sdr_conversion_notification_flag", c_uint8)]
+
+
+class _DiscInfo(Structure):          # BLURAY_DISC_INFO, up to the BD+ fields
+    _fields_ = [("bluray_detected", c_uint8), ("disc_name", c_char_p),
+                ("udf_volume_id", c_char_p), ("disc_id", c_uint8 * 20),
+                ("no_menu_support", c_uint8), ("first_play_supported", c_uint8),
+                ("top_menu_supported", c_uint8), ("num_titles", c_uint32),
+                ("titles", c_void_p), ("first_play", c_void_p), ("top_menu", c_void_p),
+                ("num_hdmv_titles", c_uint32), ("num_bdj_titles", c_uint32),
+                ("num_unsupported_titles", c_uint32), ("bdj_detected", c_uint8),
+                ("bdj_supported", c_uint8), ("libjvm_detected", c_uint8),
+                ("bdj_handled", c_uint8), ("bdj_org_id", c_char * 9),
+                ("bdj_disc_id", c_char * 33), ("video_format", c_uint8),
+                ("frame_rate", c_uint8), ("content_exist_3D", c_uint8),
+                ("initial_output_mode_preference", c_uint8), ("provider_data", c_uint8 * 32),
+                ("aacs_detected", c_uint8), ("libaacs_detected", c_uint8),
+                ("aacs_handled", c_uint8), ("aacs_error_code", c_int), ("aacs_mkbv", c_int),
+                ("bdplus_detected", c_uint8), ("libbdplus_detected", c_uint8),
+                ("bdplus_handled", c_uint8)]
+
+
+@dataclass
+class DiscInfo:
+    name: str             # disc name from its metadata ('' if none)
+    volume_id: str        # UDF volume label, e.g. TRON_LEGACY_3D
+    has_3d: bool
+    decrypted: bool       # False: AACS/BD+ present and not handled by any backend
+    aacs_error: int
+
+
+@dataclass
+class Title:
+    playlist: str         # e.g. "00070"
+    duration: float       # seconds
+
+
 _lib = _load()
 _lib.bd_open.restype = c_void_p
 _lib.bd_open.argtypes = [c_char_p, c_char_p]
 _lib.bd_close.argtypes = [c_void_p]
 _lib.bd_open_file_dec.restype = POINTER(_BDFile)
 _lib.bd_open_file_dec.argtypes = [c_void_p, c_char_p]
+_lib.bd_get_disc_info.restype = POINTER(_DiscInfo)
+_lib.bd_get_disc_info.argtypes = [c_void_p]
+_lib.bd_get_titles.restype = c_uint32
+_lib.bd_get_titles.argtypes = [c_void_p, c_uint8, c_uint32]
+_lib.bd_get_title_info.restype = POINTER(_TitleInfo)
+_lib.bd_get_title_info.argtypes = [c_void_p, c_uint32, c_uint32]
+_lib.bd_free_title_info.argtypes = [POINTER(_TitleInfo)]
+TITLES_RELEVANT = 0x03
 
 
 class DiscFile:
@@ -95,6 +148,27 @@ class Disc:
         if not h:
             raise OSError(f"cannot open {path} on the disc")
         return DiscFile(h, path)
+
+    def info(self) -> DiscInfo:
+        d = _lib.bd_get_disc_info(self._bd).contents
+        encrypted = d.aacs_detected or d.bdplus_detected
+        handled = (not d.aacs_detected or d.aacs_handled) and \
+                  (not d.bdplus_detected or d.bdplus_handled)
+        return DiscInfo(name=(d.disc_name or b"").decode("utf-8", "replace"),
+                        volume_id=(d.udf_volume_id or b"").decode("utf-8", "replace"),
+                        has_3d=bool(d.content_exist_3D),
+                        decrypted=bool(not encrypted or handled),
+                        aacs_error=d.aacs_error_code)
+
+    def titles(self, min_seconds: int = 600) -> list[Title]:
+        """Playlists at least min_seconds long, duplicates removed."""
+        out = []
+        for i in range(_lib.bd_get_titles(self._bd, TITLES_RELEVANT, min_seconds)):
+            ti = _lib.bd_get_title_info(self._bd, i, 0)
+            if ti:
+                out.append(Title(f"{ti.contents.playlist:05d}", ti.contents.duration / 90000))
+                _lib.bd_free_title_info(ti)
+        return out
 
     def read_file(self, path: str) -> bytes:
         with self.open(path) as f:

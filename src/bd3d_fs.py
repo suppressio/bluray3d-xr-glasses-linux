@@ -21,6 +21,7 @@ Requires: python3-pyfuse3, edge264_test, ffmpeg, ffprobe
 """
 import argparse
 import errno
+import fcntl
 import logging
 import os
 import signal
@@ -34,7 +35,7 @@ import pyfuse3
 import trio
 
 from pipeline import ENCODERS, decode_command, pick_encoder
-from sources import Source, discover
+from sources import BlurayDiscSource, Source, discover
 
 log = logging.getLogger("bd3d_fs")
 
@@ -244,16 +245,47 @@ class Folder:
 
 
 class Bd3dFS(pyfuse3.Operations):
-    def __init__(self, entries: list):
-        """entries: VirtualFile, SidecarFile and Folder objects; each has .parent."""
+    """The virtual tree. Entries can be added and removed while mounted (discs)."""
+
+    def __init__(self):
         super().__init__()
         self.root = Folder(pyfuse3.ROOT_INODE, "")
-        self.nodes = {e.inode: e for e in entries}
-        self.nodes[self.root.inode] = self.root
+        self.nodes: dict[int, object] = {self.root.inode: self.root}
         self.children: dict[int, list] = {}
-        for e in entries:
+        self.by_name: dict[tuple, object] = {}
+        self.lock = threading.Lock()
+        self._next_inode = pyfuse3.ROOT_INODE + 1
+
+    def new_inode(self) -> int:
+        with self.lock:
+            self._next_inode += 1
+            return self._next_inode - 1
+
+    def add(self, e) -> None:
+        with self.lock:
+            self.nodes[e.inode] = e
             self.children.setdefault(e.parent, []).append(e)
-        self.by_name = {(e.parent, e.name.encode()): e for e in entries}
+            self.by_name[(e.parent, e.name.encode())] = e
+
+    def remove(self, e) -> None:
+        with self.lock:
+            self.nodes.pop(e.inode, None)
+            self.children.get(e.parent, []).remove(e)
+            self.by_name.pop((e.parent, e.name.encode()), None)
+        # drop what the kernel cached about the name, or it would linger
+        pyfuse3.invalidate_entry_async(e.parent, e.name.encode(), ignore_enoent=True)
+
+    def folder(self, name: str) -> Folder:
+        """Sub-folder of the root, created on first use."""
+        e = self.by_name.get((pyfuse3.ROOT_INODE, name.encode()))
+        if e is None:
+            e = Folder(self.new_inode(), name)
+            self.add(e)
+        return e
+
+    def files(self) -> list:
+        with self.lock:
+            return [e for e in self.nodes.values() if not isinstance(e, Folder)]
 
     def _attr(self, inode: int) -> pyfuse3.EntryAttributes:
         e = self.nodes[inode]
@@ -261,7 +293,7 @@ class Bd3dFS(pyfuse3.Operations):
         a.st_ino = inode
         a.st_uid = os.getuid()
         a.st_gid = os.getgid()
-        a.entry_timeout = 300
+        a.entry_timeout = 5          # short: the tree changes when discs come and go
         a.attr_timeout = 300
         a.st_blksize = 1 << 20
         if isinstance(e, Folder):
@@ -293,7 +325,9 @@ class Bd3dFS(pyfuse3.Operations):
         return inode
 
     async def readdir(self, fh, start_id, token):
-        for e in sorted(self.children.get(fh, []), key=lambda e: e.inode):
+        with self.lock:
+            entries = sorted(self.children.get(fh, []), key=lambda e: e.inode)
+        for e in entries:
             if e.inode <= start_id:
                 continue
             if not pyfuse3.readdir_reply(token, e.name.encode(), self._attr(e.inode), e.inode):
@@ -309,10 +343,9 @@ class Bd3dFS(pyfuse3.Operations):
 
     async def statfs(self, ctx):
         # SMB clients ask for the share's free space: answer "full"
-        files = [e for e in self.nodes.values() if not isinstance(e, Folder)]
         s = pyfuse3.StatvfsData()
         s.f_bsize = s.f_frsize = 1 << 20
-        s.f_blocks = sum(f.size for f in files) // s.f_frsize + 1
+        s.f_blocks = sum(f.size for f in self.files()) // s.f_frsize + 1
         s.f_bfree = s.f_bavail = 0
         s.f_files = len(self.nodes)
         s.f_ffree = s.f_favail = 0
@@ -320,13 +353,97 @@ class Bd3dFS(pyfuse3.Operations):
         return s
 
     async def read(self, fh, off, size):
-        return await trio.to_thread.run_sync(self.nodes[fh].read, off, size)
+        e = self.nodes.get(fh)
+        if e is None:                # the disc was ejected while playing
+            raise pyfuse3.FUSEError(errno.EIO)
+        return await trio.to_thread.run_sync(e.read, off, size)
 
 
-async def idle_watchdog(files: list):
+class Library:
+    """Turns sources into files of the tree: one per audio language and/or one
+    with all languages, plus the external subtitles next to each video."""
+
+    def __init__(self, fs: Bd3dFS, encode_args: str, log_file: str, audio_files: str):
+        self.fs, self.encode_args, self.log_file = fs, encode_args, log_file
+        self.audio_files = audio_files
+
+    def _add_movie(self, source: Source, parent: int) -> list:
+        vf = VirtualFile(self.fs.new_inode(), source, self.encode_args, self.log_file, parent)
+        added = [vf]
+        where = f"{MULTI_AUDIO_DIR}/" if parent != pyfuse3.ROOT_INODE else ""
+        log.info("+ %s%s  (%.0f min, audio %s)", where, vf.name, source.duration / 60,
+                 source.audio_desc)
+        # external subtitles: "movie.ita.srt" -> "movie - 3D SBS.ita.srt", so that
+        # players pair them with the video (whether they show them in 3D is up to them)
+        for suffix, path in source.sidecars:
+            added.append(SidecarFile(self.fs.new_inode(), vf.name[:-len(".ts")] + suffix,
+                                     path, parent))
+            log.info("  + %s", added[-1].name)
+        for e in added:
+            self.fs.add(e)
+        return added
+
+    def add(self, source: Source) -> list:
+        variants = source.variants()
+        if self.audio_files == "single" or len(variants) == 1:
+            return self._add_movie(source, pyfuse3.ROOT_INODE)
+        added = []
+        for v in variants:
+            added += self._add_movie(v, pyfuse3.ROOT_INODE)
+        if self.audio_files == "both":
+            added += self._add_movie(source, self.fs.folder(MULTI_AUDIO_DIR).inode)
+        return added
+
+    def remove(self, entries: list) -> None:
+        for e in entries:
+            e.stop()
+            self.fs.remove(e)
+            log.info("- %s", e.name)
+
+
+CDROM_DRIVE_STATUS, CDS_DISC_OK = 0x5326, 4
+
+
+def _disc_present(device: str) -> bool:
+    """Ask the drive whether a disc is in, without reading it."""
+    try:
+        fd = os.open(device, os.O_RDONLY | os.O_NONBLOCK)
+    except OSError:
+        return False
+    try:
+        return fcntl.ioctl(fd, CDROM_DRIVE_STATUS, 0) == CDS_DISC_OK
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+async def watch_drive(device: str, library: Library, audio_langs):
+    """A movie appears when a 3D disc is inserted and disappears when it is ejected."""
+    entries: list = []
+    state = "empty"                  # empty -> loaded / failed -> (eject) -> empty
+    while True:
+        present = await trio.to_thread.run_sync(_disc_present, device)
+        if present and state == "empty":
+            log.info("%s: disc inserted, opening it", device)
+            try:
+                source = await trio.to_thread.run_sync(BlurayDiscSource, device, audio_langs)
+                entries = library.add(source)
+                state = "loaded"
+            except Exception as e:           # not 3D, cannot decrypt, not ready yet...
+                log.info("%s: %s", device, e)
+                state = "failed"
+        elif not present and state != "empty":
+            log.info("%s: disc ejected", device)
+            await trio.to_thread.run_sync(library.remove, entries)
+            entries, state = [], "empty"
+        await trio.sleep(3)
+
+
+async def idle_watchdog(fs: Bd3dFS):
     while True:
         await trio.sleep(10)
-        for f in files:
+        for f in fs.files():
             await trio.to_thread.run_sync(f.stop_if_idle)
 
 
@@ -339,19 +456,23 @@ async def terminate_on_sigterm():
             return
 
 
-async def run(files: list):
+async def run(fs: Bd3dFS, library: Library, drives: list[str], audio_langs):
     async with trio.open_nursery() as nursery:
-        nursery.start_soon(idle_watchdog, files)
+        nursery.start_soon(idle_watchdog, fs)
         nursery.start_soon(terminate_on_sigterm)
+        for device in drives:
+            nursery.start_soon(watch_drive, device, library, audio_langs)
         await pyfuse3.main()
         nursery.cancel_scope.cancel()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Expose 3D Blu-ray MKVs (MVC) as virtual Full-SBS .ts files.")
+        description="Expose 3D Blu-rays (MVC) as virtual Full-SBS .ts files.")
     parser.add_argument("sources", nargs="+",
-                        help="3D Blu-ray MKV files, or folders to scan recursively")
+                        help="Blu-ray drives (/dev/sr0: the movie appears when a disc is "
+                             "inserted), ISO files, BDMV folders, 3D MKV rips, or folders "
+                             "to scan recursively")
     parser.add_argument("--mount", default="/srv/bd3d", help="mount point (default /srv/bd3d)")
     parser.add_argument("--audio-lang",
                         help="audio languages to offer, e.g. ita,eng (default: first audio track)")
@@ -372,50 +493,29 @@ def main():
     encoder = pick_encoder(args.encoder)
     log.info("video encoder: %s", encoder)
     audio_langs = [x.strip() for x in args.audio_lang.split(",")] if args.audio_lang else None
-    entries: list = []
-    multi_dir: Optional[Folder] = None
 
-    def add_movie(source: Source, parent: int):
-        vf = VirtualFile(pyfuse3.ROOT_INODE + 1 + len(entries), source, ENCODERS[encoder],
-                         args.log_file, parent)
-        entries.append(vf)
-        where = f"{MULTI_AUDIO_DIR}/" if parent != pyfuse3.ROOT_INODE else ""
-        log.info("%s%s  (%.0f min, audio %s)", where, vf.name, source.duration / 60,
-                 source.audio_desc)
-        # external subtitles: "movie.ita.srt" -> "movie - 3D SBS.ita.srt", so that
-        # players pair them with the video (whether they show them in 3D is up to them)
-        for suffix, path in source.sidecars:
-            sc = SidecarFile(pyfuse3.ROOT_INODE + 1 + len(entries),
-                             vf.name[:-len(".ts")] + suffix, path, parent)
-            entries.append(sc)
-            log.info("  + %s", sc.name)
+    drives = [a for a in args.sources if os.path.exists(a) and stat.S_ISBLK(os.stat(a).st_mode)]
+    others = [a for a in args.sources if a not in drives]
 
-    for source in discover(args.sources, audio_langs):
-        variants = source.variants()
-        if args.audio_files == "single" or len(variants) == 1:
-            add_movie(source, pyfuse3.ROOT_INODE)
-            continue
-        for v in variants:
-            add_movie(v, pyfuse3.ROOT_INODE)
-        if args.audio_files == "both":
-            if multi_dir is None:
-                multi_dir = Folder(pyfuse3.ROOT_INODE + 1 + len(entries), MULTI_AUDIO_DIR)
-                entries.append(multi_dir)
-            add_movie(source, multi_dir.inode)
-    files = [e for e in entries if not isinstance(e, Folder)]
-    if not files:
+    fs = Bd3dFS()
+    library = Library(fs, ENCODERS[encoder], args.log_file, args.audio_files)
+    for source in discover(others, audio_langs) if others else []:
+        library.add(source)
+    if not fs.files() and not drives:
         raise SystemExit("no 3D (MVC) source found")
+    for device in drives:
+        log.info("watching %s: insert a 3D Blu-ray", device)
 
     options = set(pyfuse3.default_options)
     options |= {"fsname=bd3d", "ro", "allow_other"}
-    pyfuse3.init(Bd3dFS(entries), args.mount, options)
+    pyfuse3.init(fs, args.mount, options)
     log.info("mounted on %s — Ctrl+C to unmount", args.mount)
     try:
-        trio.run(run, files)
+        trio.run(run, fs, library, drives, audio_langs)
     except KeyboardInterrupt:
         pass
     finally:
-        for f in files:
+        for f in fs.files():
             f.stop()
         pyfuse3.close(unmount=True)
 
