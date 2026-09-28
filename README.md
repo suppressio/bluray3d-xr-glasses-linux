@@ -172,7 +172,7 @@ Anything that opens videos from an SMB share and shows SBS 3D should work. Some 
 
 #### Audio languages and subtitles
 - **Several languages**: with `--audio-lang ita,eng` each language becomes **its own file**
-  (`movie - 3D SBS - ITA.ts`, `... - ENG.ts`). The VITURE 3D Player has no audio track menu
+  (`ITA - movie - 3D SBS.ts`, `ENG - movie - 3D SBS.ts`; the language comes first because players cut long names). The VITURE 3D Player has no audio track menu
   and picks a track on its own, so this is the default. If your player does have an audio
   menu, `--audio-files single` puts all languages in one file. `both` offers both at once:
   the per-language files, plus the all-languages file in a `Multi-audio/` folder. Useful

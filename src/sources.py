@@ -46,7 +46,7 @@ class Source(ABC):
     sidecars: list       # (suffix, path) of external subtitle files, e.g. (".ita.srt", "/x/movie.ita.srt")
     mtime_ns: int        # timestamp shown for the virtual file
 
-    label: str = ""      # added to the file name of a variant, e.g. "ITA"
+    label: str = ""      # prefix of the file name of a variant, e.g. "ITA"
 
     def variants(self) -> list["Source"]:
         """One source per audio language: players such as the VITURE 3D Player

@@ -153,7 +153,8 @@ class VirtualFile:
         self.source = source
         self.encode_args = encode_args
         self.log_path = log_path
-        self.name = f"{source.name} - 3D SBS{' - ' + source.label if source.label else ''}.ts"
+        # the language goes first: players cut long names, and it must stay visible
+        self.name = f"{source.label + ' - ' if source.label else ''}{source.name} - 3D SBS.ts"
         self.size = int(source.duration * BYTES_PER_SEC) // TS_PACKET * TS_PACKET
         self.mtime_ns = source.mtime_ns
         self.lock = threading.Lock()

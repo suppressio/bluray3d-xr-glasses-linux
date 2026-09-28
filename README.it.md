@@ -172,7 +172,7 @@ Qualsiasi cosa apra video da una cartella SMB e mostri il 3D SBS dovrebbe andare
 
 #### Lingue audio e sottotitoli
 - **Più lingue**: con `--audio-lang ita,eng` ogni lingua diventa **un file a sé**
-  (`film - 3D SBS - ITA.ts`, `... - ENG.ts`). Il 3D Player VITURE non ha un menu per le
+  (`ITA - film - 3D SBS.ts`, `ENG - film - 3D SBS.ts`; la lingua è all'inizio perché i player tagliano i nomi lunghi). Il 3D Player VITURE non ha un menu per le
   tracce audio e ne sceglie una da solo, per questo è il comportamento predefinito. Se il
   tuo player il menu ce l'ha, `--audio-files single` mette tutte le lingue in un file
   solo. `both` offre le due cose insieme: i file per lingua, più quello con tutte le
