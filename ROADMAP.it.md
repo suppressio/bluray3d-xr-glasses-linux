@@ -74,12 +74,16 @@ In ordine dalla più economica alla più costosa, per potersi fermare presto.
   clip si legge decifrato con `bd_open_file_dec`, e ffprobe su quei byte vede
   sia `0x1011` sia `0x1012`. _Criterio per decidere se andare avanti: il disco
   si decifra con almeno un'opzione._
-- [ ] **Fase 1 — Demux.** Un programma di supporto trasforma il transport stream
+- [x] **Fase 1 — Demux.** `src/ssif_demux.py` trasforma il transport stream
   SSIF in Annex B, con le unità NAL base e dipendenti di ogni fotogramma in
-  ordine di decodifica: è ciò che oggi edge264 riceve dall'MKV. Verifica:
-  fotogrammi decodificati identici a quelli di `MkvSource` sullo stesso film
-  (framemd5 delle prime migliaia di fotogrammi). Un confronto byte per byte non
-  è possibile, perché MKV e TS impacchettano i dati in modo diverso.
+  ordine di decodifica: è ciò che oggi edge264 riceve dall'MKV. Come funziona:
+  ogni fotogramma è un PES per vista e i due hanno lo stesso DTS, quindi i
+  fotogrammi vengono accoppiati per DTS e scritti nell'ordine della vista base.
+  Il separatore Blu-ray (NAL di tipo 24) viene tolto, come fa MakeMKV.
+  Risultato su Tron: Legacy 3D (disco decifrato con libaacs): **3730 fotogrammi
+  SBS decodificati su 3730 identici bit per bit** a quelli della strada MKV
+  (framemd5 dell'uscita di edge264, primi 2,6 minuti). Velocità del demux:
+  circa 390 MB/s in Python, contro i circa 6 MB/s necessari.
 - [ ] **Fase 2 — Seek.** Tradurre un tempo in una posizione nel file SSIF: EP_map
   nel CLPI (tempo → pacchetto) più la disposizione degli extent SS, oppure una
   ricerca binaria sui PTS. Misurare quanto è preciso. Mantenere la lezione

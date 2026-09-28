@@ -67,12 +67,15 @@ Ordered from the cheapest to the most expensive, so that we can stop early.
   playlists and finds the main 3D one. The SSIF of its clip is readable
   decrypted through `bd_open_file_dec`, and ffprobe on those bytes shows both
   `0x1011` and `0x1012`. _Go/no-go: the disc decrypts with at least one backend._
-- [ ] **Phase 1 — Demux.** A helper turns the SSIF transport stream into Annex B
-  with base and dependent NAL units of each access unit in decode order, the
-  same thing edge264 gets from the MKV today. Validation: decoded frames equal
-  to `MkvSource` on the same movie (framemd5 of the first N thousand frames).
-  A byte-for-byte comparison does not work, because MKV and TS packetize
-  differently.
+- [x] **Phase 1 — Demux.** `src/ssif_demux.py` turns the SSIF transport stream
+  into Annex B with base and dependent NAL units of each access unit in decode
+  order, the same thing edge264 gets from the MKV today. How it works: every
+  frame is one PES per view and both share the same DTS, so the frames are
+  paired on DTS and emitted in base-view order. The Blu-ray delimiter NAL
+  (type 24) is dropped, as MakeMKV does. Result on Tron: Legacy 3D (disc
+  decrypted with libaacs): **3730 of 3730 decoded SBS frames bit-identical** to
+  the MKV path (framemd5 of edge264's output, first 2.6 minutes). Demux speed
+  ~390 MB/s in Python, versus the ~6 MB/s needed.
 - [ ] **Phase 2 — Seek.** Map a time to a position in the SSIF: EP_map in the
   CLPI (time → source packet) plus the SS extent layout, or a bisection on PTS.
   Measure the granularity. Keep the A/V lesson learned with MKV: video and audio
