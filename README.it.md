@@ -225,6 +225,10 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 
 Questo progetto è solo per Linux. Su Windows puoi guardare [**SyLC**](https://github.com/5ymph0en1x/SyLC), un player open source che riproduce direttamente l'MVC dei Blu-ray 3D (MKV, ISO, BDMV) e può produrre SBS. Non l'ho provato.
 
+## Licenza
+
+[MIT](LICENSE). Riguarda solo il codice di questo progetto: edge264, libbluray, libaacs, FFmpeg, Samba e gli altri strumenti che usa mantengono le proprie licenze, e vengono scaricati o installati dalle loro fonti, non distribuiti qui.
+
 ## Riconoscimenti e riferimenti
 
 - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc) (BSD), fork di [edge264](https://github.com/tvlabs/edge264): il decoder MVC che rende possibile tutto questo;
