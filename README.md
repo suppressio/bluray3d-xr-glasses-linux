@@ -3,7 +3,7 @@
 # 3D Blu-ray on XR glasses, from Linux
 #### _Put a 3D Blu-ray in your Linux PC's drive and watch it on XR glasses (VITURE & co.) in real 3D. The PC reads, decrypts and decodes the disc on the fly and serves it over the LAN as a side-by-side video. No rip, no conversion, no disk space._
 
-***Note:*** _Tested with a VITURE Pro XR + VITURE Pro Neckband and its official **3D Player**. Any player able to open videos from a network share (SMB) and show side-by-side 3D should work the same way. Tested with one disc so far (Tron: Legacy 3D): see [Limits](#limits)._
+***Note:*** _Tested with a VITURE Pro XR + VITURE Pro Neckband and its official **3D Player**. Any player able to open videos from a network share (SMB) and show side-by-side 3D should work the same way. Discs tested so far: see [Limits](#limits)._
 
 ---
 
@@ -169,7 +169,6 @@ Disks/
 
 The first opening and every jump with the seek bar take a few seconds: that is the drive moving to the new point.
 
-**PLEASE NOTE!** In some movies part of the scenes are 2D on purpose (in _Tron: Legacy_, the "real world" parts). There the two eyes get the same picture: it is not a bug.
 
 ##### Other glasses and players
 Anything that opens videos from an SMB share and shows SBS 3D should work. Some notes from my tests on the Neckband:
@@ -216,9 +215,8 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 
 ## Limits
 
-- Tested with **one 3D disc** (Tron: Legacy 3D), AACS only. BD+ discs (through MakeMKV) and discs with unusual structures are untested.
 - The last ~2.7 seconds of every movie (after the end credits) are black: the tail of the file is synthetic.
-- Discs tested: one per kind (3D: Tron: Legacy; 2D: Ready Player One; DVD: Back to the Future, PAL). NTSC DVDs are untested.
+- Discs tested: one per kind (3D: Tron: Legacy; 2D: Ready Player One; DVD: Back to the Future, PAL). Only AACS: BD+ discs (through MakeMKV), discs with unusual structures and NTSC DVDs are untested.
 - Subtitles from the disc are drawn into the picture (one version per language), not selectable in the player; the 3D depth is fixed, not taken from the disc. Audio is converted to AAC stereo.
 
 ## Windows?

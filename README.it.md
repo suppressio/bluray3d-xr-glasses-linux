@@ -3,7 +3,7 @@
 # Blu-ray 3D sugli occhiali XR, da Linux
 #### _Metti un Blu-ray 3D nel lettore del PC Linux e guardalo sugli occhiali XR (VITURE & co.) in 3D vero. Il PC legge, decifra e decodifica il disco al volo e lo serve in rete locale come video affiancato. Niente rip, niente conversione, niente spazio su disco._
 
-***Nota:*** _Provato con VITURE Pro XR + VITURE Pro Neckband e il suo **3D Player** ufficiale. Qualsiasi player capace di aprire video da una cartella di rete (SMB) e di mostrare il 3D affiancato dovrebbe funzionare allo stesso modo. Per ora provato con un solo disco (Tron: Legacy 3D): vedi [Limiti](#limiti)._
+***Nota:*** _Provato con VITURE Pro XR + VITURE Pro Neckband e il suo **3D Player** ufficiale. Qualsiasi player capace di aprire video da una cartella di rete (SMB) e di mostrare il 3D affiancato dovrebbe funzionare allo stesso modo. I dischi provati finora sono in [Limiti](#limiti)._
 
 ---
 
@@ -169,7 +169,6 @@ Disks/
 
 La prima apertura e ogni salto con la barra richiedono qualche secondo: è il lettore che si sposta nel nuovo punto.
 
-**ATTENZIONE!** In alcuni film una parte delle scene è in 2D per scelta (in _Tron: Legacy_ le parti nel "mondo reale"). Lì i due occhi ricevono la stessa immagine: non è un errore.
 
 ##### Altri occhiali e altri player
 Qualsiasi cosa apra video da una cartella SMB e mostri il 3D SBS dovrebbe andare. Qualche nota dalle mie prove sul Neckband:
@@ -216,9 +215,8 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 
 ## Limiti
 
-- Provato con **un solo disco 3D** (Tron: Legacy 3D), solo AACS. I dischi con BD+ (tramite MakeMKV) e quelli con strutture insolite non sono provati.
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
-- Dischi provati: uno per tipo (3D: Tron: Legacy; 2D: Ready Player One; DVD: Ritorno al futuro, PAL). I DVD NTSC non sono provati.
+- Dischi provati: uno per tipo (3D: Tron: Legacy; 2D: Ready Player One; DVD: Ritorno al futuro, PAL). Solo AACS: i dischi con BD+ (tramite MakeMKV), quelli con strutture insolite e i DVD NTSC non sono provati.
 - I sottotitoli del disco sono disegnati nell'immagine (una versione per lingua), non si scelgono dal player; la profondità 3D è fissa, non presa dal disco. L'audio è convertito in AAC stereo.
 
 ## E Windows?
