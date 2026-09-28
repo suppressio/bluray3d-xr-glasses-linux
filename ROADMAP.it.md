@@ -21,6 +21,14 @@ Prossimi passi, in quest'ordine:
   salotto (PGS dei Blu-ray, 2D e 3D, sottotitoli dei DVD): una versione per ogni
   lingua, quelli forzati sempre presenti. Estrarli come file esterni vorrebbe dire
   leggere prima tutto il disco, troppo lento. Quelli 3D hanno una profondità fissa.
+  Verificati sul DVD e sul Blu-ray 3D; quelli dei Blu-ray 2D non ancora su un disco vero.
+- [x] **Salti più rapidi.** Dopo un salto il player manda ancora letture per la
+  posizione che ha lasciato; su un disco (una pipeline alla volta) facevano
+  ripartire la posizione vecchia e fermavano quella nuova. Ora ricevono i dati
+  vecchi, e un salto richiede 2-4 s. Animazione di caricamento opzionale
+  (`--loader`) al posto dell'immagine ferma durante l'attesa.
+- [ ] **Un'animazione di caricamento predefinita** senza problemi di diritti,
+  inclusa nel repo (oggi `--loader` è spento se non gli dai un video).
 - [ ] **Altri dischi.** È provato un disco per tipo (Tron: Legacy 3D, Ready Player
   One, Ritorno al futuro PAL); dischi con BD+, più angolazioni, DVD NTSC o
   strutture insolite potrebbero richiedere lavoro.
@@ -34,7 +42,10 @@ Più avanti, forse:
   che supportino un protocollo di sincronizzazione;
 - una modalità "passthrough" per i dischi 2D: servire il flusso originale senza
   ricodifica (qualità piena, ma il seek dipende di più dal player);
-- codifica NVIDIA dentro Docker (il file compose c'è, non è provato).
+- codifica NVIDIA dentro Docker (il file compose c'è, non è provato);
+- codifica VAAPI per le GPU Intel e AMD (`h264_vaapi`, non provata: qui non ce
+  ne sono). Senza NVIDIA codifica la CPU (x264): su un Ryzen 9 5900X la sola
+  codifica 3D va a 1,4x il tempo reale con 2 core, 3,5x con tutti e 12.
 
 ## La decifratura
 
