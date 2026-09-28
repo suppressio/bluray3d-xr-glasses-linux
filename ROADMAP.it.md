@@ -104,8 +104,17 @@ In ordine dalla più economica alla più costosa, per potersi fermare presto.
   oltre "un file che ffmpeg sa aprire" (per esempio una FIFO alimentata dal
   programma di supporto).
 - [ ] **Fase 4 — `BlurayDiscSource`.** Lettore, ISO e cartella BDMV come
-  sorgenti. Nome del film dai metadati del disco, playlist composte da più
-  clip, riconoscimento dei titoli 2D e 3D.
+  sorgenti. **Un file virtuale per ogni film** (la playlist 3D principale, non
+  l'intero disco), con il nome preso dai metadati del disco. Per un lettore il
+  file **compare quando si inserisce un disco e sparisce quando lo si toglie**,
+  quindi il file system deve tenere d'occhio i lettori. Un unico file generico
+  che cambia contenuto col disco confonderebbe player e client SMB, che
+  ricordano posizione di ripresa, durata e dimensione in base al nome del
+  file. Playlist composte da più clip (Tron: 2), riconoscimento dei titoli
+  2D/3D. Sottotitoli esterni: un `.srt` fornito dall'utente in una cartella
+  col nome del film compare accanto al video. Estrarli dal disco vuol dire
+  leggerlo tutto, quindi è rimandato (estrazione graduale mentre si guarda,
+  salvata per le volte successive).
 - [ ] **Fase 5 — Prova lunga su un lettore vero.** Un film intero più seek
   avanti e indietro. Verificare la velocità di lettura del lettore: il file
   SSIF richiede circa 1,3 volte la velocità 1× dei Blu-ray, alla portata di

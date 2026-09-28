@@ -92,9 +92,17 @@ Ordered from the cheapest to the most expensive, so that we can stop early.
 - [ ] **Phase 3 — Audio.** Take the selected audio PID from the same decrypted
   stream and feed it to the encoder. This means extending `Source.audio_input`
   beyond "a file ffmpeg can open" (e.g. a FIFO fed by the helper).
-- [ ] **Phase 4 — `BlurayDiscSource`.** Disc device, ISO and BDMV folder as
-  sources. Movie name from the disc metadata, playlists with several clips,
-  2D/3D title detection.
+- [ ] **Phase 4 — `BlurayDiscSource`.** Disc drive, ISO and BDMV folder as
+  sources. **One virtual file per movie** (the main 3D playlist, not the whole
+  disc), named from the disc metadata. For a drive the file **appears when a
+  disc is inserted and disappears when it is ejected**, so the file system has
+  to watch the drives. A single generic file whose content changes with the
+  disc would confuse players and SMB clients, which remember resume position,
+  duration and size by file name. Playlists made of several clips (Tron: 2),
+  2D/3D title detection. External subtitles: a user-provided `.srt` in a folder
+  named after the movie shows up next to it. Extracting them from the disc
+  means reading the whole disc, so that is left for later (progressive
+  extraction while watching, cached).
 - [ ] **Phase 5 — Long run on a real drive.** A whole movie plus seeks back and
   forth. Check the drive throughput: the SSIF is ~1.3× the 1× BD speed, well
   within any drive, but spin-up and seek latency of an optical drive are real.
