@@ -15,7 +15,8 @@ set -euo pipefail
 PREFIX=/opt/bluray3d-xr
 MOUNT=/srv/bd3d
 EDGE264_REPO=https://github.com/jens-duttke/edge264-mvc.git
-EDGE264_COMMIT=5757e71f3decbeced1150e742e802d263fbd0df4
+# edge264-mvc release v2026.09.22
+EDGE264_COMMIT=44e30b66d43a17418e0b342eba54d69d0c3be829
 MARK_BEGIN="# >>> bluray3d-xr >>>"
 MARK_END="# <<< bluray3d-xr <<<"
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)

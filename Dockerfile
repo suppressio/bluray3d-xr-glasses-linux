@@ -7,7 +7,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 # edge264-mvc: the only open-source decoder of the MVC dependent view (3D Blu-ray)
 ARG EDGE264_REPO=https://github.com/jens-duttke/edge264-mvc.git
-ARG EDGE264_COMMIT=5757e71f3decbeced1150e742e802d263fbd0df4
+# edge264-mvc release v2026.09.22
+ARG EDGE264_COMMIT=44e30b66d43a17418e0b342eba54d69d0c3be829
 RUN git clone "$EDGE264_REPO" /edge264 \
  && git -C /edge264 checkout "$EDGE264_COMMIT" \
  && make -C /edge264 -j"$(nproc)"
