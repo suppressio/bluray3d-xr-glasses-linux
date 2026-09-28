@@ -96,8 +96,9 @@ fi
 cat <<DONE
 
 Done. Start it with:
-    bluray3d-xr --audio-lang eng /dev/sr0              # the disc in the drive
-    bluray3d-xr --audio-lang eng /path/to/your/3D/movies   # ISO, BDMV folders, MKV rips
+    bluray3d-xr --audio-lang eng --subs eng /dev/sr0       # the disc in the drive
+    bluray3d-xr --audio-lang eng /path/to/your/movies      # ISO, BDMV/VIDEO_TS folders, MKV rips
+Every option: OPTIONS.md
 Commercial Blu-rays need a decryption key database for libaacs in ~/.config/aacs/KEYDB.cfg
 (this project does not provide one), or MakeMKV installed (used via its libmmbd).
 Encrypted DVDs (CSS) need libdvdcss, not installed by this script. On Debian/Ubuntu:
