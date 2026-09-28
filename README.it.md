@@ -47,7 +47,8 @@ Tutte le procedure descritte sono un compromesso ragionato tra il "manuale" e il
 - **Un PC Linux** sulla stessa rete degli occhiali. Decodificare l'MVC è lavoro per la CPU: provato su un Ryzen 9 5900X (decodifica a circa 9 volte il tempo reale). Non ho provato CPU meno potenti.
 - **Facoltativa: una GPU NVIDIA**, per codificare con NVENC. Senza, il video viene codificato dalla CPU con x264 (sul 5900X comunque circa 6 volte il tempo reale).
 - **Occhiali XR + un player** che apra video da una cartella di rete SMB e riproduca il 3D SBS. Provato: VITURE Pro XR + Pro Neckband, 3D Player ufficiale.
-- **Un buon Wi-Fi** (consigliati i 5 GHz): il flusso è di 24 Mbit/s.
+- **RAM**: circa 0,5 GB liberi mentre guardi un film. Su disco non si scrive nulla: la pipeline prepara in memoria fino a circa 256 MB in anticipo sul player e ne tiene circa 190 già letti per i piccoli salti indietro, più 16 MB (inizio e fine) per ogni file aperto.
+- **Un buon Wi-Fi** (consigliati i 5 GHz): 15 Mbit/s per il 2D, 24 Mbit/s per il 3D, meno con le copie in `Light/` (vedi [Rete e qualità](#rete-e-qualità)).
 
 #### Decifratura: le chiavi le porti tu
 I Blu-ray commerciali sono cifrati (AACS, alcuni anche BD+). Il progetto **non fornisce e non scarica chiavi**; usa quello che hai, in quest'ordine:
@@ -90,7 +91,7 @@ cp .env.example .env
   - `DRIVE=/dev/sr0` per tenere d'occhio il lettore Blu-ray; in `docker-compose.yml` togli il commento alla riga `- /dev/sr0` sotto `devices`;
   - `AACS_DIR` = la cartella che contiene il tuo `KEYDB.cfg`;
   - `MOVIES_DIR` = una cartella con ISO, cartelle BDMV o rip MKV (può essere vuota se usi solo il lettore);
-  - `AUDIO_LANG` = le tue lingue, per esempio `ita,eng`.
+  - `AUDIO_LANG` = le lingue che vuoi, per esempio `ita,eng`; vuoto o `all` = tutte le lingue del disco.
 - [ ] Costruisci e avvia. La prima volta ci vuole qualche minuto, perché compila edge264 per la tua CPU:
 ```console
 docker compose up -d --build
@@ -194,7 +195,7 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
 |---|---|---|---|
 | Lettore Blu-ray | `DRIVE` | argomento, per esempio `/dev/sr0` | — |
 | Cartella con ISO / BDMV / MKV | `MOVIES_DIR` | argomenti posizionali | — |
-| Lingue audio | `AUDIO_LANG` | `--audio-lang ita,eng` | prima traccia |
+| Lingue audio | `AUDIO_LANG` | `--audio-lang ita,eng` oppure `all` | `all`: tutte le lingue del disco |
 | Un file per lingua, uno con tutte, o entrambi | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
 | Copie a bitrate ridotto in `Light/` | `LIGHT=on\|off` | `--light` / `--no-light` | attive |
 | Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
@@ -202,7 +203,7 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
 | Log della pipeline | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 
 #### Lingue audio e sottotitoli
-- **Più lingue**: con `--audio-lang ita,eng` ogni lingua diventa **un file a sé**
+- **Lingue**: per default vengono offerte tutte le lingue del disco, una traccia ciascuna (la migliore: DTS-HD MA, DTS, AC-3… prima della TrueHD); `--audio-lang ita,eng` limita la scelta e ne fissa l'ordine. Ogni lingua diventa **un file a sé**
   (`ITA - film - 3D SBS.ts`, `ENG - film - 3D SBS.ts`; la lingua è all'inizio perché i player
   tagliano i nomi lunghi). Il 3D Player VITURE non ha un menu per le tracce audio e ne sceglie
   una da solo, per questo è il comportamento predefinito. Se il tuo player il menu ce l'ha,
@@ -224,7 +225,7 @@ Ogni file ha un **bitrate costante**: è quello che permette di far corrisponder
 | **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) |
 | **2D** (1920×1080) | 15 Mbit/s (video 12) | 6,5 Mbit/s (video 5) |
 
-Audio: AAC stereo 192 kbit/s per lingua (DTS e TrueHD non sono supportati dalla maggior parte dei player mobili). Video: H.264.
+Audio: AAC stereo 192 kbit/s per lingua (DTS e TrueHD non sono supportati dalla maggior parte dei player mobili); un file con più lingue (`Multi-audio/`) cresce di 0,22 Mbit/s per ogni lingua in più. Video: H.264.
 
 Se la riproduzione **si ferma ogni pochi secondi**, il Wi-Fi non regge quel bitrate (basta un muro spesso):
 - apri lo stesso film da **`Light/`**;

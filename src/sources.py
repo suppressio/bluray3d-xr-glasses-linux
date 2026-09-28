@@ -99,11 +99,13 @@ class MkvSource(Source):
         )
         self.duration = float(info["format"].get("duration", 0))
         audio = [s for s in info["streams"] if s.get("codec_type") == "audio"]
-        # one track per requested language, in the requested order (the player
-        # lists them in this order); none found -> the first track
+        # one track per language: the requested ones in that order, or every
+        # language of the file (audio_langs None); none found -> the first track
+        lang_of = lambda t: t.get("tags", {}).get("language", "und")
+        langs = audio_langs or list(dict.fromkeys(lang_of(t) for t in audio))
         chosen = []
-        for lang in audio_langs or []:
-            track = next((s for s in audio if s.get("tags", {}).get("language") == lang), None)
+        for lang in langs:
+            track = next((t for t in audio if lang_of(t) == lang), None)
             if track is not None:
                 chosen.append(track)
         if not chosen and audio:
@@ -240,12 +242,13 @@ AUDIO_PREFERENCE = ["dts-hd ma", "dts-hd", "dts", "ac3", "eac3", "lpcm", "truehd
 
 
 def _pick_audio(audio: list, langs: Optional[list[str]]) -> list:
-    """One track per requested language, in that order; none found -> the first track.
+    """One track per language: the requested ones in that order, or every language
+    on the disc (langs None, in disc order); none found -> the first track.
     Within a language, TrueHD comes last: its PID also carries an AC-3 core that
     ffmpeg shows as a second stream, and players rarely decode it anyway."""
     rank = {c: n for n, c in enumerate(AUDIO_PREFERENCE)}
     chosen = []
-    for lang in langs or []:
+    for lang in langs or list(dict.fromkeys(a.lang for a in audio)):
         tracks = [a for a in audio if a.lang == lang]
         if tracks:
             chosen.append(min(tracks, key=lambda a: rank.get(a.codec, len(rank))))

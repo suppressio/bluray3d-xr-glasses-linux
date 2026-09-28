@@ -47,7 +47,8 @@ All the procedures described here are a balanced compromise between "manual" and
 - **A Linux PC** on the same network as the glasses. Decoding MVC is CPU work: tested on a Ryzen 9 5900X (decoding ~9× real time). Weaker CPUs have not been tested.
 - **Optional: an NVIDIA GPU** to encode with NVENC. Without it the video is encoded by the CPU with x264 (on the 5900X still ~6× real time).
 - **XR glasses + a player** that opens videos from an SMB network share and plays SBS 3D. Tested: VITURE Pro XR + Pro Neckband, official 3D Player.
-- **A good Wi-Fi connection** (5 GHz recommended): the stream is 24 Mbit/s.
+- **RAM**: about 0.5 GB free while a movie plays. Nothing is written to disk: the pipeline prepares up to ~256 MB ahead of the player in memory and keeps ~190 MB behind for short jumps back, plus 16 MB (start and end) per file opened.
+- **A good Wi-Fi connection** (5 GHz recommended): 15 Mbit/s for 2D, 24 Mbit/s for 3D, less with the `Light/` copies (see [Network and quality](#network-and-quality)).
 
 #### Decryption: bring your own keys
 Commercial Blu-rays are encrypted (AACS, some also BD+). The project **does not provide or download any key**; it uses what you have, in this order:
@@ -90,7 +91,7 @@ cp .env.example .env
   - `DRIVE=/dev/sr0` to watch the Blu-ray drive, and in `docker-compose.yml` uncomment the `- /dev/sr0` line under `devices`;
   - `AACS_DIR` = the folder containing your `KEYDB.cfg`;
   - `MOVIES_DIR` = a folder with ISO, BDMV folders or MKV rips (can be empty if you only use the drive);
-  - `AUDIO_LANG` = your languages, e.g. `ita,eng`.
+  - `AUDIO_LANG` = the languages you want, e.g. `ita,eng`; empty or `all` = every language on the disc.
 - [ ] Build and start (the first build takes a few minutes: it compiles edge264 for your CPU):
 ```console
 docker compose up -d --build
@@ -194,7 +195,7 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
 |---|---|---|---|
 | Blu-ray drive | `DRIVE` | positional argument, e.g. `/dev/sr0` | — |
 | Folder with ISO / BDMV / MKV | `MOVIES_DIR` | positional arguments | — |
-| Audio languages | `AUDIO_LANG` | `--audio-lang ita,eng` | first track |
+| Audio languages | `AUDIO_LANG` | `--audio-lang ita,eng` or `all` | `all`: every language on the disc |
 | One file per language, one with all, or both | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
 | Lower-bitrate copies in `Light/` | `LIGHT=on\|off` | `--light` / `--no-light` | on |
 | Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
@@ -202,7 +203,7 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
 | Pipeline log | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 
 #### Audio languages and subtitles
-- **Several languages**: with `--audio-lang ita,eng` each language becomes **its own file**
+- **Languages**: by default every language on the disc is offered, one track each (the best one: DTS-HD MA, DTS, AC-3... before TrueHD); `--audio-lang ita,eng` limits the choice and sets the order. Each language becomes **its own file**
   (`ITA - movie - 3D SBS.ts`, `ENG - movie - 3D SBS.ts`; the language comes first because
   players cut long names). The VITURE 3D Player has no audio track menu and picks a track
   on its own, so this is the default. If your player does have an audio menu,
@@ -224,7 +225,7 @@ Every file has a **constant bitrate**: that is what lets a byte of the file matc
 | **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) |
 | **2D** (1920×1080) | 15 Mbit/s (video 12) | 6.5 Mbit/s (video 5) |
 
-Audio: AAC stereo 192 kbit/s per language (DTS/TrueHD are not supported by most mobile players). Video: H.264.
+Audio: AAC stereo 192 kbit/s per language (DTS/TrueHD are not supported by most mobile players); a file with several languages (`Multi-audio/`) is 0.22 Mbit/s bigger for each extra one. Video: H.264.
 
 If playback **pauses every few seconds**, the Wi-Fi cannot keep up with that bitrate (a thick wall is enough):
 - open the same movie from **`Light/`**;

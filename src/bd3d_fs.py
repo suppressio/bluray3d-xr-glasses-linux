@@ -52,6 +52,7 @@ IDLE_STOP = 120                      # seconds without reads before stopping the
 TAIL_ALIGN = 47 * 4096               # multiple of both a TS packet (188) and a memory page
 
 COMMON_ARGS = "-g 24 -c:a aac -ac 2 -b:a 192k "
+AUDIO_TRACK_MUX = 220_000            # TS bit/s per AAC 192k track, with muxer headroom
 MULTI_AUDIO_DIR = "Multi-audio"      # --audio-files both: where the all-tracks files go
 LIGHT_DIR = "Light"                  # lower-bitrate copies, for weak Wi-Fi
 KINDS = ["Blu-ray 3D", "Blu-ray"]    # one folder per kind of disc in the share
@@ -84,7 +85,7 @@ class Generator:
         cmd = decode_command(
             source, start,
             f"{vf.encode_args} {COMMON_ARGS}"
-            f"-output_ts_offset {start:.3f} -f mpegts -muxrate {vf.quality.muxrate} -",
+            f"-output_ts_offset {start:.3f} -f mpegts -muxrate {vf.muxrate} -",
         )
         log.info("%s: pipeline from %.1fs (requested %.1fs, offset %d)",
                  vf.path, start, seconds, self.base)
@@ -164,7 +165,11 @@ class VirtualFile:
         self.parent = parent
         self.source = source
         self.quality = quality
-        self.bytes_per_sec = quality.bytes_per_sec
+        # each extra audio track adds its AAC bitrate (+ muxer headroom) to the file:
+        # the constant bitrate must hold everything, or the byte <-> time mapping drifts
+        extra_tracks = max(0, len(source.audio_langs) - 1)
+        self.muxrate = quality.muxrate + extra_tracks * AUDIO_TRACK_MUX
+        self.bytes_per_sec = self.muxrate // 8
         self.encode_args = encoder_args(encoder, quality.video)
         self.log_path = log_path
         # the language goes first: players cut long names, and it must stay visible
@@ -220,7 +225,7 @@ class VirtualFile:
                          for i, lang in enumerate(self.source.audio_langs))
         cmd = (f"ffmpeg -nostdin -v error {inputs} {maps} {langs} -t {length / self.bytes_per_sec + 3:.1f} "
                f"{self.encode_args} {COMMON_ARGS}"
-               f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {self.quality.muxrate} -")
+               f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {self.muxrate} -")
         out = subprocess.run(["bash", "-c", cmd], capture_output=True).stdout[:length]
         return out + null_padding(tail_start + len(out), length - len(out))
 
@@ -466,8 +471,8 @@ class Library:
         vf = VirtualFile(self.fs.new_inode(), source, self.encoder, quality, self.log_file,
                          parent, self._path(parent))
         added = [vf]
-        log.info("+ %s  (%.0f min, %d Mbit/s, audio %s)", vf.path, source.duration / 60,
-                 quality.muxrate // 1_000_000, source.audio_desc)
+        log.info("+ %s  (%.0f min, %.1f Mbit/s, audio %s)", vf.path, source.duration / 60,
+                 vf.muxrate / 1e6, source.audio_desc)
         # external subtitles: "movie.ita.srt" -> "movie - 3D SBS.ita.srt", so that
         # players pair them with the video (whether they show them in 3D is up to them)
         for suffix, path in source.sidecars:
@@ -586,8 +591,9 @@ def main():
                              "inserted), ISO files, BDMV folders, 3D MKV rips, or folders "
                              "to scan recursively")
     parser.add_argument("--mount", default="/srv/bd3d", help="mount point (default /srv/bd3d)")
-    parser.add_argument("--audio-lang",
-                        help="audio languages to offer, e.g. ita,eng (default: first audio track)")
+    parser.add_argument("--audio-lang", default="all",
+                        help="audio languages to offer, e.g. ita,eng, or all (default: every "
+                             "language on the disc, one track each)")
     parser.add_argument("--audio-files", choices=["per-language", "single", "both"],
                         default="per-language",
                         help="per-language: one file per language, for players without an "
@@ -607,7 +613,8 @@ def main():
 
     encoder = pick_encoder(args.encoder)
     log.info("video encoder: %s", encoder)
-    audio_langs = [x.strip() for x in args.audio_lang.split(",")] if args.audio_lang else None
+    audio_langs = None if args.audio_lang.strip().lower() in ("", "all") else \
+        [x.strip() for x in args.audio_lang.split(",")]
 
     drives = [a for a in args.sources if os.path.exists(a) and stat.S_ISBLK(os.stat(a).st_mode)]
     others = [a for a in args.sources if a not in drives]
