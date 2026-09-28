@@ -48,6 +48,8 @@ Folders are scanned at startup: restart the program to see a new file. Drives ar
 
 By default every language on the disc is offered, one track each (the best one: DTS-HD MA, DTS, AC-3... before TrueHD). `--audio-lang ita,eng` limits the choice and sets the order.
 
+Languages are the standard ISO 639 codes: `ita`, `eng`, `fra`, `deu`, `spa`, `jpn`... Both spellings of the languages that have two (`fra`/`fre`, `deu`/`ger`, `nld`/`dut`...) and two-letter codes (`it`, `en`) work too, for `--audio-lang` and `--subs` alike.
+
 Each language becomes **its own file** (`ITA - movie - 3D SBS.ts`, `ENG - movie - 3D SBS.ts`; the language comes first because players cut long names). The VITURE 3D Player has no audio track menu and picks a track on its own, so this is the default.
 
 If your player does have an audio menu (VLC does), `--audio-files single` puts all languages in one file. `both` offers both at once: the per-language files, plus the all-languages file in a `Multi-audio/` folder. Useful with several devices; the files are virtual, so the extra ones cost nothing.

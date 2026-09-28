@@ -24,15 +24,11 @@ import ctypes.util
 import threading
 from dataclasses import dataclass, field
 
+from langs import lang as to_lang
+
 SECTOR = 2048
 DVD_READ_INFO_FILE, DVD_READ_TITLE_VOBS = 0, 3
 
-# ISO 639-1 (DVD) -> ISO 639-2 (Blu-ray, file names)
-LANG3 = {"en": "eng", "it": "ita", "fr": "fra", "de": "deu", "es": "spa", "pt": "por",
-         "nl": "nld", "ru": "rus", "ja": "jpn", "zh": "zho", "ko": "kor", "pl": "pol",
-         "cs": "ces", "hu": "hun", "sv": "swe", "da": "dan", "fi": "fin", "no": "nor",
-         "el": "ell", "tr": "tur", "he": "heb", "ar": "ara", "hi": "hin", "hr": "hrv",
-         "sr": "srp", "sl": "slv", "sk": "slk", "uk": "ukr", "ro": "ron", "bg": "bul"}
 AUDIO_FORMATS = {0: "ac3", 2: "mp2", 3: "mp2", 4: "lpcm", 6: "dts"}
 
 
@@ -246,7 +242,7 @@ def parse_title(vts_ifo: bytes, number: int, vts: int, ttn: int) -> DvdTitle:
         stream = {0: 0x80, 6: 0x88, 4: 0xA0}.get(fmt, 0x1C0) + n
         lang2 = v[a + 2:a + 4].decode("ascii", "replace").strip("\0 ").lower() or "und"
         t.audio.append(DvdAudio(stream, AUDIO_FORMATS.get(fmt, f"fmt{fmt}"),
-                                LANG3.get(lang2, lang2), v[a + 5] in (3, 4)))
+                                to_lang(lang2), v[a + 5] in (3, 4)))
 
     # subpictures: attributes in the VTS header, stream numbers in the PGC (the
     # one for the display format: widescreen on 16:9 titles); palette in the PGC
@@ -257,7 +253,7 @@ def parse_title(vts_ifo: bytes, number: int, vts: int, ttn: int) -> DvdTitle:
             continue
         n = (control >> 16) & 31 if wide else (control >> 24) & 31
         lang2 = v[a + 2:a + 4].decode("ascii", "replace").strip("\0 ").lower() or "und"
-        t.subs.append(DvdSub(0x20 + n, LANG3.get(lang2, lang2), SUB_KINDS.get(v[a + 5], "other")))
+        t.subs.append(DvdSub(0x20 + n, to_lang(lang2), SUB_KINDS.get(v[a + 5], "other")))
     t.palette = [_rgb(v[pgc + 0xA4 + i * 4 + 1], v[pgc + 0xA4 + i * 4 + 2], v[pgc + 0xA4 + i * 4 + 3])
                  for i in range(16)]
     t.palette_raw = bytes(v[pgc + 0xA4:pgc + 0xA4 + 64])

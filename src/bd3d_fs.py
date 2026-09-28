@@ -39,6 +39,7 @@ from typing import Optional
 import pyfuse3
 import trio
 
+from langs import lang_list
 from pipeline import ENCODERS, Quality, decode_command, encoder_args, pick_encoder, quality_for
 from sources import Source, discover, open_disc
 
@@ -771,11 +772,13 @@ async def idle_watchdog(fs: Bd3dFS):
             await trio.to_thread.run_sync(f.stop_if_idle)
 
 
-async def terminate_on_sigterm():
-    # docker stop / systemctl stop send SIGTERM: unmount cleanly as with Ctrl+C
-    with trio.open_signal_receiver(signal.SIGTERM) as signals:
+async def terminate_on_signal():
+    # Ctrl+C (SIGINT), docker stop / systemctl stop (SIGTERM): unmount and exit
+    # cleanly. Left to Python, Ctrl+C would surface as a KeyboardInterrupt
+    # wrapped in trio's exception groups, printed as a long traceback.
+    with trio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
         async for _ in signals:
-            log.info("SIGTERM received, unmounting")
+            log.info("stopping: unmounting")
             pyfuse3.terminate()
             return
 
@@ -783,7 +786,7 @@ async def terminate_on_sigterm():
 async def run(fs: Bd3dFS, library: Library, drives: list[str], audio_langs):
     async with trio.open_nursery() as nursery:
         nursery.start_soon(idle_watchdog, fs)
-        nursery.start_soon(terminate_on_sigterm)
+        nursery.start_soon(terminate_on_signal)
         for device in drives:
             nursery.start_soon(watch_drive, device, library, audio_langs)
         await pyfuse3.main()
@@ -835,7 +838,7 @@ def main():
     encoder = pick_encoder(args.encoder)
     log.info("video encoder: %s", encoder)
     audio_langs = None if args.audio_lang.strip().lower() in ("", "all") else \
-        [x.strip() for x in args.audio_lang.split(",")]
+        lang_list(args.audio_lang)
 
     drives = [a for a in args.sources if os.path.exists(a) and stat.S_ISBLK(os.stat(a).st_mode)]
     others = [a for a in args.sources if a not in drives]
@@ -844,7 +847,7 @@ def main():
     Source.sub_depth = args.sub_depth
     subs = args.subs.strip().lower()
     sub_langs = None if subs in ("", "all") else [] if subs == "none" else \
-        [x.strip() for x in args.subs.split(",")]
+        lang_list(args.subs)
     loader = None if not args.loader or args.loader == "none" else args.loader
     library = Library(fs, encoder, args.log_file, args.audio_files, args.light, sub_langs, loader)
     for source in discover(others, audio_langs) if others else []:

@@ -18,6 +18,8 @@ start from base packet s starts at the D_k whose B_k contains s.
 import bisect
 from dataclasses import dataclass
 
+from langs import lang as to_lang
+
 SOURCE_PACKET = 192
 AACS_UNIT_PACKETS = 32          # 6144 bytes = 32 source packets
 SS_SUBPATH_TYPES = (8, 9)       # stereoscopic (MVC dependent view) sub paths
@@ -73,7 +75,7 @@ def _parse_stn(data: bytes, stn: int) -> tuple[list[AudioStream], list[SubStream
         attr, q = q, q + 1 + data[q]
         pid = _u16(data, entry + 2) if data[entry + 1] == 1 else _u16(data, entry + 3)
         coding = data[attr + 1]
-        lang = data[attr + 3:attr + 6].decode("ascii", "replace")
+        lang = to_lang(data[attr + 3:attr + 6].decode("ascii", "replace"))
         out.append(AudioStream(pid, AUDIO_CODECS.get(coding, hex(coding)), lang))
     subs = []
     for _ in range(n_pg):
@@ -81,7 +83,7 @@ def _parse_stn(data: bytes, stn: int) -> tuple[list[AudioStream], list[SubStream
         attr, q = q, q + 1 + data[q]
         pid = _u16(data, entry + 2) if data[entry + 1] == 1 else _u16(data, entry + 3)
         if data[attr + 1] == 0x90:                      # PGS (0x91 would be menus)
-            subs.append(SubStream(pid, data[attr + 2:attr + 5].decode("ascii", "replace")))
+            subs.append(SubStream(pid, to_lang(data[attr + 2:attr + 5].decode("ascii", "replace"))))
     return out, subs
 
 

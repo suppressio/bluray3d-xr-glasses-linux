@@ -34,6 +34,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from langs import lang as to_lang
+
 log = logging.getLogger("bd3d_fs")
 
 
@@ -128,7 +130,7 @@ class MkvSource(Source):
         audio = [s for s in info["streams"] if s.get("codec_type") == "audio"]
         # one track per language: the requested ones in that order, or every
         # language of the file (audio_langs None); none found -> the first track
-        lang_of = lambda t: t.get("tags", {}).get("language", "und")
+        lang_of = lambda t: to_lang(t.get("tags", {}).get("language", "und"))
         langs = audio_langs or list(dict.fromkeys(lang_of(t) for t in audio))
         chosen = []
         for lang in langs:
@@ -138,7 +140,7 @@ class MkvSource(Source):
         if not chosen and audio:
             chosen = [audio[0]]
         self.audio_indexes = [s["index"] for s in chosen]
-        self.audio_langs = [s.get("tags", {}).get("language", "und") for s in chosen]
+        self.audio_langs = [lang_of(s) for s in chosen]
         # PGS subtitle tracks, one per language, drawn from the same file (input #1)
         pgs = [s for s in info["streams"] if s.get("codec_name") == "hdmv_pgs_subtitle"]
         self.subs = _first_per_lang(SubTrack(s["index"], lang_of(s)) for s in pgs)
