@@ -9,13 +9,18 @@ services:
       - "${SMB_PORT:-445}:445"
     volumes:
       - "${MOVIES_DIR:?set MOVIES_DIR in .env}:/films:ro"
+      # key database for libaacs (commercial discs); not provided by this project
+      - "${AACS_DIR:-./aacs}:/root/.config/aacs:ro"
     environment:
+      DRIVE: "${DRIVE:-}"
       AUDIO_LANG: "${AUDIO_LANG:-}"
       AUDIO_FILES: "${AUDIO_FILES:-per-language}"
       ENCODER: "${ENCODER:-auto}"
     # FUSE inside the container needs the device and SYS_ADMIN
     devices:
       - /dev/fuse
+      # Blu-ray drive: uncomment and set DRIVE=/dev/sr0 in .env
+      # - /dev/sr0
     cap_add:
       - SYS_ADMIN
     security_opt:

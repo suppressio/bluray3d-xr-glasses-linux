@@ -23,7 +23,7 @@ import queue
 import sys
 import threading
 
-from bdmv import parse_clpi, parse_mpls, ssif_seek
+from bdmv import open_ssif, parse_clpi, parse_mpls, ssif_seek
 from bluray import Disc
 from ssif_demux import BASE_PID, SOURCE_PACKET, SsifDemuxer, _timestamp
 
@@ -272,7 +272,7 @@ def main():
                     delta = round((starts[i] - starts[first]) * 90000) \
                         - 2 * (item.in_time - ref.in_time)
                     tap.set_clip(delta, 2 * item.in_time, 2 * item.out_time)
-                with disc.open(f"BDMV/STREAM/SSIF/{item.clip}.ssif") as f:
+                with open_ssif(disc, item, base, dep) as f:
                     f.seek(offset)
                     while (unit := f.read_unit()) and not video.broken:
                         if tap:

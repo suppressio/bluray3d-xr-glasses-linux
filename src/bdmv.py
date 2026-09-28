@@ -177,3 +177,81 @@ def ssif_seek(item: PlayItem, base: Clip, dep: Clip, seconds: float) -> SeekPoin
     packet = base.extent_start[k] + dep.extent_start[k]          # start of D_k in the .ssif
     offset = packet // AACS_UNIT_PACKETS * AACS_UNIT_PACKETS * SOURCE_PACKET
     return SeekPoint((pts45 - item.in_time) / 45000, pts45 * 2, offset)
+
+
+class EmulatedSsif:
+    """The .ssif byte stream rebuilt from the base and dependent .m2ts files.
+
+    libbluray < 1.4 cannot open .ssif files ("ssif is not yet supported"), but it
+    decrypts the two .m2ts files, and the .ssif is only another view of their
+    extents, interleaved D0 B0 D1 B1 ... Reading them in that order gives the
+    same bytes, and on the disc the same sequential reads.
+    """
+
+    def __init__(self, disc, item: PlayItem, base: Clip, dep: Clip):
+        self.files = (disc.open(f"BDMV/STREAM/{item.dep_clip}.m2ts"),
+                      disc.open(f"BDMV/STREAM/{item.clip}.m2ts"))
+        b = base.extent_start + [base.num_packets]
+        d = dep.extent_start + [dep.num_packets]
+        # (file index, first packet, packet count) of each extent, in .ssif order
+        self.extents = []
+        for k in range(len(base.extent_start)):
+            self.extents.append((0, d[k], d[k + 1] - d[k]))
+            self.extents.append((1, b[k], b[k + 1] - b[k]))
+        self.starts = []                # .ssif packet where each extent begins
+        n = 0
+        for _, _, count in self.extents:
+            self.starts.append(n)
+            n += count
+        self.pos = 0                    # current .ssif packet
+        self._pending = b""
+
+    def seek(self, offset: int) -> None:
+        self.pos = offset // SOURCE_PACKET
+        self._pending = b""
+        self._current = None
+
+    def read_unit(self) -> bytes:
+        """Next chunk (whole source packets, at most 6144 bytes; b'' at the end)."""
+        i = bisect.bisect_right(self.starts, self.pos) - 1
+        if i < 0 or i >= len(self.extents):
+            return b""
+        fidx, first, count = self.extents[i]
+        left = count - (self.pos - self.starts[i])
+        if left <= 0:
+            return b""
+        packet = first + self.pos - self.starts[i]          # packet in that .m2ts
+        f = self.files[fidx]
+        unit = packet // AACS_UNIT_PACKETS
+        if getattr(self, "_current", None) != (fidx, unit):
+            f.seek(unit * AACS_UNIT_PACKETS * SOURCE_PACKET)
+            self._unit_data = f.read_unit()
+            self._current = (fidx, unit)
+        skip = (packet - unit * AACS_UNIT_PACKETS) * SOURCE_PACKET
+        take = min(len(self._unit_data) - skip, left * SOURCE_PACKET)
+        if take <= 0:
+            return b""
+        chunk = self._unit_data[skip:skip + take]
+        self.pos += take // SOURCE_PACKET
+        if skip + take >= len(self._unit_data):
+            self._current = (fidx, unit + 1)
+            self._unit_data = f.read_unit()     # the next unit of the same file
+        return chunk
+
+    def close(self) -> None:
+        for f in self.files:
+            f.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+def open_ssif(disc, item: PlayItem, base: Clip, dep: Clip):
+    """The clip's .ssif, or its emulation from the two .m2ts on libbluray < 1.4."""
+    try:
+        return disc.open(f"BDMV/STREAM/SSIF/{item.clip}.ssif")
+    except OSError:
+        return EmulatedSsif(disc, item, base, dep)

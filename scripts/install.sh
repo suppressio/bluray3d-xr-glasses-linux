@@ -3,7 +3,8 @@
 # sudo only where needed. Safe to run again (it skips what is already done).
 #
 # What it changes on the system (undo with scripts/uninstall.sh):
-#   - apt packages: ffmpeg python3-pyfuse3 fuse3 samba (+ build tools for edge264)
+#   - apt packages: ffmpeg python3-pyfuse3 fuse3 samba libbluray libaacs libbdplus
+#                   (+ build tools for edge264)
 #   - /opt/bluray3d-xr            edge264 decoder + the program
 #   - /usr/local/bin/bluray3d-xr  command to start it
 #   - /srv/bd3d                   mount point of the virtual files
@@ -27,8 +28,11 @@ command -v apt-get >/dev/null || { echo "This script supports Debian/Ubuntu (apt
 
 step "1/5 Packages"
 sudo apt-get update
+# libbluray's package name changes with its ABI (libbluray2 up to 1.3, libbluray4 from 1.4)
+libbluray=libbluray2
+apt-cache show libbluray4 >/dev/null 2>&1 && libbluray=libbluray4
 sudo apt-get install -y --no-install-recommends \
-    ffmpeg python3 python3-pyfuse3 fuse3 samba \
+    ffmpeg python3 python3-pyfuse3 fuse3 samba "$libbluray" libaacs0 libbdplus0 \
     git build-essential ca-certificates
 
 step "2/5 edge264-mvc decoder (MVC 3D)"
@@ -44,7 +48,7 @@ rm -rf "$build"
 "$PREFIX/bin/edge264_test" -h >/dev/null && echo "edge264_test OK"
 
 step "3/5 Program"
-sudo install -m 644 "$REPO_DIR/src/bd3d_fs.py" "$REPO_DIR/src/pipeline.py" "$PREFIX/app/"
+sudo install -m 644 "$REPO_DIR"/src/*.py "$PREFIX/app/"
 sudo tee /usr/local/bin/bluray3d-xr >/dev/null <<WRAP
 #!/bin/sh
 PATH="$PREFIX/bin:\$PATH" exec python3 "$PREFIX/app/bd3d_fs.py" "\$@"
@@ -90,7 +94,10 @@ fi
 cat <<DONE
 
 Done. Start it with:
-    bluray3d-xr --audio-lang eng /path/to/your/3D/movies
+    bluray3d-xr --audio-lang eng /dev/sr0              # the disc in the drive
+    bluray3d-xr --audio-lang eng /path/to/your/3D/movies   # ISO, BDMV folders, MKV rips
+Commercial discs need a decryption key database for libaacs in ~/.config/aacs/KEYDB.cfg
+(this project does not provide one), or MakeMKV installed (used via its libmmbd).
 Then on the glasses open the network share \\\\$(hostname -I | awk '{print $1}')\\3D
 Stop it with Ctrl+C.
 DONE

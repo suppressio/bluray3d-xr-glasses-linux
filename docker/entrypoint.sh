@@ -6,4 +6,5 @@ set -- --mount /srv/bd3d --encoder "${ENCODER:-auto}"
 [ -n "$AUDIO_LANG" ] && set -- "$@" --audio-lang "$AUDIO_LANG"
 [ -n "$AUDIO_FILES" ] && set -- "$@" --audio-files "$AUDIO_FILES"
 # exec: bd3d_fs.py receives docker stop's SIGTERM (via tini) and unmounts cleanly
-exec python3 /app/bd3d_fs.py "$@" /films
+# DRIVE: a Blu-ray drive passed to the container (the movie appears when a disc is in)
+exec python3 /app/bd3d_fs.py "$@" /films ${DRIVE:+"$DRIVE"}
