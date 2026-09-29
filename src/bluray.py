@@ -9,9 +9,27 @@ libbluray picks the AACS/BD+ backend when the disc is opened:
 """
 import ctypes
 import ctypes.util
-from ctypes import (CFUNCTYPE, POINTER, Structure, c_char, c_char_p, c_int, c_int32, c_int64,
-                    c_uint8, c_uint32, c_uint64, c_void_p)
+import functools
+from ctypes import (
+    CFUNCTYPE,
+    POINTER,
+    Structure,
+    c_char,
+    c_char_p,
+    c_int,
+    c_int32,
+    c_int64,
+    c_uint8,
+    c_uint32,
+    c_uint64,
+    c_void_p,
+)
 from dataclasses import dataclass
+from types import TracebackType
+from typing import TYPE_CHECKING, Self
+
+if TYPE_CHECKING:
+    from ctypes import _Pointer  # pyright: ignore[reportPrivateUsage]  # only in typeshed's ctypes
 
 AACS_UNIT = 6144   # the decrypting reader returns exactly one aligned unit per call
 
@@ -83,27 +101,33 @@ class Title:
     duration: float       # seconds
 
 
-_lib = _load()
-_lib.bd_open.restype = c_void_p
-_lib.bd_open.argtypes = [c_char_p, c_char_p]
-_lib.bd_close.argtypes = [c_void_p]
-_lib.bd_open_file_dec.restype = POINTER(_BDFile)
-_lib.bd_open_file_dec.argtypes = [c_void_p, c_char_p]
-_lib.bd_get_disc_info.restype = POINTER(_DiscInfo)
-_lib.bd_get_disc_info.argtypes = [c_void_p]
-_lib.bd_get_titles.restype = c_uint32
-_lib.bd_get_titles.argtypes = [c_void_p, c_uint8, c_uint32]
-_lib.bd_get_title_info.restype = POINTER(_TitleInfo)
-_lib.bd_get_title_info.argtypes = [c_void_p, c_uint32, c_uint32]
-_lib.bd_free_title_info.argtypes = [POINTER(_TitleInfo)]
+@functools.cache
+def _libbluray() -> ctypes.CDLL:
+    """libbluray, loaded on first use (a DVD-only setup may not have it)."""
+    lib = _load()
+    lib.bd_open.restype = c_void_p
+    lib.bd_open.argtypes = [c_char_p, c_char_p]
+    lib.bd_close.argtypes = [c_void_p]
+    lib.bd_open_file_dec.restype = POINTER(_BDFile)
+    lib.bd_open_file_dec.argtypes = [c_void_p, c_char_p]
+    lib.bd_get_disc_info.restype = POINTER(_DiscInfo)
+    lib.bd_get_disc_info.argtypes = [c_void_p]
+    lib.bd_get_titles.restype = c_uint32
+    lib.bd_get_titles.argtypes = [c_void_p, c_uint8, c_uint32]
+    lib.bd_get_title_info.restype = POINTER(_TitleInfo)
+    lib.bd_get_title_info.argtypes = [c_void_p, c_uint32, c_uint32]
+    lib.bd_free_title_info.argtypes = [POINTER(_TitleInfo)]
+    return lib
+
+
 TITLES_RELEVANT = 0x03
 
 
 class DiscFile:
     """A file on the disc, read-only, decrypted if it is an encrypted stream."""
 
-    def __init__(self, handle: POINTER(_BDFile), path: str):
-        self._h = handle
+    def __init__(self, handle: "_Pointer[_BDFile]", path: str) -> None:
+        self._h: _Pointer[_BDFile] | None = handle
         self.path = path
         self._buf = ctypes.create_string_buffer(AACS_UNIT)
 
@@ -111,12 +135,14 @@ class DiscFile:
         """Seek to a multiple of 6144 bytes (streams can only be decrypted per unit)."""
         if offset % AACS_UNIT:
             raise ValueError("offset must be a multiple of 6144")
-        if self._h.contents.seek(self._h, offset, 0) < 0:
+        h = self._handle()
+        if h.contents.seek(h, offset, 0) < 0:
             raise OSError(f"seek failed in {self.path}")
 
     def read_unit(self) -> bytes:
         """Next 6144-byte unit ('' at end of file)."""
-        n = self._h.contents.read(self._h, self._buf, AACS_UNIT)
+        h = self._handle()
+        n: int = h.contents.read(h, self._buf, AACS_UNIT)
         return self._buf.raw[:n] if n > 0 else b""
 
     def read_all(self) -> bytes:
@@ -125,32 +151,38 @@ class DiscFile:
             out += unit
         return bytes(out)
 
+    def _handle(self) -> "_Pointer[_BDFile]":
+        if self._h is None:
+            raise ValueError(f"{self.path} is closed")
+        return self._h
+
     def close(self) -> None:
         if self._h:
             self._h.contents.close(self._h)
             self._h = None
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, kind: type[BaseException] | None, value: BaseException | None,
+                 traceback: TracebackType | None) -> None:
         self.close()
 
 
 class Disc:
-    def __init__(self, path: str):
-        self._bd = _lib.bd_open(path.encode(), None)
+    def __init__(self, path: str) -> None:
+        self._bd: int | None = _libbluray().bd_open(path.encode(), None)
         if not self._bd:
             raise OSError(f"cannot open Blu-ray: {path}")
 
     def open(self, path: str) -> DiscFile:
-        h = _lib.bd_open_file_dec(self._bd, path.encode())
+        h = _libbluray().bd_open_file_dec(self._bd, path.encode())
         if not h:
             raise OSError(f"cannot open {path} on the disc")
         return DiscFile(h, path)
 
     def info(self) -> DiscInfo:
-        d = _lib.bd_get_disc_info(self._bd).contents
+        d = _libbluray().bd_get_disc_info(self._bd).contents
         encrypted = d.aacs_detected or d.bdplus_detected
         handled = (not d.aacs_detected or d.aacs_handled) and \
                   (not d.bdplus_detected or d.bdplus_handled)
@@ -162,12 +194,12 @@ class Disc:
 
     def titles(self, min_seconds: int = 600) -> list[Title]:
         """Playlists at least min_seconds long, duplicates removed."""
-        out = []
-        for i in range(_lib.bd_get_titles(self._bd, TITLES_RELEVANT, min_seconds)):
-            ti = _lib.bd_get_title_info(self._bd, i, 0)
+        out: list[Title] = []
+        for i in range(_libbluray().bd_get_titles(self._bd, TITLES_RELEVANT, min_seconds)):
+            ti = _libbluray().bd_get_title_info(self._bd, i, 0)
             if ti:
                 out.append(Title(f"{ti.contents.playlist:05d}", ti.contents.duration / 90000))
-                _lib.bd_free_title_info(ti)
+                _libbluray().bd_free_title_info(ti)
         return out
 
     def read_file(self, path: str) -> bytes:
@@ -176,11 +208,12 @@ class Disc:
 
     def close(self) -> None:
         if self._bd:
-            _lib.bd_close(self._bd)
+            _libbluray().bd_close(self._bd)
             self._bd = None
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, kind: type[BaseException] | None, value: BaseException | None,
+                 traceback: TracebackType | None) -> None:
         self.close()

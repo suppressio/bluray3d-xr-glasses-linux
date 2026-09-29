@@ -19,10 +19,13 @@ approximately (seconds off, and it does not know where it landed).
 """
 import bisect
 import ctypes
-import os
 import ctypes.util
+import functools
+import os
 import threading
 from dataclasses import dataclass, field
+from types import TracebackType
+from typing import Protocol, Self
 
 from langs import lang as to_lang
 
@@ -42,27 +45,24 @@ def _load() -> ctypes.CDLL:
     raise OSError("libdvdread not found (Debian/Ubuntu: apt install libdvdread8 libdvdcss2)")
 
 
-_lib = None
-
-
+@functools.cache
 def _dvdread() -> ctypes.CDLL:
-    global _lib
-    if _lib is None:
-        _lib = _load()
-        for n, res, args in (
-                ("DVDOpen", ctypes.c_void_p, [ctypes.c_char_p]),
-                ("DVDClose", None, [ctypes.c_void_p]),
-                ("DVDOpenFile", ctypes.c_void_p, [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]),
-                ("DVDCloseFile", None, [ctypes.c_void_p]),
-                ("DVDFileSize", ctypes.c_ssize_t, [ctypes.c_void_p]),
-                ("DVDReadBytes", ctypes.c_ssize_t, [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]),
-                ("DVDReadBlocks", ctypes.c_ssize_t,
-                 [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_void_p]),
-                ("DVDUDFVolumeInfo", ctypes.c_int,
-                 [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint])):
-            getattr(_lib, n).restype = res
-            getattr(_lib, n).argtypes = args
-    return _lib
+    lib = _load()
+    for n, res, args in (
+            ("DVDOpen", ctypes.c_void_p, [ctypes.c_char_p]),
+            ("DVDClose", None, [ctypes.c_void_p]),
+            ("DVDOpenFile", ctypes.c_void_p, [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]),
+            ("DVDCloseFile", None, [ctypes.c_void_p]),
+            ("DVDFileSize", ctypes.c_ssize_t, [ctypes.c_void_p]),
+            ("DVDReadBytes", ctypes.c_ssize_t,
+             [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]),
+            ("DVDReadBlocks", ctypes.c_ssize_t,
+             [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_void_p]),
+            ("DVDUDFVolumeInfo", ctypes.c_int,
+             [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint])):
+        getattr(lib, n).restype = res
+        getattr(lib, n).argtypes = args
+    return lib
 
 
 def _u16(b: bytes, o: int) -> int:
@@ -83,19 +83,26 @@ def _dvd_time(b: bytes, o: int) -> float:
     return _bcd(b[o]) * 3600 + _bcd(b[o + 1]) * 60 + _bcd(b[o + 2]) + _bcd(b[o + 3] & 0x3F) / rate
 
 
+class SectorReader(Protocol):
+    """Reads sectors of the title VOBs (VobFile)."""
+
+    def read(self, sector: int, count: int) -> bytes: ...
+
+
 class VobFile:
     """The title VOBs of a VTS, as one sector-addressed file (decrypted)."""
 
-    def __init__(self, handle, lock):
-        self._h, self._lock = handle, lock
+    def __init__(self, handle: int, lock: threading.Lock) -> None:
+        self._h: int | None = handle
+        self._lock = lock
 
     def read(self, sector: int, count: int) -> bytes:
         buf = ctypes.create_string_buffer(count * SECTOR)
         with self._lock:
-            n = _dvdread().DVDReadBlocks(self._h, sector, count, buf)
+            n: int = _dvdread().DVDReadBlocks(self._h, sector, count, buf)
         return buf.raw[:max(0, n) * SECTOR]
 
-    def close(self):
+    def close(self) -> None:
         if self._h:
             _dvdread().DVDCloseFile(self._h)
             self._h = None
@@ -104,12 +111,12 @@ class VobFile:
 class Dvd:
     """A DVD-Video disc, ISO image or folder with VIDEO_TS/."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str) -> None:
         # only the title key we need, when a title's VOBs are opened, instead of
         # all of them at every open (each costs a seek on the disc; libdvdcss
         # keeps them cached in ~/.dvdcss anyway)
         os.environ.setdefault("DVDREAD_NOKEYS", "1")
-        self._dvd = _dvdread().DVDOpen(path.encode())
+        self._dvd: int | None = _dvdread().DVDOpen(path.encode())
         if not self._dvd:
             raise OSError(f"cannot open DVD: {path}")
         self._lock = threading.Lock()
@@ -122,31 +129,32 @@ class Dvd:
 
     def ifo(self, vts: int) -> bytes:
         with self._lock:
-            f = _dvdread().DVDOpenFile(self._dvd, vts, DVD_READ_INFO_FILE)
+            f: int | None = _dvdread().DVDOpenFile(self._dvd, vts, DVD_READ_INFO_FILE)
             if not f:
                 raise OSError(f"cannot open the IFO of VTS {vts}")
-            size = _dvdread().DVDFileSize(f) * SECTOR
+            size: int = _dvdread().DVDFileSize(f) * SECTOR
             buf = ctypes.create_string_buffer(size)
-            n = _dvdread().DVDReadBytes(f, buf, size)
+            n: int = _dvdread().DVDReadBytes(f, buf, size)
             _dvdread().DVDCloseFile(f)
         return buf.raw[:max(0, n)]
 
     def title_vobs(self, vts: int) -> VobFile:
         with self._lock:
-            h = _dvdread().DVDOpenFile(self._dvd, vts, DVD_READ_TITLE_VOBS)
+            h: int | None = _dvdread().DVDOpenFile(self._dvd, vts, DVD_READ_TITLE_VOBS)
         if not h:
             raise OSError(f"cannot open the VOBs of VTS {vts}")
         return VobFile(h, self._lock)
 
-    def close(self):
+    def close(self) -> None:
         if self._dvd:
             _dvdread().DVDClose(self._dvd)
             self._dvd = None
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, kind: type[BaseException] | None, value: BaseException | None,
+                 traceback: TracebackType | None) -> None:
         self.close()
 
 
@@ -180,10 +188,12 @@ SUB_KINDS = {0: "normal", 1: "normal", 2: "normal", 3: "other", 5: "normal", 6: 
 
 
 def _rgb(y: int, cr: int, cb: int) -> str:
-    clip = lambda x: max(0, min(255, round(x)))
-    return "%02x%02x%02x" % (clip(y + 1.402 * (cr - 128)),
-                             clip(y - 0.344136 * (cb - 128) - 0.714136 * (cr - 128)),
-                             clip(y + 1.772 * (cb - 128)))
+    def clip(x: float) -> int:
+        return max(0, min(255, round(x)))
+
+    return (f"{clip(y + 1.402 * (cr - 128)):02x}"
+            f"{clip(y - 0.344136 * (cb - 128) - 0.714136 * (cr - 128)):02x}"
+            f"{clip(y + 1.772 * (cb - 128)):02x}")
 
 
 @dataclass
@@ -191,16 +201,16 @@ class DvdTitle:
     number: int         # title number on the disc (1-based)
     vts: int
     duration: float
-    cells: list = field(default_factory=list)
-    audio: list = field(default_factory=list)
-    subs: list = field(default_factory=list)
-    palette: list = field(default_factory=list)  # 16 "rrggbb" colours for the subpictures
+    cells: list[Cell] = field(default_factory=list[Cell])
+    audio: list[DvdAudio] = field(default_factory=list[DvdAudio])
+    subs: list[DvdSub] = field(default_factory=list[DvdSub])
+    palette: list[str] = field(default_factory=list[str])  # 16 "rrggbb" subpicture colours
     palette_raw: bytes = b""                     # the same 16 entries as stored in the PGC
     frame_size: str = "1024x576"   # square-pixel display size
     frame_rate: str = "25"
     tmap_unit: int = 0
-    tmap: list = field(default_factory=list)     # VOBU sector every tmap_unit seconds
-    vobus: list = field(default_factory=list)    # every VOBU start sector (ADMAP)
+    tmap: list[int] = field(default_factory=list[int])    # VOBU sector every tmap_unit seconds
+    vobus: list[int] = field(default_factory=list[int])   # every VOBU start sector (ADMAP)
 
     def cell_index(self, vob_id: int, cell_id: int) -> int:
         for i, c in enumerate(self.cells):
@@ -209,7 +219,7 @@ class DvdTitle:
         return -1
 
 
-def _titles(vmg: bytes) -> list[tuple[int, int, int]]:
+def titles(vmg: bytes) -> list[tuple[int, int, int]]:
     """(title number, VTS, title number inside the VTS) of every title."""
     tt = _u32(vmg, 0xC4) * SECTOR
     return [(i + 1, vmg[tt + 8 + i * 12 + 6], vmg[tt + 8 + i * 12 + 7])
@@ -254,8 +264,8 @@ def parse_title(vts_ifo: bytes, number: int, vts: int, ttn: int) -> DvdTitle:
         n = (control >> 16) & 31 if wide else (control >> 24) & 31
         lang2 = v[a + 2:a + 4].decode("ascii", "replace").strip("\0 ").lower() or "und"
         t.subs.append(DvdSub(0x20 + n, to_lang(lang2), SUB_KINDS.get(v[a + 5], "other")))
-    t.palette = [_rgb(v[pgc + 0xA4 + i * 4 + 1], v[pgc + 0xA4 + i * 4 + 2], v[pgc + 0xA4 + i * 4 + 3])
-                 for i in range(16)]
+    t.palette = [_rgb(v[pgc + 0xA4 + i * 4 + 1], v[pgc + 0xA4 + i * 4 + 2],
+                      v[pgc + 0xA4 + i * 4 + 3]) for i in range(16)]
     t.palette_raw = bytes(v[pgc + 0xA4:pgc + 0xA4 + 64])
 
     # cells, skipping the non-first angles of angle blocks
@@ -282,11 +292,17 @@ def parse_title(vts_ifo: bytes, number: int, vts: int, ttn: int) -> DvdTitle:
     return t
 
 
-def main_title(dvd: Dvd) -> DvdTitle:
+class IfoReader(Protocol):
+    """Reads the IFO files of a disc (Dvd): 0 = VIDEO_TS.IFO, n = VTS_n_0.IFO."""
+
+    def ifo(self, vts: int) -> bytes: ...
+
+
+def main_title(dvd: IfoReader) -> DvdTitle:
     """The longest title: the movie (the first title often is not)."""
     ifos: dict[int, bytes] = {}
     best = None
-    for number, vts, ttn in _titles(dvd.ifo(0)):
+    for number, vts, ttn in titles(dvd.ifo(0)):
         if vts not in ifos:
             ifos[vts] = dvd.ifo(vts)
         try:
@@ -307,7 +323,7 @@ class Nav:
     sector: int
 
 
-def read_nav(vobs: VobFile, title: DvdTitle, sector: int):
+def read_nav(vobs: SectorReader, title: DvdTitle, sector: int) -> Nav | None:
     """The navigation pack at `sector`, or None if there is none (or it is not ours)."""
     s = vobs.read(sector, 1)
     if len(s) < SECTOR or s[0x26:0x2A] != b"\x00\x00\x01\xbf" or s[0x2C] != 0 \
@@ -320,7 +336,7 @@ def read_nav(vobs: VobFile, title: DvdTitle, sector: int):
     return Nav(title.cells[i].start + _dvd_time(s, dsi + 0x1C), _u32(s, 0x2D + 0x0C), sector)
 
 
-def seek(vobs: VobFile, title: DvdTitle, seconds: float) -> Nav:
+def seek(vobs: SectorReader, title: DvdTitle, seconds: float) -> Nav:
     """The last VOBU starting at or before `seconds`, with its exact time."""
     seconds = max(0.0, seconds)
     ci = max(0, bisect.bisect_right([c.start for c in title.cells], seconds) - 1)

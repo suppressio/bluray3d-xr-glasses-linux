@@ -1,8 +1,23 @@
+from types import TracebackType
+from typing import Self
+
 import pytest
 
 import bdmv
-from bdmv import (AACS_UNIT_PACKETS, SOURCE_PACKET, AudioStream, Clip, EmulatedSsif, PlayItem,
-                  SubStream, m2ts_seek, open_ssif, parse_clpi, parse_mpls, ssif_seek)
+from bdmv import (
+    AACS_UNIT_PACKETS,
+    SOURCE_PACKET,
+    AudioStream,
+    Clip,
+    EmulatedSsif,
+    PlayItem,
+    SubStream,
+    m2ts_seek,
+    open_ssif,
+    parse_clpi,
+    parse_mpls,
+    ssif_seek,
+)
 from builders import Item, Stream, clpi, mpls
 
 UNIT = AACS_UNIT_PACKETS * SOURCE_PACKET
@@ -51,13 +66,13 @@ EPS = [(0, 0), (256 * 100, 50), (1 << 19, 0x20010), ((1 << 19) + 512, 0x20100), 
 def test_parse_clpi_ep_map_and_extents() -> None:
     clip = parse_clpi(clpi(1234, EPS, extents=[0, 100, 300], other_pid=0x1100))
     assert clip.num_packets == 1234
-    assert list(zip(clip.ep_pts, clip.ep_spn)) == EPS
+    assert list(zip(clip.ep_pts, clip.ep_spn, strict=True)) == EPS
     assert clip.extent_start == [0, 100, 300]
 
 
 def test_parse_clpi_dependent_pid_and_no_extents() -> None:
     clip = parse_clpi(clpi(10, EPS[:2], pid=0x1012), pid=0x1012)
-    assert list(zip(clip.ep_pts, clip.ep_spn)) == EPS[:2]
+    assert list(zip(clip.ep_pts, clip.ep_spn, strict=True)) == EPS[:2]
     assert clip.extent_start == []
     # asking for another PID finds no entry point
     assert parse_clpi(clpi(10, EPS[:2], pid=0x1012)).ep_pts == []
@@ -115,6 +130,13 @@ class FakeFile:
     def close(self) -> None:
         self.closed = True
 
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, kind: type[BaseException] | None, value: BaseException | None,
+                 traceback: TracebackType | None) -> None:
+        self.close()
+
 
 class FakeDisc:
     def __init__(self, files: dict[str, bytes], ssif: bool = False) -> None:
@@ -152,7 +174,7 @@ def test_emulated_ssif_interleaves_extents() -> None:
         while unit := ssif.read_unit():
             assert len(unit) % SOURCE_PACKET == 0 and len(unit) <= UNIT
             out += unit
-        expected = ([(2, i) for i in range(0, 37)] + [(1, i) for i in range(0, 45)]
+        expected = ([(2, i) for i in range(37)] + [(1, i) for i in range(45)]
                     + [(2, i) for i in range(37, 50)] + [(1, i) for i in range(45, 70)]
                     + [(2, i) for i in range(50, 80)] + [(1, i) for i in range(70, 100)])
         assert _packets(out) == expected

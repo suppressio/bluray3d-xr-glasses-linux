@@ -1,9 +1,18 @@
 import io
 from pathlib import Path
+from typing import override
 
 from builders import pes, pmt_packet, pmt_section, source_packets, ts_packets
-from disc_reader import AudioTap, Remux2D, _crc32_mpeg2, _pmt_streams, filter_pmt
-from ssif_demux import BASE_PID, _timestamp
+from disc_reader import (
+    AudioTap,
+    Remux2D,
+    _crc32_mpeg2,
+    _pmt_streams,
+    filter_pmt,
+    pes_pts,
+    shift_timestamps,
+)
+from ssif_demux import BASE_PID, timestamp
 
 AUDIO, OTHER_AUDIO, PGS = 0x1100, 0x1101, 0x1200
 KEY_PTS = 900_000                        # the keyframe we start from (low 9 bits clear)
@@ -26,13 +35,13 @@ def test_filter_pmt() -> None:
 
 def test_shift_timestamps() -> None:
     p = bytearray(ts_packets(AUDIO, pes(b"x", 1000, 900, stream_id=0xBD))[0])
-    AudioTap._shift_timestamps(p, 500)
-    assert AudioTap._pes_pts(p) == 1500
+    shift_timestamps(p, 500)
+    assert pes_pts(p) == 1500
     hdr = 5 + p[4]                                              # after the stuffing
-    assert _timestamp(bytes(p[hdr + 14:hdr + 19])) == 1400      # DTS too
-    AudioTap._shift_timestamps(p, -2000)                        # wraps around 2^33
-    assert AudioTap._pes_pts(p) == (1 << 33) - 500
-    assert AudioTap._pes_pts(ts_packets(AUDIO, b"\x00\x00\x02" + b"\x00" * 20)[0]) is None
+    assert timestamp(bytes(p[hdr + 14:hdr + 19])) == 1400      # DTS too
+    shift_timestamps(p, -2000)                        # wraps around 2^33
+    assert pes_pts(p) == (1 << 33) - 500
+    assert pes_pts(ts_packets(AUDIO, b"\x00\x00\x02" + b"\x00" * 20)[0]) is None
 
 
 def disc_stream(first_video_pts: int = KEY_PTS - 2 * 3754) -> list[bytes]:
@@ -54,11 +63,11 @@ def disc_stream(first_video_pts: int = KEY_PTS - 2 * 3754) -> list[bytes]:
 
 
 def pids_and_pts(ts: bytes) -> list[tuple[int, int | None]]:
-    out = []
+    out: list[tuple[int, int | None]] = []
     for o in range(0, len(ts), 188):
         p = ts[o:o + 188]
         pid = ((p[1] & 0x1F) << 8) | p[2]
-        out.append((pid, AudioTap._pes_pts(p) if p[1] & 0x40 else None))
+        out.append((pid, pes_pts(p) if p[1] & 0x40 else None))
     return out
 
 
@@ -109,8 +118,9 @@ def test_remux_2d() -> None:
 
 
 def test_remux_2d_broken_pipe() -> None:
-    class Closed(io.RawIOBase):
-        def write(self, b: object) -> int:
+    class Closed(io.BytesIO):
+        @override
+        def write(self, b: object, /) -> int:
             raise BrokenPipeError
 
     remux = Remux2D(Closed(), {AUDIO}, KEY_PTS)

@@ -8,7 +8,7 @@ import pytest
 import dvd
 import pipeline
 import sources
-from fakes import FakeBluray, FakeDvd, mkv_probe
+from fakes import FakeBluray, FakeDvd, mkv_probe, opener
 from pipeline import QUALITIES, decode_command, encoder_args, pick_encoder, quality_for
 from sources import BlurayDiscSource, DvdSource, MkvSource
 
@@ -44,15 +44,16 @@ def test_pick_encoder(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pipeline.subprocess, "run", run)
     assert pick_encoder() == "x264"
     assert "h264_nvenc" in calls[0]
-    monkeypatch.setattr(pipeline.subprocess, "run",
-                        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0))
+    def works(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(pipeline.subprocess, "run", works)
     assert pick_encoder("auto") == "nvenc"
 
 
 def three_d(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> BlurayDiscSource:
     (tmp_path / "t.iso").write_text("")
-    disc = FakeBluray()
-    monkeypatch.setattr(sources, "_open_disc", lambda path: (disc, disc.info(), {}))
+    monkeypatch.setattr(sources, "_open_disc", opener(FakeBluray()))
     return BlurayDiscSource(str(tmp_path / "t.iso"), ["ita"])
 
 
@@ -84,8 +85,7 @@ def test_decode_3d_subtitles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
 def test_decode_2d_bluray(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     (tmp_path / "t.iso").write_text("")
-    disc = FakeBluray(three_d=False)
-    monkeypatch.setattr(sources, "_open_disc", lambda path: (disc, disc.info(), {}))
+    monkeypatch.setattr(sources, "_open_disc", opener(FakeBluray(three_d=False)))
     s = BlurayDiscSource(str(tmp_path / "t.iso"), ["ita"])
     cmd = decode_command(s, 5.0, "OUT")
     assert "edge264" not in cmd

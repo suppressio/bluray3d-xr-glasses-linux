@@ -16,7 +16,9 @@ base). The dependent frames of base extent k are in D_k, so a read that must
 start from base packet s starts at the D_k whose B_k contains s.
 """
 import bisect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import TracebackType
+from typing import Protocol, Self
 
 from langs import lang as to_lang
 
@@ -38,7 +40,7 @@ def _extensions(data: bytes, start: int) -> dict[tuple[int, int], int]:
     if start == 0 or start + 12 > len(data):
         return {}
     count = data[start + 11]
-    out = {}
+    out: dict[tuple[int, int], int] = {}
     for i in range(count):
         e = start + 12 + i * 12
         out[(_u16(data, e), _u16(data, e + 2))] = start + _u32(data, e + 4)
@@ -69,7 +71,7 @@ def _parse_stn(data: bytes, stn: int) -> tuple[list[AudioStream], list[SubStream
     for _ in range(n_video):                     # skip video entries
         q += 1 + data[q]
         q += 1 + data[q]
-    out = []
+    out: list[AudioStream] = []
     for _ in range(n_audio):
         entry, q = q, q + 1 + data[q]
         attr, q = q, q + 1 + data[q]
@@ -77,7 +79,7 @@ def _parse_stn(data: bytes, stn: int) -> tuple[list[AudioStream], list[SubStream
         coding = data[attr + 1]
         lang = to_lang(data[attr + 3:attr + 6].decode("ascii", "replace"))
         out.append(AudioStream(pid, AUDIO_CODECS.get(coding, hex(coding)), lang))
-    subs = []
+    subs: list[SubStream] = []
     for _ in range(n_pg):
         entry, q = q, q + 1 + data[q]
         attr, q = q, q + 1 + data[q]
@@ -93,8 +95,8 @@ class PlayItem:
     in_time: int         # 45 kHz, clip timeline
     out_time: int
     dep_clip: str = ""   # clip with the MVC dependent view, e.g. "00132"
-    audio: list = None   # AudioStream list from the STN table
-    subs: list = None    # SubStream list from the STN table
+    audio: list[AudioStream] = field(default_factory=list[AudioStream])  # from the STN table
+    subs: list[SubStream] = field(default_factory=list[SubStream])
 
     @property
     def duration(self) -> float:
@@ -106,7 +108,7 @@ def parse_mpls(data: bytes) -> list[PlayItem]:
         raise ValueError("not an MPLS file")
     pos = _u32(data, 8)
     count = _u16(data, pos + 6)
-    items = []
+    items: list[PlayItem] = []
     p = pos + 10
     for _ in range(count):
         length = _u16(data, p)
@@ -147,7 +149,8 @@ def parse_clpi(data: bytes, pid: int = 0x1011) -> Clip:
         raise ValueError("not a CLPI file")
     num_packets = _u32(data, 56)
 
-    ep_pts, ep_spn = [], []
+    ep_pts: list[int] = []
+    ep_spn: list[int] = []
     cpi = _u32(data, 16)
     if _u32(data, cpi):
         ep_map = cpi + 6
@@ -160,7 +163,7 @@ def parse_clpi(data: bytes, pid: int = 0x1011) -> Clip:
             if _u16(data, e) != pid:
                 continue
             fine_at = start + _u32(data, start)
-            coarse = []
+            coarse: list[tuple[int, int, int]] = []
             for c in range(n_coarse):
                 v = int.from_bytes(data[start + 4 + c * 8:start + 12 + c * 8], "big")
                 coarse.append((v >> 46, (v >> 32) & 0x3FFF, v & 0xFFFFFFFF))
@@ -171,7 +174,7 @@ def parse_clpi(data: bytes, pid: int = 0x1011) -> Clip:
                     ep_pts.append(((c_pts & ~1) << 18) + (((v >> 17) & 0x7FF) << 8))
                     ep_spn.append((c_spn & ~0x1FFFF) + (v & 0x1FFFF))
 
-    extent_start = []
+    extent_start: list[int] = []
     es = _extensions(data, _u32(data, 24)).get((2, 4))
     if es is not None:
         extent_start = [_u32(data, es + 8 + 4 * i) for i in range(_u32(data, es + 4))]
@@ -205,6 +208,23 @@ def m2ts_seek(item: PlayItem, clip: Clip, seconds: float) -> SeekPoint:
     return SeekPoint((pts45 - item.in_time) / 45000, pts45 * 2, offset)
 
 
+class UnitReader(Protocol):
+    """A file of the disc read in whole AACS units (bluray.DiscFile)."""
+
+    def seek(self, offset: int) -> None: ...
+    def read_unit(self) -> bytes: ...
+    def close(self) -> None: ...
+    def __enter__(self) -> Self: ...
+    def __exit__(self, kind: type[BaseException] | None, value: BaseException | None,
+                 traceback: TracebackType | None) -> None: ...
+
+
+class DiscFiles(Protocol):
+    """Opens the files of a disc (bluray.Disc)."""
+
+    def open(self, path: str) -> UnitReader: ...
+
+
 class EmulatedSsif:
     """The .ssif byte stream rebuilt from the base and dependent .m2ts files.
 
@@ -214,27 +234,27 @@ class EmulatedSsif:
     same bytes, and on the disc the same sequential reads.
     """
 
-    def __init__(self, disc, item: PlayItem, base: Clip, dep: Clip):
+    def __init__(self, disc: DiscFiles, item: PlayItem, base: Clip, dep: Clip) -> None:
         self.files = (disc.open(f"BDMV/STREAM/{item.dep_clip}.m2ts"),
                       disc.open(f"BDMV/STREAM/{item.clip}.m2ts"))
-        b = base.extent_start + [base.num_packets]
-        d = dep.extent_start + [dep.num_packets]
+        b = [*base.extent_start, base.num_packets]
+        d = [*dep.extent_start, dep.num_packets]
         # (file index, first packet, packet count) of each extent, in .ssif order
-        self.extents = []
+        self.extents: list[tuple[int, int, int]] = []
         for k in range(len(base.extent_start)):
             self.extents.append((0, d[k], d[k + 1] - d[k]))
             self.extents.append((1, b[k], b[k + 1] - b[k]))
-        self.starts = []                # .ssif packet where each extent begins
+        self.starts: list[int] = []     # .ssif packet where each extent begins
         n = 0
         for _, _, count in self.extents:
             self.starts.append(n)
             n += count
         self.pos = 0                    # current .ssif packet
-        self._pending = b""
+        self._current: tuple[int, int] | None = None     # (file, AACS unit) in _unit_data
+        self._unit_data = b""
 
     def seek(self, offset: int) -> None:
         self.pos = offset // SOURCE_PACKET
-        self._pending = b""
         self._current = None
 
     def read_unit(self) -> bytes:
@@ -249,7 +269,7 @@ class EmulatedSsif:
         packet = first + self.pos - self.starts[i]          # packet in that .m2ts
         f = self.files[fidx]
         unit = packet // AACS_UNIT_PACKETS
-        if getattr(self, "_current", None) != (fidx, unit):
+        if self._current != (fidx, unit):
             f.seek(unit * AACS_UNIT_PACKETS * SOURCE_PACKET)
             self._unit_data = f.read_unit()
             self._current = (fidx, unit)
@@ -268,14 +288,15 @@ class EmulatedSsif:
         for f in self.files:
             f.close()
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, kind: type[BaseException] | None, value: BaseException | None,
+                 traceback: TracebackType | None) -> None:
         self.close()
 
 
-def open_ssif(disc, item: PlayItem, base: Clip, dep: Clip):
+def open_ssif(disc: DiscFiles, item: PlayItem, base: Clip, dep: Clip) -> UnitReader:
     """The clip's .ssif, or its emulation from the two .m2ts on libbluray < 1.4."""
     try:
         return disc.open(f"BDMV/STREAM/SSIF/{item.clip}.ssif")

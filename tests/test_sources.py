@@ -5,12 +5,26 @@ from pathlib import Path
 
 import pytest
 
+import bluray as bluray_module
 import dvd
 import sources
 from bdmv import AudioStream
-from fakes import FakeBluray, FakeDvd, mkv_probe
-from sources import (BlurayDiscSource, DvdSource, MkvSource, SubTrack, _first_per_lang,
-                     _pick_audio, _safe_name, discover, find_sidecars, is_bluray, is_dvd, open_disc)
+from bluray import Title
+from fakes import FakeBluray, FakeDvd, mkv_probe, opener
+from sources import (
+    BlurayDiscSource,
+    DvdSource,
+    MkvSource,
+    SubTrack,
+    _first_per_lang,
+    _pick_audio,
+    _safe_name,
+    discover,
+    find_sidecars,
+    is_bluray,
+    is_dvd,
+    open_disc,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -21,7 +35,7 @@ def private_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.parametrize(("name", "expected"), [
     ("Tron: Legacy - Blu-ray", "Tron - Legacy"),
-    ("Ready Player One – Blu-ray 3D™", "Ready Player One"),
+    ("Ready Player One \u2013 Blu-ray 3D\u2122", "Ready Player One"),    # en dash, trademark
     ('A/B "C" <D>?', "A - B - C - D"),
     ("  Spaces   everywhere . ", "Spaces everywhere"),
     ("Blu-ray", "Blu-ray"),
@@ -52,7 +66,8 @@ def test_find_sidecars(tmp_path: Path) -> None:
                  "Movie2.srt", "Other.srt"):
         (tmp_path / name).write_text("x")
     assert find_sidecars(str(tmp_path / "Movie.mkv")) == [
-        (".eng.SUP", str(tmp_path / "Movie.eng.SUP")), (".ita.srt", str(tmp_path / "Movie.ita.srt")),
+        (".eng.SUP", str(tmp_path / "Movie.eng.SUP")),
+        (".ita.srt", str(tmp_path / "Movie.ita.srt")),
         (".srt", str(tmp_path / "Movie.srt"))]
 
 
@@ -75,7 +90,7 @@ def bluray(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, disc: FakeBluray,
     iso = tmp_path / "Tron.iso"
     iso.write_text("")
     (tmp_path / "Tron.ita.srt").write_text("1")
-    monkeypatch.setattr(sources, "_open_disc", lambda path: (disc, disc.info(), env or {}))
+    monkeypatch.setattr(sources, "_open_disc", opener(disc, env))
     return BlurayDiscSource(str(iso), langs)
 
 
@@ -126,17 +141,20 @@ def test_bluray_3d_commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
                        "--audio-pid", "0x1102", "--audio-pid", "0x1201", "--audio-out", cmd[-1]]
     fifo = cmd[-1]
     assert Path(fifo).is_fifo()
-    assert s.audio_input(100.0) == f"-f mpegts -analyzeduration 1000000 -probesize 5000000 -i {fifo}"
+    assert s.audio_input(100.0) == \
+        f"-f mpegts -analyzeduration 1000000 -probesize 5000000 -i {fifo}"
     # every pipeline start gets a new FIFO, the previous one goes
     fifo2 = shlex.split(s.video_command(0.0))[-1]
     assert fifo2 != fifo and not os.path.exists(fifo) and Path(fifo2).is_fifo()
 
 
 def test_bluray_2d(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    s = bluray(monkeypatch, tmp_path, FakeBluray(three_d=False, name="", volume_id="READY_PLAYER_ONE"),
+    disc = FakeBluray(three_d=False, name="", volume_id="READY_PLAYER_ONE")
+    s = bluray(monkeypatch, tmp_path, disc,
                ["ita", "eng"])
     assert s.two_d and s.playlist == "00080"
-    assert (s.category, s.name_suffix, s.frame_size, s.quality_key) == ("Blu-ray", "", "1920x1080", "2d")
+    assert (s.category, s.name_suffix, s.frame_size, s.quality_key) == \
+        ("Blu-ray", "", "1920x1080", "2d")
     assert s.name == "Ready Player One"
     assert s.audio_langs == ["ita", "eng"]
     cmd = s.video_command(10.0)
@@ -146,23 +164,34 @@ def test_bluray_2d(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 def test_bluray_no_title(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     disc = FakeBluray()
-    monkeypatch.setattr(FakeBluray, "titles", lambda self: [])
+    def no_titles(self: FakeBluray) -> list[Title]:
+        return []
+
+    monkeypatch.setattr(FakeBluray, "titles", no_titles)
     with pytest.raises(OSError, match="no title"):
         bluray(monkeypatch, tmp_path, disc)
     assert disc.closed
 
 
 def test_decrypt_backends(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sources.ctypes.util, "find_library", lambda name: None)
-    monkeypatch.setattr(sources.os.path, "exists", lambda p: False)
+    def nothing(name: str) -> str | None:
+        return None
+
+    def mmbd(name: str) -> str | None:
+        return "libmmbd.so.0"
+
+    def missing(path: str) -> bool:
+        return False
+
+    monkeypatch.setattr(sources.ctypes.util, "find_library", nothing)
+    monkeypatch.setattr(sources.os.path, "exists", missing)
     assert sources._decrypt_backends() == [{}]
-    monkeypatch.setattr(sources.ctypes.util, "find_library", lambda name: "libmmbd.so.0")
-    assert sources._decrypt_backends()[1] == {"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"}
+    monkeypatch.setattr(sources.ctypes.util, "find_library", mmbd)
+    assert sources._decrypt_backends()[1] == {"LIBAACS_PATH": "libmmbd",
+                                              "LIBBDPLUS_PATH": "libmmbd"}
 
 
 def test_open_disc_tries_every_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    import bluray as bluray_module
-
     seen: list[str | None] = []
 
     class Disc(FakeBluray):
@@ -178,7 +207,10 @@ def test_open_disc_tries_every_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen == [None, "libmmbd"] and info.decrypted and env["LIBAACS_PATH"] == "libmmbd"
     assert "LIBAACS_PATH" not in os.environ                  # restored
 
-    monkeypatch.setattr(sources, "_decrypt_backends", lambda: [{}])
+    def libaacs_only() -> list[dict[str, str]]:
+        return [{}]
+
+    monkeypatch.setattr(sources, "_decrypt_backends", libaacs_only)
     with pytest.raises(OSError, match="cannot decrypt"):
         sources._open_disc("/dev/sr0")
 
@@ -196,7 +228,8 @@ def dvd_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 def test_dvd_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     s = dvd_source(monkeypatch, tmp_path)
     assert s.title.number == 2
-    assert (s.name, s.category, s.two_d, s.quality_key) == ("Back To The Future", "DVD", True, "dvd")
+    assert (s.name, s.category, s.two_d, s.quality_key) == \
+        ("Back To The Future", "DVD", True, "dvd")
     assert s.duration == pytest.approx(6000.0)
     assert (s.frame_size, s.frame_rate) == ("1024x576", "25")
     assert s.pre_filter == "bwdif=deint=interlaced"
@@ -247,7 +280,8 @@ def test_open_disc_falls_back_to_dvd(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 
 # --- MKV ---------------------------------------------------------------------
 
-def mkv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, langs: list[str] | None = None) -> MkvSource:
+def mkv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        langs: list[str] | None = None) -> MkvSource:
     path = tmp_path / "Tron 3D.mkv"
     path.write_text("")
     monkeypatch.setattr(sources, "ffprobe_json", mkv_probe)
@@ -287,7 +321,10 @@ def test_discover(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     (tmp_path / "a" / "2D.mkv").write_text("")
     (tmp_path / "a" / "notes.txt").write_text("")
     monkeypatch.setattr(sources, "ffprobe_json", mkv_probe)
-    monkeypatch.setattr(MkvSource, "has_mvc", staticmethod(lambda path: path.endswith("3D.mkv")))
+    def has_mvc(path: str) -> bool:
+        return path.endswith("3D.mkv")
+
+    monkeypatch.setattr(MkvSource, "has_mvc", staticmethod(has_mvc))
     found = discover([str(tmp_path / "a")])
     assert [s.name for s in found] == ["3D"]
     with pytest.raises(SystemExit):

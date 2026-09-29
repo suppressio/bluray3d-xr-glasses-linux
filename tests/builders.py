@@ -47,7 +47,7 @@ def pes(payload: bytes, pts: int | None, dts: int | None = None, stream_id: int 
 def ts_packets(pid: int, data: bytes, cc: int = 0, *, random_access: bool = False) -> list[bytes]:
     """`data` split in 188-byte TS packets, the first with payload_unit_start.
     The last one is filled with adaptation field stuffing, so the payload is exact."""
-    out = []
+    out: list[bytes] = []
     first = True
     pos = 0
     while pos < len(data) or first:
@@ -124,8 +124,8 @@ class Item:
     clip: str
     in_time: int                  # 45 kHz
     out_time: int
-    audio: list[Stream] = field(default_factory=list)
-    pgs: list[Stream] = field(default_factory=list)
+    audio: list[Stream] = field(default_factory=list[Stream])
+    pgs: list[Stream] = field(default_factory=list[Stream])
     video_pid: int = 0x1011
 
 
@@ -175,7 +175,8 @@ def mpls(items: list[Item], dep_clips: list[str] | None = None, subpath_type: in
     data += playlist
     if dep_clips:
         sp_items = b"".join(u16(9) + c.encode() + b"SSIF" for c in dep_clips)
-        subpath = b"\x00" + bytes([subpath_type]) + b"\x00\x00\x00" + bytes([len(dep_clips)]) + sp_items
+        subpath = (b"\x00" + bytes([subpath_type]) + b"\x00\x00\x00" + bytes([len(dep_clips)])
+                   + sp_items)
         subpath = u32(len(subpath)) + subpath
         block = u32(0) + u16(1) + subpath
         data[16:20] = u32(len(data))

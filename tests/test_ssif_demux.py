@@ -1,14 +1,21 @@
 import io
 
-from builders import nal, pes, source_packets, ts_packets
-from ssif_demux import (BASE_PID, DEP_PID, SsifDemuxer, _drop_bd_delimiter, _pes_payload,
-                        _strip_nals, _timestamp, demux)
-from builders import ts_field
+from builders import nal, pes, source_packets, ts_field, ts_packets
+from ssif_demux import (
+    BASE_PID,
+    DEP_PID,
+    SsifDemuxer,
+    _drop_bd_delimiter,
+    _pes_payload,
+    _strip_nals,
+    demux,
+    timestamp,
+)
 
 
 def test_timestamp_roundtrip() -> None:
     for ts in (0, 1, 90_000, (1 << 33) - 1, 0x1_2345_6789):
-        assert _timestamp(ts_field(ts)) == ts
+        assert timestamp(ts_field(ts)) == ts
 
 
 def test_pes_payload() -> None:
@@ -67,7 +74,7 @@ def stream(n_frames: int, start_dts: int = 90_000, extent: int = 3) -> bytes:
 def test_pairs_views_in_base_order() -> None:
     d = SsifDemuxer()
     data = stream(7)
-    out = []
+    out: list[bytes] = []
     for i in range(0, len(data), 1000):                 # chunks cut mid-packet
         out += list(d.feed(data[i:i + 1000]))
     out += list(d.flush())

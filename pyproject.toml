@@ -2,7 +2,7 @@
 name = "bluray3d-xr"
 version = "0"
 description = "3D Blu-ray, Blu-ray and DVD as virtual constant-bitrate .ts files on a network share"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "MIT"
 
 [tool.pytest.ini_options]
@@ -11,3 +11,43 @@ pythonpath = ["src", "tests"]
 # the integration tests need a disc in the drive (or a movie file): see tests/integration
 addopts = "-m 'not integration' --strict-markers"
 markers = ["integration: needs a real disc, drive or movie file (run with -m integration)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "ANN", "ASYNC", "S", "BLE", "B", "A", "C4", "T10", "EXE",
+    "ISC", "ICN", "LOG", "G", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM",
+    "TID", "ARG", "ERA", "PGH", "PL", "TRY", "FLY", "PERF", "FURB", "RUF",
+]
+ignore = [
+    "PLR2004",   # magic values: the parsers are made of byte offsets from the specifications
+    "PLR0913", "PLR0917",   # many arguments
+    "S603", "S607",         # subprocess with ffmpeg & co. from PATH: that is the design
+    "TRY003",    # messages in exceptions
+]
+
+[tool.ruff.lint.per-file-ignores]
+# asserts, private helpers under test, stand-ins with unused arguments, several
+# facts of one result checked in one assert
+"tests/**" = ["S101", "SLF001", "PLC2701", "ARG", "PT018"]
+
+[tool.ruff.lint.pylint]
+max-branches = 15
+max-statements = 60
+max-returns = 6
+
+[tool.pyright]
+include = ["src", "tests"]
+extraPaths = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+
+[[tool.pyright.executionEnvironments]]
+# the tests exercise private helpers on purpose
+root = "tests"
+extraPaths = ["src", "tests"]
+reportPrivateUsage = false

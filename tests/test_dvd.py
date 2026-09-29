@@ -1,9 +1,8 @@
 import pytest
 
 import dvd
-from builders import (SECTOR, DvdAudioAttr, DvdCell, DvdSubAttr, dvd_time, nav_pack, vmg_ifo,
-                      vts_ifo)
-from dvd import DvdTitle, _bcd, _dvd_time, _rgb, _titles, parse_title, read_nav, seek
+from builders import SECTOR, DvdAudioAttr, DvdCell, DvdSubAttr, dvd_time, nav_pack, vmg_ifo, vts_ifo
+from dvd import DvdTitle, _bcd, _dvd_time, _rgb, parse_title, read_nav, seek, titles
 
 
 def test_bcd_and_time() -> None:
@@ -20,7 +19,7 @@ def test_rgb() -> None:
 
 
 def test_titles() -> None:
-    assert _titles(vmg_ifo([(1, 1), (2, 1), (2, 2)])) == [(1, 1, 1), (2, 2, 1), (3, 2, 2)]
+    assert titles(vmg_ifo([(1, 1), (2, 1), (2, 2)])) == [(1, 1, 1), (2, 2, 1), (3, 2, 2)]
 
 
 CELLS = [DvdCell(600.0, 0, 9999, 1, 1), DvdCell(10.0, 10000, 10099, 1, 2, angle=(1, 1)),
@@ -81,7 +80,7 @@ def title_with_vobus(step: float = 0.4) -> tuple[DvdTitle, FakeVobs]:
     t = parse_title(vts_ifo([DvdCell(30.0, 0, 749, 1, 1), DvdCell(30.0, 750, 1499, 2, 1)],
                             [], [], tmap_unit=4, tmap=[100 * k for k in range(1, 15)],
                             vobus=list(range(0, 1500, 10))), 1, 1, 1)
-    navs = {}
+    navs: dict[int, bytes] = {}
     for s in range(0, 1500, 10):
         cell = 0 if s < 750 else 1
         cell_time = (s - 750 * cell) / 10 * step

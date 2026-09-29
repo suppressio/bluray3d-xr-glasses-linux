@@ -1,0 +1,6 @@
+# Development tools, pinned so every machine and CI check the same way.
+# scripts/check.sh installs them in .venv (which also sees the system's pyfuse3 and trio).
+pytest==9.1.1
+ruff==0.16.9
+pyright==1.1.414
+shellcheck-py==0.11.0.1

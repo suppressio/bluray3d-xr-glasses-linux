@@ -61,12 +61,15 @@ def pick_encoder(requested: str = "auto") -> str:
     test = subprocess.run(
         ["ffmpeg", "-v", "quiet", "-f", "lavfi", "-i", "color=s=256x256",
          "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-"],
+        check=False,
     )
     return "nvenc" if test.returncode == 0 else "x264"
 
 
 def decode_command(source: Source, start: float, output_args: str) -> str:
-    """Full shell pipeline from keyframe `start`; output_args = codecs + output of the last ffmpeg."""
+    """Full shell pipeline from keyframe `start`.
+
+    output_args: codecs and output of the last ffmpeg."""
     if source.two_d:
         # 2D Blu-ray / DVD: one stream with video, audio and maybe a subtitle
         # track, ffmpeg decodes it all; the subtitle is drawn onto the picture
@@ -90,7 +93,8 @@ def decode_command(source: Source, start: float, output_args: str) -> str:
         graph = (f"[{source.sub_ref(1)}]split[sa][sb];"
                  f"[0:v][sa]overlay=x={d}:y=0:eof_action=pass[l];"
                  f"[l][sb]overlay=x={half - d}:y=0:eof_action=pass[v]")
-        video, sub_args = f"-filter_complex {shlex.quote(graph)} -map '[v]'", source.sub_decoder_args()
+        video = f"-filter_complex {shlex.quote(graph)} -map '[v]'"
+        sub_args = source.sub_decoder_args()
     else:
         video, sub_args = "-map 0:v", ""
     return (

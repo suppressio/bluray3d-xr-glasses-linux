@@ -211,6 +211,12 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 - **DVD.** `src/dvd.py` reads the disc through libdvdread (libdvdcss for CSS) and its IFO files: the main title (the longest), its cells, audio languages, video standard and aspect. Seeking uses the time map to get within a few seconds, then the navigation pack of each VOBU (~0.5 s), which holds its exact time: the restart point is known precisely. FFmpeg's own DVD reader only seeks approximately (seconds off, without knowing where it landed). `src/dvd_reader.py` streams the title from there to FFmpeg, which deinterlaces and scales it to square pixels.
 - **Drives.** Every few seconds the drive is asked whether a disc is in (no reads). On insertion it is opened as a Blu-ray, or else as a DVD, and its movie added; on eject it is removed.
 
+## Development
+
+- `scripts/check.sh` runs what GitHub runs on every push: ruff, pyright (strict), shellcheck and the unit tests. These need no disc: they build MPLS, CLPI and IFO files and TS streams of their own. The first run creates `.venv` with the pinned tools (`requirements-dev.txt`).
+- `scripts/check.sh --integration` also tests the disc in the drive (`BD3D_TEST_DRIVE`, default `/dev/sr0`) or a 3D MKV (`BD3D_TEST_MKV=...`). The first run records a reference for each disc (hashes only, in `~/.cache/bluray3d-xr/`); later runs must match it byte for byte.
+- VS Code: open the folder and pick `.venv` as the interpreter. `.vscode/` turns Pylint off: the checks are the ones in `pyproject.toml`.
+
 ---
 
 ## Limits

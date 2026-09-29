@@ -28,7 +28,7 @@ from typing import Any
 
 import pytest
 
-from bd3d_fs import CDS_DISC_OK, VirtualFile, _drive_status
+from bd3d_fs import CDS_DISC_OK, VirtualFile, drive_status
 from pipeline import pick_encoder, quality_for
 from sources import BlurayDiscSource, MkvSource, Source, open_disc
 
@@ -53,11 +53,11 @@ def _drive() -> str | None:
             return None
     except OSError:
         return None
-    return drive if _drive_status(drive) == CDS_DISC_OK else None
+    return drive if drive_status(drive) == CDS_DISC_OK else None
 
 
 def _sources() -> list[tuple[str, str]]:
-    out = []
+    out: list[tuple[str, str]] = []
     drive = _drive()
     if drive:
         out.append(("disc", drive))
@@ -92,7 +92,7 @@ class Reference:
         if self.path.exists() and not self.update:
             self.values = json.loads(self.path.read_text())
 
-    def check(self, name: str, value: Any) -> None:
+    def check(self, name: str, value: object) -> None:
         value = json.loads(json.dumps(value))            # the same types as when read back
         if name not in self.values:
             self.values[name] = value
@@ -113,7 +113,7 @@ def _read_command(cmd: str, size: int, fifo: str | None = None) -> tuple[bytes, 
     audio = bytearray()
 
     def drain() -> None:
-        with open(fifo, "rb") as f:                        # type: ignore[arg-type]
+        with Path(str(fifo)).open("rb") as f:
             while len(audio) < 256 * 1024 and (chunk := f.read(65536)):
                 audio.extend(chunk)
             while f.read(1 << 20):                         # keep it flowing until the end
@@ -122,8 +122,9 @@ def _read_command(cmd: str, size: int, fifo: str | None = None) -> tuple[bytes, 
     reader = threading.Thread(target=drain, daemon=True) if fifo else None
     if reader:
         reader.start()
-    proc = subprocess.Popen(["bash", "-o", "pipefail", "-c", cmd], stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, start_new_session=True)
+    proc: subprocess.Popen[bytes] = subprocess.Popen(
+        ["bash", "-o", "pipefail", "-c", cmd], stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, start_new_session=True)
     assert proc.stdout is not None
     data = bytearray()
     while len(data) < size and (chunk := proc.stdout.read(min(1 << 20, size - len(data)))):
@@ -183,13 +184,15 @@ def test_decoded_3d_frames(source: Source, reference: Reference) -> None:
         pytest.skip("2D: ffmpeg decodes it directly")
     video, _ = _decoder_input(source, source.duration * 0.5)
     frames = subprocess.run(
-        "edge264_test - -Ok | ffmpeg -v error -f yuv4mpegpipe -i - -frames:v 48 -f framemd5 -",
-        shell=True, input=video, capture_output=True, check=True).stdout.decode()
+        # no pipefail: ffmpeg stops after 48 frames and edge264 then gets SIGPIPE
+        ["bash", "-c",
+         "edge264_test - -Ok | ffmpeg -v error -f yuv4mpegpipe -i - -frames:v 48 -f framemd5 -"],
+        input=video, capture_output=True, check=True).stdout.decode()
     hashes = [line.rsplit(",", 1)[1].strip() for line in frames.splitlines()
               if line and not line.startswith("#")]
     assert len(hashes) == 48
-    header = subprocess.run("edge264_test - -Ok | head -c 64", shell=True, input=video[:4_000_000],
-                            capture_output=True, check=False).stdout
+    header = subprocess.run(["bash", "-c", "edge264_test - -Ok | head -c 64"],
+                            input=video[:4_000_000], capture_output=True, check=False).stdout
     assert header.startswith(b"YUV4MPEG2 W3840 H1080 "), header
     reference.check("48 SBS frames at 50%", _sha("\n".join(hashes).encode()))
 

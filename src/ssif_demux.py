@@ -25,7 +25,8 @@ Usage:
 """
 import sys
 from collections import deque
-from typing import BinaryIO, Iterator, Optional
+from collections.abc import Iterator
+from typing import BinaryIO
 
 BASE_PID = 0x1011
 DEP_PID = 0x1012
@@ -38,20 +39,21 @@ NAL_BD_DELIMITER = 24
 NAL_DROP = {10, 11, 12}
 
 
-def _timestamp(b: bytes) -> int:
+def timestamp(b: bytes | bytearray | memoryview) -> int:
     """33-bit PTS/DTS from the 5 bytes of a PES header field."""
-    return (((b[0] >> 1) & 7) << 30) | (b[1] << 22) | ((b[2] >> 1) << 15) | (b[3] << 7) | (b[4] >> 1)
+    return (((b[0] >> 1) & 7) << 30) | (b[1] << 22) | ((b[2] >> 1) << 15) | (b[3] << 7) \
+        | (b[4] >> 1)
 
 
-def _pes_payload(pes: bytes) -> Optional[tuple[int, int, bytes]]:
+def _pes_payload(pes: bytes) -> tuple[int, int, bytes] | None:
     """(DTS or PTS when there is no DTS, PTS, elementary stream payload) of a complete PES."""
     if len(pes) < 9 or pes[:3] != b"\x00\x00\x01":
         return None
     flags, header_len = pes[7], pes[8]
     if not flags & 0x80:
         return None
-    pts = _timestamp(pes[9:14])
-    dts = _timestamp(pes[14:19]) if flags & 0x40 else pts
+    pts = timestamp(pes[9:14])
+    dts = timestamp(pes[14:19]) if flags & 0x40 else pts
     return dts, pts, pes[9 + header_len:]
 
 
@@ -83,7 +85,7 @@ def _drop_bd_delimiter(payload: bytes) -> bytes:
 
 
 class SsifDemuxer:
-    def __init__(self, start_pts: Optional[int] = None):
+    def __init__(self, start_pts: int | None = None) -> None:
         """start_pts: 90 kHz PTS of the keyframe to start from after a jump into the
         stream (EP_map precision: low 9 bits ignored). Frames before it are dropped."""
         self._start = None if start_pts is None else start_pts & ~0x1FF
@@ -95,7 +97,7 @@ class SsifDemuxer:
         self.frames = 0
         self.dropped = 0   # base frames whose dependent view never came
 
-    def _close_pes(self, pid: int):
+    def _close_pes(self, pid: int) -> None:
         parsed = _pes_payload(bytes(self._pes[pid]))
         self._pes[pid] = bytearray()
         if parsed is None:
@@ -140,7 +142,7 @@ class SsifDemuxer:
             if p[0] != 0x47:
                 continue
             pid = ((p[1] & 0x1F) << 8) | p[2]
-            if pid != BASE_PID and pid != DEP_PID:
+            if pid not in (BASE_PID, DEP_PID):
                 continue
             afc = (p[3] >> 4) & 3
             if not afc & 1:
@@ -170,24 +172,25 @@ def demux(src: BinaryIO, dst: BinaryIO, chunk: int = SOURCE_PACKET * 4096) -> Ss
         data = src.read(chunk)
         if not data:
             break
-        for au in d.feed(data):
-            dst.write(au)
-    for au in d.flush():
-        dst.write(au)
+        dst.writelines(d.feed(data))
+    dst.writelines(d.flush())
     dst.flush()
     return d
 
 
-def main():
+def main() -> None:
     if len(sys.argv) != 2:
         sys.exit(f"usage: {sys.argv[0]} <file.ssif | ->  > out.264")
-    src = sys.stdin.buffer if sys.argv[1] == "-" else open(sys.argv[1], "rb")
     try:
-        d = demux(src, sys.stdout.buffer)
+        if sys.argv[1] == "-":
+            d = demux(sys.stdin.buffer, sys.stdout.buffer)
+        else:
+            with open(sys.argv[1], "rb") as src:
+                d = demux(src, sys.stdout.buffer)
     except BrokenPipeError:
         sys.exit(0)
-    print(f"ssif_demux: {d.frames} stereo frames, {d.dropped} base frames dropped (no dependent view)",
-          file=sys.stderr)
+    sys.stderr.write(f"ssif_demux: {d.frames} stereo frames, {d.dropped} base frames dropped "
+                     "(no dependent view)\n")
 
 
 if __name__ == "__main__":

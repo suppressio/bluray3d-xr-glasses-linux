@@ -2,22 +2,34 @@
 loading animation, the tree of files, the drive watcher. FFmpeg is replaced by
 a small program writing numbered TS packets, so every byte served can be
 checked against the offset it was read at."""
+import copy
 import logging
 import re
 import shlex
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Self, cast, override
 
 import pytest
 import trio
 import trio.testing
 
 import bd3d_fs
-from bd3d_fs import (AUDIO_TRACK_MUX, NULL_PACKET, TS_PACKET, Bd3dFS, Folder, Library,
-                     SidecarFile, VirtualFile, null_padding)
+from bd3d_fs import (
+    AUDIO_TRACK_MUX,
+    NULL_PACKET,
+    TS_PACKET,
+    Bd3dFS,
+    Entry,
+    FileEntry,
+    Folder,
+    Library,
+    SidecarFile,
+    VirtualFile,
+    null_padding,
+)
 from pipeline import Quality
 from sources import Source, SubTrack
 
@@ -60,46 +72,59 @@ class FakeSource(Source):
         self.audio_desc, self.sidecars, self.mtime_ns = "fake", [], 0
         self.subs = []
 
+    @override
     def keyframe_at_or_before(self, seconds: float) -> float:
         return float(int(max(0.0, seconds)))
 
+    @override
     def video_command(self, start: float) -> str:
         return ""
 
+    @override
     def audio_input(self, start: float) -> str:
         return ""
 
-    def audio_map(self) -> str:
+    @override
+    def audio_map(self, input_index: int = 1) -> str:
         return ""
 
 
+def fake_decode(source: Source, start: float, output_args: str) -> str:
+    return producer(start, b"M", source.delay if isinstance(source, FakeSource) else 0.0)
+
+
+def fake_filler(vf: VirtualFile, video_input: str, t0: float, duration: float | None = None,
+                extra: str = "") -> str:
+    return producer(t0, b"L")
+
+
+def no_invalidate(inode: int, name: bytes, deleted: int = 0, ignore_enoent: bool = False) -> None:
+    pass
+
+
+_running: list[VirtualFile] = []
+
+
 @pytest.fixture(autouse=True)
-def small_file_system(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[VirtualFile]]:
+def small_file_system(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Smaller caches and distances, fake pipelines; every file stopped afterwards."""
     for name, value in {"AHEAD_MAX": 256 * 1024, "BEHIND_KEEP": 128 * 1024,
                         "JUMP_TOLERANCE": 256 * 1024, "EDGE_CACHE": 64 * 1024}.items():
         monkeypatch.setattr(bd3d_fs, name, value)
-    monkeypatch.setattr(bd3d_fs, "decode_command",
-                        lambda source, start, out: producer(start, b"M", source.delay))
-    monkeypatch.setattr(VirtualFile, "filler_command",
-                        lambda self, video, t0, duration=None, extra="": producer(t0, b"L"))
-    monkeypatch.setattr(bd3d_fs.pyfuse3, "invalidate_entry_async", lambda *a, **k: None)
-    created: list[VirtualFile] = []
-    real_init = VirtualFile.__init__
-
-    def init(self: VirtualFile, *args: Any, **kwargs: Any) -> None:
-        real_init(self, *args, **kwargs)
-        created.append(self)
-
-    monkeypatch.setattr(VirtualFile, "__init__", init)
-    yield created
-    for vf in created:
-        vf.stop()
+    monkeypatch.setattr(bd3d_fs, "decode_command", fake_decode)
+    monkeypatch.setattr(VirtualFile, "filler_command", fake_filler)
+    monkeypatch.setattr(bd3d_fs.pyfuse3, "invalidate_entry_async", no_invalidate)
+    yield
+    while _running:
+        _running.pop().stop()
 
 
-def vfile(tmp_path: Path, source: FakeSource | None = None, loader: str | None = None) -> VirtualFile:
+def vfile(tmp_path: Path, source: FakeSource | None = None,
+          loader: str | None = None) -> VirtualFile:
     source = source or FakeSource(str(tmp_path / "disc"))
-    return VirtualFile(10, source, "x264", QUALITY, str(tmp_path / "pipeline.log"), loader=loader)
+    vf = VirtualFile(10, source, "x264", QUALITY, str(tmp_path / "pipeline.log"), loader=loader)
+    _running.append(vf)
+    return vf
 
 
 def packets(data: bytes, offset: int) -> list[tuple[int, bytes]]:
@@ -212,7 +237,11 @@ def test_two_pipelines_for_files(tmp_path: Path) -> None:
 def test_synthetic_tail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     vf = vfile(tmp_path)
     length = vf.size - vf.tail_start
-    monkeypatch.setattr(VirtualFile, "_synthetic_tail", lambda self: b"T" * length)
+
+    def tail(self: VirtualFile) -> bytes:
+        return b"T" * length
+
+    monkeypatch.setattr(VirtualFile, "_synthetic_tail", tail)
     assert vf.read(vf.size - 1000, 5000) == b"T" * 1000
     assert vf.gens == []                             # the end never starts a pipeline
     across = vf.read(vf.tail_start - 376, 1000)       # playback reaching the end
@@ -317,24 +346,28 @@ class DiscSource(FakeSource):
         self.category, self.name_suffix = "Blu-ray", ""
         self.subs = [SubTrack(1, "ita"), SubTrack(2, "eng"), SubTrack(3, "fra")]
 
-    def variants(self) -> list[Source]:
-        out: list[Source] = []
+    @override
+    def variants(self) -> Sequence[Self]:
+        out: list[Self] = []
         for lang in self.audio_langs:
-            v = self.__class__.__new__(self.__class__)
-            v.__dict__.update(self.__dict__)
+            v = copy.copy(self)
             v.audio_langs, v.label = [lang], lang.upper()
             out.append(v)
         return out
 
 
 def tree(fs: Bd3dFS) -> list[str]:
-    def path(e: Any) -> str:
-        parts = []
+    def path(e: Entry) -> str:
+        parts: list[str] = []
         while e.inode != bd3d_fs.pyfuse3.ROOT_INODE:
             parts.append(e.name)
             e = fs.nodes[e.parent]
         return "/".join(reversed(parts))
     return sorted(path(e) for e in fs.nodes.values() if e.inode != bd3d_fs.pyfuse3.ROOT_INODE)
+
+
+def movies(fs: Bd3dFS) -> list[VirtualFile]:
+    return [e for e in fs.files() if isinstance(e, VirtualFile)]
 
 
 def library(tmp_path: Path, audio_files: str = "per-language", light: bool = False,
@@ -346,9 +379,10 @@ def library(tmp_path: Path, audio_files: str = "per-language", light: bool = Fal
 def test_library_per_language(tmp_path: Path) -> None:
     fs, lib = library(tmp_path, sub_langs=["eng", "ita", "jpn"])
     lib.add(DiscSource(str(tmp_path / "d")))
-    assert tree(fs) == sorted(["Blu-ray"] + [f"Blu-ray/{a}{s} - Movie.ts" for a in ("ITA", "ENG", "DEU")
+    assert tree(fs) == sorted(["Blu-ray"] + [f"Blu-ray/{a}{s} - Movie.ts"
+                                             for a in ("ITA", "ENG", "DEU")
                                              for s in ("", "subENG", "subITA")])
-    files = {e.name: e for e in fs.files()}
+    files = {e.name: e for e in movies(fs)}
     # the plain file carries the forced subtitles of its language, if the disc has them
     assert (files["ITA - Movie.ts"].source.sub, files["ITA - Movie.ts"].source.forced_only) == \
         (SubTrack(1, "ita"), True)
@@ -373,15 +407,15 @@ def test_library_both_light_and_removal(tmp_path: Path) -> None:
     source.sidecars = [(".ita.srt", str(tmp_path / "x.ita.srt"))]
     (tmp_path / "x.ita.srt").write_text("1\n")
     added = lib.add(source)
-    expected = []
+    expected: list[str] = []
     for folder in ("Blu-ray", "Blu-ray/Light"):
         for name in ("ITA - Movie", "ENG - Movie", "DEU - Movie", "Multi-audio/Movie"):
             expected += [f"{folder}/{name}.ts", f"{folder}/{name}.ita.srt"]
         expected += [folder, f"{folder}/Multi-audio"]
     assert tree(fs) == sorted(expected)
-    light = next(e for e in fs.files() if e.name == "ITA - Movie.ts" and "Light" in e.path)
+    light = next(e for e in movies(fs) if e.name == "ITA - Movie.ts" and "Light" in e.path)
     assert light.quality.name == "light" and light.path == "Blu-ray/Light/ITA - Movie.ts"
-    multi = next(e for e in fs.files() if e.name == "Movie.ts" and "Light" not in e.path)
+    multi = next(e for e in movies(fs) if e.name == "Movie.ts" and "Light" not in e.path)
     assert multi.muxrate == multi.quality.muxrate + 2 * AUDIO_TRACK_MUX
     sidecar = next(e for e in fs.files() if isinstance(e, SidecarFile))
     assert sidecar.read(0, 100) == b"1\n"
@@ -397,12 +431,17 @@ def test_file_system_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     source.sidecars = [(".srt", str(tmp_path / "x.srt"))]
     (tmp_path / "x.srt").write_text("hello")
     lib.add(source)
-    movie = next(e for e in fs.files() if isinstance(e, VirtualFile))
+    movie = movies(fs)[0]
     sidecar = next(e for e in fs.files() if isinstance(e, SidecarFile))
     folder = fs.folder("Blu-ray")
     listed: list[bytes] = []
-    monkeypatch.setattr(bd3d_fs.pyfuse3, "readdir_reply",
-                        lambda token, name, attr, next_id: listed.append(name) or True)
+
+    def reply(token: object, name: bytes, attr: object, next_id: int) -> bool:
+        listed.append(name)
+        return True
+
+    monkeypatch.setattr(bd3d_fs.pyfuse3, "readdir_reply", reply)
+    token = cast("bd3d_fs.pyfuse3.ReaddirToken", object())
 
     async def check() -> None:
         attr = await fs.getattr(movie.inode)
@@ -416,7 +455,7 @@ def test_file_system_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         assert await fs.opendir(folder.inode, None) == folder.inode
         with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
             await fs.opendir(movie.inode, None)
-        await fs.readdir(folder.inode, 0, None)
+        await fs.readdir(folder.inode, 0, token)
         assert listed == [b"Movie.ts", b"Movie.srt"]
         # movies bypass the page cache (their bytes can change), subtitles do not
         assert (await fs.open(movie.inode, 0, None)).direct_io
@@ -439,39 +478,39 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     statuses = iter([ok, ok, busy, ok, no_disc, ok, busy, no_disc, tray, tray, ok, ok])
     events: list[str] = []
 
-    class Done(Exception):
+    class NoMoreStatusError(Exception):
         pass
 
     def status(device: str) -> int:
         try:
             return next(statuses)
         except StopIteration:
-            raise Done from None
+            raise NoMoreStatusError from None
 
     opened = iter([OSError("cannot decrypt"), DiscSource(str(tmp_path / "d"))])
 
-    def open_disc(device: str, langs: list[str] | None) -> DiscSource:
+    def open_disc(device: str, langs: list[str] | None) -> Source:
         item = next(opened)
         if isinstance(item, Exception):
             raise item
         return item
 
     class Lib:
-        def add(self, source: Source) -> list[str]:
+        def add(self, source: Source) -> list[FileEntry]:
             events.append("add")
-            return ["file"]
+            return []
 
-        def remove(self, entries: list[str]) -> None:
-            events.append(f"remove {entries}")
+        def remove(self, entries: Sequence[FileEntry]) -> None:
+            events.append(f"remove {len(entries)}")
 
-    monkeypatch.setattr(bd3d_fs, "_drive_status", status)
+    monkeypatch.setattr(bd3d_fs, "drive_status", status)
     monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
 
     async def main() -> None:
-        with pytest.raises(Done):
-            await bd3d_fs.watch_drive("/dev/sr0", Lib(), None)  # type: ignore[arg-type]
+        with pytest.raises(NoMoreStatusError):
+            await bd3d_fs.watch_drive("/dev/sr0", Lib(), None)
 
     trio.run(main, clock=trio.testing.MockClock(autojump_threshold=0))
     # 1st disc: cannot be opened, not retried while it stays in; a busy drive and
     # a single "no disc" are not an eject; two in a row are; the 2nd disc opens
-    assert events == ["remove []", "add"]
+    assert events == ["remove 0", "add"]

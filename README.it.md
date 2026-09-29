@@ -211,6 +211,12 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 - **DVD.** `src/dvd.py` legge il disco tramite libdvdread (libdvdcss per il CSS) e i suoi file IFO: il titolo principale (il più lungo), le sue celle, le lingue audio, lo standard video e il formato. Il seek usa la mappa dei tempi per arrivare entro pochi secondi, poi il pacchetto di navigazione di ogni blocco VOBU (circa 0,5 s), che contiene il suo tempo esatto: il punto di ripartenza è noto con precisione. Il lettore DVD di FFmpeg salta solo in modo approssimativo (secondi di scarto, senza sapere dove è atterrato). `src/dvd_reader.py` manda il titolo da lì a FFmpeg, che lo deinterlaccia e lo porta a pixel quadrati.
 - **Lettori.** Ogni pochi secondi si chiede al lettore se c'è un disco (senza leggerlo). All'inserimento il disco viene aperto come Blu-ray, altrimenti come DVD, e il suo film aggiunto; all'espulsione viene tolto.
 
+## Sviluppo
+
+- `scripts/check.sh` esegue quello che GitHub esegue a ogni push: ruff, pyright (modalità stretta), shellcheck e gli unit test. Non serve un disco: i test si costruiscono da soli file MPLS, CLPI, IFO e flussi TS. Al primo avvio crea `.venv` con gli strumenti alle versioni fissate (`requirements-dev.txt`).
+- `scripts/check.sh --integration` prova anche il disco nel lettore (`BD3D_TEST_DRIVE`, predefinito `/dev/sr0`) o un MKV 3D (`BD3D_TEST_MKV=...`). La prima volta registra un riferimento per ogni disco (solo impronte, in `~/.cache/bluray3d-xr/`); le volte successive il risultato deve coincidere byte per byte.
+- VS Code: apri la cartella e scegli `.venv` come interprete. `.vscode/` spegne Pylint: i controlli sono quelli di `pyproject.toml`.
+
 ---
 
 ## Limiti

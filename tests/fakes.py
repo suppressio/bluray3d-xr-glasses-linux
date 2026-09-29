@@ -1,10 +1,10 @@
 """Stand-ins for a Blu-ray disc, a DVD and ffprobe, built on the synthetic files."""
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from bluray import DiscInfo, Title
-from builders import (DvdAudioAttr, DvdCell, DvdSubAttr, Item, Stream, clpi, mpls, vmg_ifo,
-                      vts_ifo)
+from builders import DvdAudioAttr, DvdCell, DvdSubAttr, Item, Stream, clpi, mpls, vmg_ifo, vts_ifo
 
 # --- Blu-ray ---------------------------------------------------------------
 
@@ -12,7 +12,7 @@ AUDIO = [Stream(0x1100, "eng", 0x83), Stream(0x1101, "eng", 0x86), Stream(0x1102
          Stream(0x1103, "ger", 0x81)]
 PGS = [Stream(0x1200, "ita", 0x90), Stream(0x1201, "eng", 0x90), Stream(0x1202, "ita", 0x90)]
 # a keyframe every 2 s; the EP_map keeps no low 8 bits of the time
-EPS = [((k * 90_000) & ~0xFF, k * 1000) for k in range(0, 3000)]
+EPS = [((k * 90_000) & ~0xFF, k * 1000) for k in range(3000)]
 
 
 @dataclass
@@ -47,6 +47,14 @@ class FakeBluray:
 
     def close(self) -> None:
         self.closed = True
+
+
+def opener(disc: FakeBluray, env: dict[str, str] | None = None
+           ) -> Callable[[str], tuple[FakeBluray, DiscInfo, dict[str, str]]]:
+    """A stand-in for sources._open_disc that opens `disc` with the backend `env`."""
+    def open_disc(path: str) -> tuple[FakeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), env or {}
+    return open_disc
 
 
 # --- DVD ---------------------------------------------------------------------
@@ -89,9 +97,12 @@ def mkv_probe(*args: str) -> dict[str, Any]:
     return {"format": {"duration": "7512.3"},
             "streams": [
                 {"index": 0, "codec_type": "video", "codec_name": "h264"},
-                {"index": 1, "codec_type": "audio", "codec_name": "dts", "tags": {"language": "ita"}},
-                {"index": 2, "codec_type": "audio", "codec_name": "ac3", "tags": {"language": "ita"}},
-                {"index": 3, "codec_type": "audio", "codec_name": "truehd", "tags": {"language": "eng"}},
+                {"index": 1, "codec_type": "audio", "codec_name": "dts",
+                 "tags": {"language": "ita"}},
+                {"index": 2, "codec_type": "audio", "codec_name": "ac3",
+                 "tags": {"language": "ita"}},
+                {"index": 3, "codec_type": "audio", "codec_name": "truehd",
+                 "tags": {"language": "eng"}},
                 {"index": 4, "codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle",
                  "tags": {"language": "ita"}},
                 {"index": 5, "codec_type": "subtitle", "codec_name": "subrip",
