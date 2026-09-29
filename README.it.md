@@ -170,6 +170,8 @@ Disks/
 ```
 - [ ] Aprilo. Il player riconosce il formato affiancato e passa in 3D da solo. 🎉
 
+![La riproduzione nel 3D Player VITURE: 3D attivo, barra di avanzamento, nome del file](docs/viture-3d-playback.png)
+
 La prima apertura e ogni salto con la barra richiedono qualche secondo: è il lettore che si sposta nel nuovo punto.
 
 

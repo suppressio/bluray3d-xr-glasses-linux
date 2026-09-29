@@ -170,6 +170,8 @@ Disks/
 ```
 - [ ] Open it. The player recognizes the side-by-side format and switches to 3D by itself. 🎉
 
+![Playback in the VITURE 3D Player: 3D on, seek bar, the file's name](docs/viture-3d-playback.png)
+
 The first opening and every jump with the seek bar take a few seconds: that is the drive moving to the new point.
 
 
