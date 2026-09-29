@@ -100,7 +100,7 @@ It is not shown when the player is paused (it waits for the movie's frame) nor w
 - `--loader video.mp4`: your own animation, any short video that loops cleanly. 16:9: shown in both eyes on 3D movies. Side by side (3840x1080): in 3D on 3D movies, its left eye on 2D ones.
 - `--loader-3d video.mp4`: a different side-by-side video for 3D movies only.
 
-The animations shipped (`loaders/retrowave.mp4`, 1 MB, side by side; `loaders/simple.mp4`, 100 KB) are made from scratch in Blender: no images or fonts of anyone else.
+The animations shipped (`loaders/retrowave.mp4`, 1 MB, side by side; `loaders/simple.mp4`, 100 KB) are made from scratch in Blender: no images or fonts of anyone else. The scripts that render them are in [bluray3d-xr-loaders](https://github.com/suppressio/bluray3d-xr-loaders).
 
 ## Logs
 

@@ -100,7 +100,7 @@ Non compare quando il player è in pausa (aspetta il fotogramma del film) né al
 - `--loader video.mp4`: un'animazione tua, qualsiasi video breve che si ripete senza scatti. In 16:9: nei film 3D compare in entrambi gli occhi. Affiancato (3840x1080): in 3D nei film 3D, il suo occhio sinistro in quelli 2D.
 - `--loader-3d video.mp4`: un altro video affiancato, solo per i film 3D.
 
-Le animazioni incluse (`loaders/retrowave.mp4`, 1 MB, affiancata; `loaders/simple.mp4`, 100 KB) sono fatte da zero in Blender: niente immagini o font di altri.
+Le animazioni incluse (`loaders/retrowave.mp4`, 1 MB, affiancata; `loaders/simple.mp4`, 100 KB) sono fatte da zero in Blender: niente immagini o font di altri. Gli script che le generano sono in [bluray3d-xr-loaders](https://github.com/suppressio/bluray3d-xr-loaders).
 
 ## Log
 
