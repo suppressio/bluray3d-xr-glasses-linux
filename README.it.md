@@ -5,6 +5,8 @@
 
 ***Nota:*** _Provato con VITURE Pro XR + VITURE Pro Neckband e il suo **3D Player** ufficiale, e con VLC su un visore Pico. Qualsiasi player capace di aprire video da una cartella di rete (SMB), come VLC o Kodi, dovrebbe funzionare allo stesso modo; per il 3D deve anche mostrare il video affiancato. I dischi provati finora sono in [Limiti](#limiti)._
 
+![Il 3D Player VITURE apre la cartella condivisa: un file per lingua audio, con e senza sottotitoli italiani](docs/viture-3d-player.png)
+
 ---
 
 ## Il problema

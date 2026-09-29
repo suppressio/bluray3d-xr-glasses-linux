@@ -5,6 +5,8 @@
 
 ***Note:*** _Tested with a VITURE Pro XR + VITURE Pro Neckband and its official **3D Player**, and with VLC on a Pico headset. Any player able to open videos from a network share (SMB), such as VLC or Kodi, should work the same way; for 3D it must also show side-by-side video. Discs tested so far: see [Limits](#limits)._
 
+![The VITURE 3D Player opening the share: one file per audio language, with and without Italian subtitles](docs/viture-3d-player.png)
+
 ---
 
 ## The problem
