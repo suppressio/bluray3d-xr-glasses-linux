@@ -1,5 +1,6 @@
 import os
 import shlex
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from sources import (
 def private_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """FIFOs and IFO copies go in the test's own temporary folder."""
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    sources._run_dir.cache_clear()
 
 
 @pytest.mark.parametrize(("name", "expected"), [
@@ -241,6 +243,15 @@ def test_dvd_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     assert s.audio_map() == ("-map 0:i:0x80 -metadata:s:a:0 language=ita "
                              "-map 0:i:0x81 -metadata:s:a:1 language=eng")
     assert s.audio_input(0) == ""
+
+
+def test_temp_files_share_one_folder_removed_at_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    at_exit: list[tuple[object, ...]] = []
+    monkeypatch.setattr(sources.atexit, "register", lambda *args: at_exit.append(args))  # pyright: ignore[reportUnknownArgumentType, reportUnknownLambdaType]
+    first, second = sources._temp_file("audio.ts"), sources._temp_file("audio.ts")
+    folder = Path(first).parent
+    assert first != second and Path(second).parent == folder
+    assert at_exit == [(shutil.rmtree, str(folder), True)]
 
 
 def test_dvd_commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

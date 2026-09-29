@@ -16,14 +16,17 @@ Implemented:
                     on the fly (disc_reader.py), with no rip at all.
   DvdSource         the main title of a DVD-Video (dvd_reader.py).
 """
+import atexit
 import copy
 import ctypes.util
+import functools
 import itertools
 import json
 import logging
 import os
 import re
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -286,7 +289,20 @@ class SubTrack:
     lang: str
 
 
-_fifo_ids = itertools.count()
+_temp_ids = itertools.count()
+
+
+@functools.cache
+def _run_dir() -> str:
+    """One folder in /tmp for the files of this run, removed at exit."""
+    folder = tempfile.mkdtemp(prefix="bd3d-")
+    atexit.register(shutil.rmtree, folder, True)
+    return folder
+
+
+def _temp_file(name: str) -> str:
+    """A path for a file of this run (audio FIFOs, IFO copies)."""
+    return os.path.join(_run_dir(), f"{next(_temp_ids)}-{name}")
 
 
 def _decrypt_backends() -> list[dict[str, str]]:
@@ -425,7 +441,6 @@ class BlurayDiscSource(DiscSource):
         self.audio_langs = [a.lang for a in chosen_audio]
         self.audio_desc = ", ".join(f"{a.pid:#x} {a.lang} {a.codec}"
                                     for a in chosen_audio) or "none"
-        self._fifo_dir = None if self.two_d else tempfile.mkdtemp(prefix="bd3d-")
         self._fifo: str | None = None
 
     @override
@@ -449,12 +464,12 @@ class BlurayDiscSource(DiscSource):
         cmd = (f"{env} {shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'disc_reader.py'))} "
                f"{shlex.quote(self.path)} --playlist {self.playlist} --start {start + 0.002:.3f} "
                f"{pids}")
-        if self._fifo_dir is None:
+        if self.two_d:
             return f"{cmd} --mode 2d".strip()
         # 3D: one FIFO per pipeline start, disc_reader writes the audio TS into it
         if self._fifo and os.path.exists(self._fifo):
             os.unlink(self._fifo)
-        self._fifo = os.path.join(self._fifo_dir, f"audio{next(_fifo_ids)}.ts")
+        self._fifo = _temp_file("audio.ts")
         os.mkfifo(self._fifo)
         return f"{cmd} --audio-out {shlex.quote(self._fifo)}".strip()
 
@@ -530,7 +545,7 @@ class DvdSource(DiscSource):
         # an input option (the dvdsub encoder has an option of the same name), but
         # takes -ifo_palette: a copy of the title's IFO in a temporary folder
         if self._ifo_copy is None:
-            self._ifo_copy = os.path.join(tempfile.mkdtemp(prefix="bd3d-dvd-"), "VTS.IFO")
+            self._ifo_copy = _temp_file("VTS.IFO")
             Path(self._ifo_copy).write_bytes(self._ifo_for_palette())
         return f"-ifo_palette {shlex.quote(self._ifo_copy)} " + super().sub_decoder_args()
 
