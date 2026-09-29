@@ -1,9 +1,9 @@
 [🇬🇧 English](README.md) | 🇮🇹 Italiano
 
-# Blu-ray 3D sugli occhiali XR, da Linux
-#### _Metti un Blu-ray 3D nel lettore del PC Linux e guardalo sugli occhiali XR (VITURE & co.) in 3D vero. Il PC legge, decifra e decodifica il disco al volo e lo serve in rete locale come video affiancato. Niente rip, niente conversione, niente spazio su disco._
+# Blu-ray e DVD su ogni schermo di casa, 3D compreso, da Linux
+#### _Metti un disco nel lettore del PC Linux e guardalo su qualunque dispositivo di casa: TV, tablet, telefono, occhiali XR. Il PC legge, decifra e decodifica il disco al volo e lo serve in rete locale come un normale file video. I Blu-ray 3D diventano 3D affiancato vero per gli occhiali XR (VITURE & co.). Niente rip, niente conversione, niente spazio su disco._
 
-***Nota:*** _Provato con VITURE Pro XR + VITURE Pro Neckband e il suo **3D Player** ufficiale. Qualsiasi player capace di aprire video da una cartella di rete (SMB) e di mostrare il 3D affiancato dovrebbe funzionare allo stesso modo. I dischi provati finora sono in [Limiti](#limiti)._
+***Nota:*** _Provato con VITURE Pro XR + VITURE Pro Neckband e il suo **3D Player** ufficiale, e con VLC su un visore Pico. Qualsiasi player capace di aprire video da una cartella di rete (SMB), come VLC o Kodi, dovrebbe funzionare allo stesso modo; per il 3D deve anche mostrare il video affiancato. I dischi provati finora sono in [Limiti](#limiti)._
 
 ---
 
@@ -33,10 +33,11 @@ Blu-ray 3D nel lettore (oppure un ISO / una cartella BDMV / un rip MKV)
 ```
 
 - **Inserisci il disco, compare il film.** Circa 15 secondi dopo la chiusura dello sportello il file compare nella cartella condivisa, con il nome del disco; togli il disco e sparisce.
-- **Anche i Blu-ray normali (2D) e i DVD.** Stesso funzionamento: i Blu-ray 2D finiscono nella cartella `Blu-ray/`, i DVD in `DVD/`, i dischi 3D in `Blu-ray 3D/`.
+- **Blu-ray 3D, Blu-ray 2D e DVD.** Stesso funzionamento per tutti: i dischi 3D finiscono nella cartella `Blu-ray 3D/`, i Blu-ray 2D in `Blu-ray/`, i DVD in `DVD/`.
+- **Qualunque dispositivo di casa.** Una TV, un tablet o un telefono con un player che apre le cartelle di rete riproduce Blu-ray e DVD; per i file 3D serve un player che mostri il 3D affiancato (occhiali XR, visori VR). Più dispositivi possono guardare insieme, anche lo stesso disco in due lingue.
 - **Non si scrive niente su disco.** Il file `.ts` risulta di circa 22 GB ma non occupa spazio: ogni pezzo viene prodotto nel momento in cui il player lo legge.
 - **Il seek funziona.** Il file ha bitrate costante, quindi ogni byte corrisponde a un secondo preciso del film. Quando il player salta, il PC riprende a leggere il disco da lì (qualche secondo: il lettore ottico deve riposizionarsi).
-- **Gli occhiali vedono un file normale.** Niente app particolari né protocolli di streaming: interfaccia, riconoscimento del 3D, pausa e seek sono quelli del player.
+- **I player vedono un file normale.** Niente app particolari, server o protocolli di streaming: interfaccia, pausa, seek e riconoscimento del 3D sono quelli del player.
 
 Tutte le procedure descritte sono un compromesso ragionato tra il "manuale" e il guidato. È uno dei modi possibili per farlo.
 

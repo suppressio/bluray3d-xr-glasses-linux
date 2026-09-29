@@ -1,9 +1,9 @@
 🇬🇧 English | [🇮🇹 Italiano](README.it.md)
 
-# 3D Blu-ray on XR glasses, from Linux
-#### _Put a 3D Blu-ray in your Linux PC's drive and watch it on XR glasses (VITURE & co.) in real 3D. The PC reads, decrypts and decodes the disc on the fly and serves it over the LAN as a side-by-side video. No rip, no conversion, no disk space._
+# Blu-rays and DVDs on every screen at home, 3D included, from Linux
+#### _Put a disc in your Linux PC's drive and watch it on any device at home: TV, tablet, phone, XR glasses. The PC reads, decrypts and decodes the disc on the fly and serves it over the LAN as an ordinary video file. 3D Blu-rays become real side-by-side 3D for XR glasses (VITURE & co.). No rip, no conversion, no disk space._
 
-***Note:*** _Tested with a VITURE Pro XR + VITURE Pro Neckband and its official **3D Player**. Any player able to open videos from a network share (SMB) and show side-by-side 3D should work the same way. Discs tested so far: see [Limits](#limits)._
+***Note:*** _Tested with a VITURE Pro XR + VITURE Pro Neckband and its official **3D Player**, and with VLC on a Pico headset. Any player able to open videos from a network share (SMB), such as VLC or Kodi, should work the same way; for 3D it must also show side-by-side video. Discs tested so far: see [Limits](#limits)._
 
 ---
 
@@ -33,10 +33,11 @@ The PC reads the disc and decodes the MVC **while you watch**, and serves the re
 ```
 
 - **Insert the disc, the movie appears.** About 15 seconds after closing the tray the file shows up in the share, named after the disc; eject the disc and it goes away.
-- **Normal (2D) Blu-rays and DVDs too.** Same flow: 2D Blu-rays go in the `Blu-ray/` folder, DVDs in `DVD/`, 3D discs in `Blu-ray 3D/`.
+- **3D Blu-rays, 2D Blu-rays and DVDs.** Same flow for all: 3D discs go in the `Blu-ray 3D/` folder, 2D Blu-rays in `Blu-ray/`, DVDs in `DVD/`.
+- **Any device at home.** A TV, tablet or phone with a player that opens network shares plays the Blu-rays and DVDs; the 3D files need a player that shows side-by-side 3D (XR glasses, VR headsets). Several devices can watch at once, even the same disc in two languages.
 - **Nothing is written to disk.** The `.ts` file shows a size of ~22 GB but takes no space: every piece is produced when the player reads it.
 - **Seeking works.** The file has a constant bitrate, so every byte matches a precise second of the movie. When the player jumps, the PC restarts reading the disc from there (a few seconds: the optical drive has to move).
-- **The glasses see a normal file.** No special app or streaming protocol: the player's own interface, 3D detection, pause and seek.
+- **Players see a normal file.** No special app, server or streaming protocol: the player's own interface, pause, seek, and 3D detection.
 
 All the procedures described here are a balanced compromise between "manual" and guided processes. This is one of the possible ways to do it.
 
