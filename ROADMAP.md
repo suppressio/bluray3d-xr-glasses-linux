@@ -44,7 +44,11 @@ Later, maybe:
 - NVIDIA encoding inside Docker (the compose file exists, untested);
 - VAAPI encoding for Intel and AMD GPUs (`h264_vaapi`, untested: no such GPU
   here). Without NVIDIA the CPU encodes (x264): on a recent 12-core desktop
-  CPU the 3D encode alone runs at 1.4x real time on 2 cores, 3.5x on all 12.
+  CPU the 3D encode alone runs at 1.4x real time on 2 cores, 3.5x on all 12;
+- a `.deb` package for Debian/Ubuntu, built by GitHub Actions at every release
+  and attached to it: `apt install ./bluray3d-xr_….deb` pulls the dependencies,
+  `apt remove` also removes the Samba share. edge264 built for distribution
+  (x86-64-v2/v3, CPU features picked at runtime), its BSD license included.
 
 ## Decryption
 

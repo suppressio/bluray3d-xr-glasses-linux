@@ -75,7 +75,7 @@ DVDs (CSS) are decrypted by **libdvdcss**, which you install yourself: on Debian
 | | **A. Docker** | **B. Native script** |
 |---|---|---|
 | For | anyone who already uses Docker | Debian / Ubuntu |
-| Touches the system | no: Samba, FUSE and libraries live in the container | yes: packages, `/opt`, `smb.conf`, `fuse.conf` (removable with `uninstall.sh`) |
+| Touches the system | no: Samba, FUSE and libraries live in the container | yes: packages, `/opt`, `smb.conf`, `fuse.conf` (`uninstall.sh` removes what it added) |
 | Decryption | libaacs + your KEYDB (MakeMKV is not in the image) | libaacs + KEYDB, or MakeMKV if installed |
 | NVIDIA encoding | needs the NVIDIA Container Toolkit | works out of the box |
 | Samba already installed on the PC | conflicts on port 445: stop it first | the share is added next to yours |
@@ -111,7 +111,7 @@ watching /dev/sr0: insert a Blu-ray
 + Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts)
 ```
 
-Stop it with `docker compose down`. To update: `git pull && docker compose up -d --build`.
+Stop it with `docker compose down`. Updating and uninstalling: [below](#updating-and-uninstalling).
 
 ##### NVIDIA GPU (optional)
 Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), then start with both compose files:
@@ -155,9 +155,21 @@ When a disc goes in, its files appear; every `pipeline from` line is the player 
 11:30:24 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 0.0s (requested 0.0s, offset 0)
 11:30:35 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 1634.8s (requested 1635.3s, offset 2043548532)
 ```
-Stop it with `Ctrl+C`. To update to the latest version: `./scripts/update.sh`. To remove everything: `./scripts/uninstall.sh`.
+Stop it with `Ctrl+C`. Updating and uninstalling: [below](#updating-and-uninstalling).
 
 The script is tested with the real drive and disc in clean Debian 13 (trixie) and Ubuntu 24.04 containers; the program itself runs daily on Debian testing.
+
+### Updating and uninstalling
+
+**Updating**, when a new version is out (see [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases)); `bluray3d-xr --version` tells which one you have:
+- native: `./scripts/update.sh` in the project folder. It downloads the latest version and copies the program to `/opt/bluray3d-xr`; it runs the whole `install.sh` again only when needed (edge264 changed, or nothing is installed). It ends with "Updated from vX to vY" and the list of changes. If the program is running, stop it and start it again.
+- Docker: `git pull && docker compose up -d --build`.
+
+**Uninstalling**:
+- native: `./scripts/uninstall.sh`. It unmounts `/srv/bd3d` and removes it, removes the `[Disks]` share from `smb.conf` (only the block it added: your own shares stay), `/opt/bluray3d-xr` and the `bluray3d-xr` command. The apt packages (FFmpeg, Samba, libbluray...) and the `user_allow_other` line in `/etc/fuse.conf` stay, since other software may use them: remove them with apt if nothing needs them.
+- Docker: `docker compose down --rmi all` stops the container and deletes its image.
+
+Then delete the project folder.
 
 ---
 

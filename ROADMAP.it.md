@@ -45,7 +45,12 @@ Più avanti, forse:
 - codifica NVIDIA dentro Docker (il file compose c'è, non è provato);
 - codifica VAAPI per le GPU Intel e AMD (`h264_vaapi`, non provata: qui non ce
   ne sono). Senza NVIDIA codifica la CPU (x264): su una CPU desktop recente a
-  12 core la sola codifica 3D va a 1,4x il tempo reale con 2 core, 3,5x con tutti e 12.
+  12 core la sola codifica 3D va a 1,4x il tempo reale con 2 core, 3,5x con tutti e 12;
+- un pacchetto `.deb` per Debian/Ubuntu, costruito da GitHub Actions a ogni
+  release e allegato a essa: `apt install ./bluray3d-xr_….deb` installa anche le
+  dipendenze, `apt remove` toglie anche la condivisione Samba. edge264 compilato
+  per le distribuzioni (x86-64-v2/v3, istruzioni della CPU scelte a runtime), con
+  la sua licenza BSD.
 
 ## La decifratura
 
