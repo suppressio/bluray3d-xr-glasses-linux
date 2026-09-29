@@ -4,7 +4,7 @@
 #   scripts/check.sh --integration    also the tests on the disc in the drive
 # The first run creates .venv with the pinned tools (requirements-dev.txt); the
 # program's own dependencies (pyfuse3, trio) come from the system, as installed
-# by scripts/install.sh or: sudo apt install python3-pyfuse3 python3-trio python3-venv
+# by scripts/install.sh or: sudo apt install python3-pyfuse3 python3-trio python3-venv ffmpeg
 set -euo pipefail
 cd "$(dirname "$0")/.."
 venv=.venv

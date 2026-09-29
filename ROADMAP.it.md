@@ -15,7 +15,7 @@ Prossimi passi, in quest'ordine:
 - [x] **Blu-ray 2D** e **DVD**, ciascuno nella sua cartella della condivisione
   `Disks`. Il demuxer `dvdvideo` di FFmpeg salta solo in modo approssimativo
   (secondi di scarto, senza sapere dove è atterrato), quindi i DVD hanno un
-  lettore proprio: libdvdread + lettura degli IFO, seek con la mappa dei tempi
+  lettore proprio: libdvdread + lettura degli IFO, seek con i pacchetti di navigazione
   e i pacchetti di navigazione (esatto).
 - [x] **Sottotitoli dal disco**, disegnati nell'immagine come fa un lettore da
   salotto (PGS dei Blu-ray, 2D e 3D, sottotitoli dei DVD): una versione per ogni
@@ -27,11 +27,17 @@ Prossimi passi, in quest'ordine:
   ripartire la posizione vecchia e fermavano quella nuova. Ora ricevono i dati
   vecchi, e un salto richiede 2-4 s. Animazione di caricamento opzionale
   (`--loader`) al posto dell'immagine ferma durante l'attesa.
-- [ ] **Un'animazione di caricamento predefinita** senza problemi di diritti,
-  inclusa nel repo (oggi `--loader` è spento se non gli dai un video).
-- [ ] **Altri dischi.** È provato un disco per tipo (Tron: Legacy 3D, Ready Player
-  One, Ritorno al futuro PAL); dischi con BD+, più angolazioni, DVD NTSC o
-  strutture insolite potrebbero richiedere lavoro.
+- [x] **Un'animazione di caricamento predefinita** senza problemi di diritti: una
+  scena retrowave fatta da zero in Blender, affiancata (3D nei film 3D, il suo
+  occhio sinistro in quelli 2D), 1 MB.
+- [x] **DVD difficili.** I dischi di serie inglesi nascondono gli episodi tra
+  decine di titoli finti che ripetono celle rimescolate (una protezione
+  anticopia): vengono riconosciuti e ogni episodio diventa un file. I punti
+  rovinati vengono saltati, partono anche i titoli che si aprono con secondi senza
+  audio, il seek funziona nei titoli che riproducono due volte una cella.
+- [ ] **Altri dischi.** Provati: Tron: Legacy 3D, Ready Player One, Cowboy Bebop,
+  Ritorno al futuro PAL, Utopia PAL; dischi con BD+, più angolazioni o DVD NTSC
+  potrebbero richiedere lavoro.
 
 Più avanti, forse:
 - **visione di coppia**, due persone con i propri occhiali, sincronizzate: un

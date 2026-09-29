@@ -1,3 +1,6 @@
+import ctypes
+import threading
+
 import pytest
 
 import dvd
@@ -49,7 +52,7 @@ def test_parse_title() -> None:
     assert [(c.start, c.duration, c.first, c.last, c.vob_id, c.cell_id) for c in t.cells] == [
         (0.0, 600.0, 0, 9999, 1, 1), (600.0, 10.0, 10000, 10099, 1, 2),
         (610.0, 1200.0, 10200, 29999, 2, 1)]
-    assert (t.tmap_unit, t.tmap, t.vobus) == (4, [100, 200, 300], [0, 50, 100, 150])
+    assert t.vobus == [0, 50, 100, 150]
     assert t.cell_index(2, 1) == 2 and t.cell_index(9, 9) == -1
 
 
@@ -108,7 +111,7 @@ def test_seek(seconds: float, time: float) -> None:
     nav = seek(vobs, t, seconds)                      # type: ignore[arg-type]
     assert nav.time == pytest.approx(time)
     assert nav.sector == round(time * 25)
-    assert len(vobs.reads) < 20                       # the time map gets close first
+    assert len(vobs.reads) < 12                       # a binary search, not VOBU by VOBU
 
 
 def test_seek_without_navigation_pack() -> None:
@@ -117,12 +120,112 @@ def test_seek_without_navigation_pack() -> None:
         seek(FakeVobs({}), t, 10)                     # type: ignore[arg-type]
 
 
-def test_main_title_is_the_longest() -> None:
-    class FakeDvd:
-        def ifo(self, vts: int) -> bytes:
-            if vts == 0:
-                return vmg_ifo([(1, 1), (2, 1)])
-            return vts_ifo([DvdCell(60.0 * vts * vts, 0, 99)], [], [])
+class FakeDisc:
+    """A disc with one title per title set: title n is VTS n."""
 
-    t = dvd.main_title(FakeDvd())                     # type: ignore[arg-type]
-    assert (t.number, t.vts, t.duration) == (2, 2, 240.0)
+    def __init__(self, titles: list[list[DvdCell]]) -> None:
+        self.titles = titles
+
+    def ifo(self, vts: int) -> bytes:
+        if vts == 0:
+            return vmg_ifo([(n, 1) for n in range(1, len(self.titles) + 1)])
+        return vts_ifo(self.titles[vts - 1], [], [])
+
+
+def run(minutes: float, first: int, cells: int = 3) -> list[DvdCell]:
+    """`cells` cells one after the other on the disc, `minutes` in all."""
+    size = 10_000
+    return [DvdCell(minutes * 60 / cells, first + k * size, first + (k + 1) * size - 1, k + 1, 1)
+            for k in range(cells)]
+
+
+def chosen(titles: list[list[DvdCell]]) -> list[int]:
+    return [t.number for t in dvd.main_titles(FakeDisc(titles))]
+
+
+def test_a_movie() -> None:
+    # the movie, a 12-minute extra, a 45-minute documentary: the movie
+    assert chosen([run(12, 0), run(110, 100_000), run(45, 200_000)]) == [2]
+
+
+def test_a_series_with_play_all() -> None:
+    episodes = [run(45, 0), run(50, 100_000), run(48, 200_000)]
+    play_all = [c for e in episodes for c in e]
+    assert chosen([play_all, *episodes, run(5, 300_000)]) == [2, 3, 4]
+
+
+def test_a_protected_series() -> None:
+    """Fake titles: the same cells replayed, or in a scrambled order."""
+    e1, e2, e3 = run(45, 0), run(50, 100_000), run(48, 200_000)
+    replayed = e1 + e2 + e1 + e3
+    scrambled = e3 + e1 + e2
+    assert chosen([replayed, e1, scrambled, e2, e3]) == [2, 4, 5]
+
+
+def test_nothing_looks_right() -> None:
+    backwards = list(reversed(run(100, 0)))
+    replayed = run(40, 100_000) * 2
+    assert chosen([replayed, backwards]) == [2]                   # the longest, as before
+
+
+def test_the_same_content_twice() -> None:
+    movie = run(110, 0)
+    assert chosen([movie, list(movie)]) == [1]
+
+
+
+def test_vob_read_is_tried_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+
+    class Lib:
+        def DVDReadBlocks(self, handle: int, sector: int, count: int,  # noqa: N802
+                          buf: ctypes.Array[ctypes.c_char]) -> int:
+            calls.append(sector)
+            if len(calls) < 3:
+                return -1                      # the drive is busy
+            ctypes.memmove(buf, b"\x42" * count * SECTOR, count * SECTOR)
+            return count
+
+    def no_wait(seconds: float) -> None:
+        pass
+
+    monkeypatch.setattr(dvd, "_dvdread", Lib)
+    monkeypatch.setattr(dvd.time, "sleep", no_wait)
+    vobs = dvd.VobFile(1, threading.Lock())
+    assert vobs.read(7, 2) == b"\x42" * 2 * SECTOR
+    assert calls == [7, 7, 7]
+    calls.clear()
+    def always_busy(self: Lib, handle: int, sector: int, count: int,
+                    buf: ctypes.Array[ctypes.c_char]) -> int:
+        return -1
+
+    monkeypatch.setattr(Lib, "DVDReadBlocks", always_busy)
+    assert vobs.read(7, 1) == b""
+
+    # a damaged spot: the drive tried for seconds already, no second attempt
+    clock = iter([0.0, 12.5, 12.7, 25.0])
+    monkeypatch.setattr(dvd.time, "monotonic", lambda: next(clock))
+    calls.clear()
+
+    def damaged(self: Lib, handle: int, sector: int, count: int,
+                buf: ctypes.Array[ctypes.c_char]) -> int:
+        calls.append(sector)
+        return -1
+
+    monkeypatch.setattr(Lib, "DVDReadBlocks", damaged)
+    assert vobs.read(9, 1) == b""
+    assert calls == [9, 9]                  # one more try (a disc spinning up), no more
+
+
+def test_seek_in_a_cell_played_twice() -> None:
+    """A "play all" title playing the same VOB cell at 0 s and again at 60 s:
+    the navigation packs say which VOB cell, the seek knows which occurrence."""
+    t = parse_title(vts_ifo([DvdCell(30.0, 0, 749, 1, 1), DvdCell(30.0, 750, 1499, 2, 1),
+                             DvdCell(30.0, 0, 749, 1, 1)],
+                            [], [], vobus=list(range(0, 1500, 10))), 1, 1, 1)
+    _, vobs = title_with_vobus()
+    assert t.cell_index(1, 1) == 0 and t.cell_index(1, 1, near=2) == 2
+    nav = seek(vobs, t, 72.3)                          # 12.3 s into the repeat
+    assert nav.cell == 2 and nav.time == pytest.approx(72.0) and nav.sector == 300
+    nav = seek(vobs, t, 12.3)                          # the first time
+    assert nav.cell == 0 and nav.time == pytest.approx(12.0)

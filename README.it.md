@@ -228,7 +228,7 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 - **Gli occhiali non vedono la cartella condivisa**: verifica che PC e occhiali siano sulla stessa rete, e controlla il firewall (porta 445/TCP). Da un altro PC Linux: `smbclient -N -L //<ip-del-pc>`.
 - **L'immagine va a scatti**: controlla prima il Wi-Fi (5 GHz, vicino al router). Poi il log dell'ultima pipeline (`/tmp/bd3d-pipeline.log`, oppure `docker compose logs`).
 - **Un file nuovo in `MOVIES_DIR` non compare**: le cartelle vengono lette all'avvio. Riavvia il programma o il container (i lettori invece sono controllati di continuo).
-- **Dopo un salto l'immagine resta ferma qualche secondo**: è il lettore che si sposta nel nuovo punto. In [OPTIONS.it.md](OPTIONS.it.md#animazione-di-caricamento-dopo-un-salto) c'è un'animazione di caricamento facoltativa, con quello che costa.
+- **Dopo un salto compare per qualche secondo un'animazione di caricamento, e il film riparte un po' dopo il punto scelto**: il lettore si sta spostando nel nuovo punto. [OPTIONS.it.md](OPTIONS.it.md#animazione-di-caricamento-dopo-un-salto) spiega perché, e come spegnerla.
 
 Per segnalare un problema: indica la versione (`bluray3d-xr --version`; con Docker la prima riga di `docker compose logs`) e il log del programma di quel momento.
 
@@ -242,7 +242,7 @@ Per segnalare un problema: indica la versione (`bluray3d-xr --version`; con Dock
 - **Seek.** Un tempo viene tradotto in un byte del `.ssif` attraverso l'EP_map (le posizioni dei fotogrammi chiave) e la tabella degli extent della clip. I film composti da più clip (Tron: due) vengono letti in sequenza, e i timestamp audio delle clip successive vengono riportati su un'unica linea temporale.
 - **Audio.** `src/disc_reader.py` legge il disco una volta sola: il video va a edge264, la traccia audio scelta (con la lingua presa dalla playlist) va a FFmpeg attraverso una FIFO, ognuno con il suo thread. Il fotogramma chiave viaggia insieme all'audio come ancora temporale, così audio e video partono esattamente insieme. Scarto misurato rispetto alla strada MKV: 4 ms.
 - **Il file virtuale.** L'encoder lavora a **bitrate costante** e il muxer MPEG-TS riempie esattamente fino a 24 Mbit/s, così il byte _X_ è il secondo _X_ / 3.000.000 del film. Un file system **FUSE** (`src/bd3d_fs.py`) serve i file. Riavvia la decodifica quando il player salta e mette in pausa la pipeline se va troppo avanti. Per ogni lettore gira una sola pipeline alla volta, perché due farebbero saltare avanti e indietro il lettore ottico. La fine del file, che i player leggono per ricavare la durata, è sintetica: nero e silenzio con i timestamp giusti, così il lettore non viene mandato alla fine del disco.
-- **DVD.** `src/dvd.py` legge il disco tramite libdvdread (libdvdcss per il CSS) e i suoi file IFO: il titolo principale (il più lungo), le sue celle, le lingue audio, lo standard video e il formato. Il seek usa la mappa dei tempi per arrivare entro pochi secondi, poi il pacchetto di navigazione di ogni blocco VOBU (circa 0,5 s), che contiene il suo tempo esatto: il punto di ripartenza è noto con precisione. Il lettore DVD di FFmpeg salta solo in modo approssimativo (secondi di scarto, senza sapere dove è atterrato). `src/dvd_reader.py` manda il titolo da lì a FFmpeg, che lo deinterlaccia e lo porta a pixel quadrati.
+- **DVD.** `src/dvd.py` legge il disco tramite libdvdread (libdvdcss per il CSS) e i suoi file IFO: i titoli, le loro celle, le lingue audio, lo standard video e il formato. Offre il film, oppure gli episodi di una serie; i titoli che ripetono celle o tornano indietro sul disco (titoli finti delle protezioni anticopia) vengono scartati. Il seek è una ricerca binaria sui pacchetti di navigazione dei blocchi VOBU della cella (circa 0,5 s ciascuno), che contengono il loro tempo esatto: il punto di ripartenza è noto con precisione. I punti rovinati vengono saltati, mezzo secondo alla volta. Il lettore DVD di FFmpeg salta solo in modo approssimativo (secondi di scarto, senza sapere dove è atterrato). `src/dvd_reader.py` manda il titolo da lì a FFmpeg, che lo deinterlaccia e lo porta a pixel quadrati.
 - **Lettori.** Ogni pochi secondi si chiede al lettore se c'è un disco (senza leggerlo). All'inserimento il disco viene aperto come Blu-ray, altrimenti come DVD, e il suo film aggiunto; all'espulsione viene tolto.
 
 ## Sviluppo
@@ -256,7 +256,7 @@ Per segnalare un problema: indica la versione (`bluray3d-xr --version`; con Dock
 ## Limiti
 
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
-- Dischi provati: uno per tipo (3D: Tron: Legacy; 2D: Ready Player One; DVD: Ritorno al futuro, PAL). Solo AACS: i dischi con BD+ (tramite MakeMKV), quelli con strutture insolite e i DVD NTSC non sono provati.
+- Dischi provati: 3D: Tron: Legacy; 2D: Ready Player One, Cowboy Bebop (5 episodi in un solo titolo); DVD: Ritorno al futuro (PAL), Utopia stagione 1 (PAL, un disco di una serie inglese con una protezione a titoli finti e un punto rovinato). Solo AACS: i dischi con BD+ (tramite MakeMKV) e i DVD NTSC non sono provati.
 - I sottotitoli del disco sono disegnati nell'immagine (una versione per lingua), non si scelgono dal player; la profondità 3D è fissa, non presa dal disco. L'audio è convertito in AAC stereo.
 
 ## E Windows?

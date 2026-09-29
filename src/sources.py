@@ -87,6 +87,8 @@ class Source(ABC):
     quality_key: str = "3d"         # which bitrates (pipeline.QUALITIES)
     input_format: str = "mpegts"    # two_d: format of video_command's output
     video_map: str = "0:i:0x1011"   # two_d: the video stream in it
+    # two_d: how much of that stream ffmpeg reads to find its tracks before it starts
+    probe_args: str = "-analyzeduration 2000000 -probesize 10000000"
     pre_filter: str = ""            # video filters before the subtitle overlay (deinterlace)
     post_filter: str = ""           # ... and after it (scale)
     sub: SubtitleTrack | None = None  # the track drawn into this file, if any
@@ -464,18 +466,33 @@ class BlurayDiscSource(DiscSource):
 
 
 class DvdSource(DiscSource):
-    """The main title of a DVD-Video: drive, ISO or folder with VIDEO_TS/ (dvd_reader.py)."""
+    """A title of a DVD-Video: the movie, or one episode of a series (drive, ISO
+    or folder with VIDEO_TS/, read by dvd_reader.py). all_on() finds them."""
 
     two_d = True
     category, name_suffix, quality_key = "DVD", "", "dvd"
     input_format, video_map = "mpeg", "0:i:0x1e0"
+    # a program stream announces no tracks: ffmpeg knows one when it meets a
+    # packet of it. Titles often open with seconds of logos and warnings without
+    # audio, so it looks further (the disc is read far faster than it plays)
+    probe_args = "-analyzeduration 8000000 -probesize 20000000"
     sub_canvas = ""                 # DVD: the picture in the same stream gives it
 
-    def __init__(self, path: str, audio_langs: list[str] | None = None) -> None:
+    @classmethod
+    def all_on(cls, path: str, audio_langs: list[str] | None = None) -> list["DvdSource"]:
+        """The movie, or one source per episode ("<disc> - 1", "- 2"...)."""
+        with dvd.Dvd(path) as disc:
+            chosen = dvd.main_titles(disc)
+        if len(chosen) == 1:
+            return [cls(path, audio_langs, chosen[0])]
+        return [cls(path, audio_langs, t, episode) for episode, t in enumerate(chosen, 1)]
+
+    def __init__(self, path: str, audio_langs: list[str] | None = None,
+                 title: dvd.DvdTitle | None = None, episode: int = 0) -> None:
         self.path = path
         self._dvd = dvd.Dvd(path)
         try:
-            self.title = dvd.main_title(self._dvd)
+            self.title = title or dvd.main_titles(self._dvd)[0]
             label = self._dvd.volume_id()
         except OSError:
             self._dvd.close()
@@ -484,6 +501,8 @@ class DvdSource(DiscSource):
         self._lock = threading.Lock()
         self._ifo_copy: str | None = None
         self.name = _safe_name(label.replace("_", " ").title() if label else Path(path).stem)
+        if episode:
+            self.name = f"{self.name} - {episode}"
         self.duration = self.title.duration
         self.frame_size, self.frame_rate = self.title.frame_size, self.title.frame_rate
         w, h = self.frame_size.split("x")
@@ -547,13 +566,14 @@ class DvdSource(DiscSource):
         return super().audio_map(input_index)
 
 
-def open_disc(path: str, audio_langs: list[str] | None = None) -> Source:
-    """A Blu-ray (3D or 2D) or a DVD, whichever the drive/ISO/folder holds."""
+def open_disc(path: str, audio_langs: list[str] | None = None) -> list[Source]:
+    """What the drive/ISO/folder holds: a Blu-ray (3D or 2D), or a DVD (its
+    movie, or its episodes)."""
     try:
-        return BlurayDiscSource(path, audio_langs)
+        return [BlurayDiscSource(path, audio_langs)]
     except OSError as bd_error:
         try:
-            return DvdSource(path, audio_langs)
+            return list(DvdSource.all_on(path, audio_langs))
         except OSError:
             raise bd_error from None
 
@@ -594,7 +614,7 @@ def discover(paths: list[str], audio_langs: list[str] | None = None) -> list[Sou
     for p in candidates:
         if is_bluray(p) or is_dvd(p):
             try:
-                sources.append(open_disc(str(p), audio_langs))
+                sources += open_disc(str(p), audio_langs)
             except OSError as e:
                 log.info("skipped: %s", e)
         elif p.suffix.lower() != ".mkv":

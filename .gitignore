@@ -1,6 +1,5 @@
 .env
 __pycache__/
-assets/
 .venv/
 .pytest_cache/
 .ruff_cache/

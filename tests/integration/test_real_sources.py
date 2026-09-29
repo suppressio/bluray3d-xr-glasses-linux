@@ -71,7 +71,7 @@ def _sources() -> list[tuple[str, str]]:
     reason="no disc in the drive and BD3D_TEST_MKV not set"))], ids=lambda p: p and p[0])
 def source(request: pytest.FixtureRequest) -> Source:
     kind, path = request.param
-    return MkvSource(path) if kind == "mkv" else open_disc(path)
+    return MkvSource(path) if kind == "mkv" else open_disc(path)[0]
 
 
 def _kind(s: Source) -> str:

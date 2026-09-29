@@ -15,7 +15,7 @@ Next steps, in this order:
 - [x] **2D Blu-ray** and **DVD**, each in its own folder of the `Disks` share.
   FFmpeg's `dvdvideo` demuxer seeks only approximately (seconds off, without
   knowing where it landed), so DVDs have their own reader: libdvdread + IFO
-  parsing, seek through the time map and the navigation packs (exact).
+  parsing, seek through the navigation packs (exact).
 - [x] **Subtitles from the disc**, drawn into the picture like a disc player
   does (Blu-ray PGS, 2D and 3D, DVD subpictures): one version per subtitle
   language, forced subtitles always in. Reading them out as external files would
@@ -26,11 +26,17 @@ Next steps, in this order:
   old position and stopping the new one. Now they are answered from the old
   data, and a jump takes 2-4 s. Optional loading animation (`--loader`) instead
   of a frozen picture while waiting.
-- [ ] **A default loading animation** free of rights issues, shipped in the repo
-  (today `--loader` is off unless you give it a video).
-- [ ] **More discs.** One per kind is tested (Tron: Legacy 3D, Ready Player One,
-  Back to the Future PAL); discs with BD+, several angles, NTSC DVDs or unusual
-  structures may need work.
+- [x] **A default loading animation** free of rights issues: a retrowave scene
+  made from scratch in Blender, side by side (3D on 3D movies, its left eye on
+  2D ones), 1 MB.
+- [x] **Hard DVDs.** UK series discs hide the episodes among dozens of fake
+  titles that replay scrambled cells (a copy protection): those are recognized
+  and each episode becomes a file. Damaged spots are skipped, titles opening
+  with seconds without audio start, seeking works in titles that play a cell
+  twice.
+- [ ] **More discs.** Tested: Tron: Legacy 3D, Ready Player One, Cowboy Bebop,
+  Back to the Future PAL, Utopia PAL; discs with BD+, several angles or NTSC
+  DVDs may need work.
 
 Later, maybe:
 - **watching together**, two people with their own glasses in sync: a shared

@@ -28,6 +28,7 @@ if [ "$old" = "$new" ]; then
     exit 0
 fi
 sudo install -m 644 "$REPO_DIR"/src/*.py "$PREFIX/app/"
+sudo install -D -m 644 -t "$PREFIX/loaders" "$REPO_DIR"/loaders/*.mp4
 echo "$new" | sudo tee "$PREFIX/app/version" >/dev/null
 echo "Updated from ${old:-an unknown version} to $new:"
 # git reads both tags and describe output (v1.0.0-3-gabc1234) as commits

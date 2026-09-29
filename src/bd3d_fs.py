@@ -28,6 +28,7 @@ import contextlib
 import copy
 import errno
 import fcntl
+import functools
 import logging
 import os
 import shlex
@@ -46,7 +47,7 @@ import trio
 
 from langs import lang_list
 from pipeline import ENCODERS, Quality, decode_command, encoder_args, pick_encoder, quality_for
-from sources import Source, discover, open_disc
+from sources import Source, discover, ffprobe_json, open_disc
 
 log = logging.getLogger("bd3d_fs")
 
@@ -82,6 +83,36 @@ PAUSED_AFTER = 8.0
 
 
 HERE = Path(__file__).resolve().parent
+# the loading animations shipped with the program (loaders/ next to src/ or app/),
+# chosen by name: --loader simple. The default one is side by side: 3D movies
+# show it in 3D, 2D ones its left eye
+LOADERS = HERE.parent / "loaders"
+DEFAULT_LOADER = "retrowave"
+
+
+def loader_video(choice: str) -> str | None:
+    """--loader / --loader-3d: none, the name of a shipped animation, or a file."""
+    if choice in ("", "none"):
+        return None
+    shipped = LOADERS / f"{choice}.mp4"
+    if shipped.exists():
+        return str(shipped)
+    if Path(choice).expanduser().is_file():
+        return str(Path(choice).expanduser())
+    names = ", ".join(sorted(p.stem for p in LOADERS.glob("*.mp4"))) or "none shipped"
+    raise SystemExit(f"--loader {choice}: no such file, nor a shipped animation ({names})")
+
+
+@functools.cache
+def is_side_by_side(video: str) -> bool:
+    """A full side-by-side 3D video (32:9, e.g. 3840x1080) rather than a 2D one."""
+    try:
+        info = ffprobe_json("-select_streams", "v:0", "-show_entries", "stream=width,height",
+                            video)
+        stream: dict[str, int] = info["streams"][0]
+        return stream["width"] >= 3 * stream["height"]
+    except (OSError, subprocess.SubprocessError, KeyError, IndexError):
+        return False
 
 
 def program_version(folder: Path = HERE) -> str:
@@ -146,7 +177,7 @@ class Generator:
             # same start, so the same timestamps and bytes <-> time mapping as the movie
             # frequent keyframes: the player can start it anywhere
             cmd = vf.filler_command(f"-stream_loop -1 -i {shlex.quote(vf.loader)}", start,
-                                    extra="-g 6 ")
+                                    extra="-g 6 ", sbs=is_side_by_side(vf.loader))
             self.ahead_max = LOADER_AHEAD * vf.bytes_per_sec
         else:
             cmd = decode_command(
@@ -360,19 +391,30 @@ class VirtualFile:
             return g
 
     def filler_command(self, video_input: str, t0: float, duration: float | None = None,
-                       extra: str = "") -> str:
+                       extra: str = "", *, sbs: bool = False) -> str:
         """ffmpeg writing a stand-in for the movie from second t0: `video_input`
-        (black, or the loading animation fitted to the picture, in both eyes for
-        3D) and silence, with the same streams, timestamps and bitrate the movie
-        has there, so the player can go on from one to the other."""
+        (black, or the loading animation fitted to the picture) and silence, with
+        the same streams, timestamps and bitrate the movie has there, so the
+        player can go on from one to the other. A 2D input goes in both eyes of a
+        3D movie; a side-by-side one (`sbs`) is used as it is, or only its left
+        eye for a 2D movie."""
         src = self.source
         w, h = (int(v) for v in src.frame_size.split("x"))
         eye = w // 2 if not src.two_d else w
         n_audio = max(1, len(src.audio_langs))
         inputs = " ".join([video_input] + ["-f lavfi -i anullsrc=r=48000:cl=stereo"] * n_audio)
-        fit = (f"[0:v]fps={src.frame_rate},scale={eye}:{h}:force_original_aspect_ratio=decrease,"
-               f"pad={eye}:{h}:-1:-1,setsar=1")
-        graph = f"{fit},split[a][b];[a][b]hstack[v]" if eye != w else f"{fit}[v]"
+
+        def fit(width: int, pre: str = "") -> str:
+            return (f"[0:v]{pre}fps={src.frame_rate},"
+                    f"scale={width}:{h}:force_original_aspect_ratio=decrease,"
+                    f"pad={width}:{h}:-1:-1,setsar=1")
+
+        if sbs and eye != w:                    # 3D picture, 3D movie
+            graph = f"{fit(w)}[v]"
+        elif eye != w:                          # 2D picture in both eyes
+            graph = f"{fit(eye)},split[a][b];[a][b]hstack[v]"
+        else:                                   # 2D movie: the left eye of a 3D picture
+            graph = f"{fit(w, 'crop=iw/2:ih:0:0,' if sbs else '')}[v]"
         maps = " ".join([f"-filter_complex {shlex.quote(graph)} -map '[v]'"] +
                         [f"-map {i + 1}:a" for i in range(n_audio)])
         langs = " ".join(f"-metadata:s:a:{i} language={lang}"
@@ -683,7 +725,16 @@ class Bd3dFS(pyfuse3.Operations):
         e = self.nodes.get(fh)
         if e is None or isinstance(e, Folder):     # the disc was ejected while playing
             raise pyfuse3.FUSEError(errno.EIO)
-        return await trio.to_thread.run_sync(e.read, off, size)
+        try:
+            return await trio.to_thread.run_sync(e.read, off, size)
+        except pyfuse3.FUSEError:
+            raise
+        # anything else going wrong for one read (a disc that cannot be read
+        # there, a pipeline that cannot start) is an I/O error for that read:
+        # it must not stop the program and every other file with it
+        except Exception:
+            log.exception("%s: read at %d failed", e.path, off)
+            raise pyfuse3.FUSEError(errno.EIO) from None
 
 
 class Library:
@@ -692,9 +743,10 @@ class Library:
     bitrate in Light/, plus the external subtitles next to each video."""
 
     def __init__(self, fs: Bd3dFS, encoder: str, log_file: str, audio_files: str, light: bool,
-                 sub_langs: list[str] | None = None, loader: str | None = None) -> None:
+                 sub_langs: list[str] | None = None, loader: str | None = None,
+                 loader_3d: str | None = None) -> None:
         self.fs, self.encoder, self.log_file = fs, encoder, log_file
-        self.loader = loader
+        self.loader, self.loader_3d = loader, loader_3d     # 3D movies: loader_3d if given
         self.audio_files, self.light = audio_files, light
         self.sub_langs = sub_langs          # None: every language; []: no subtitle versions
 
@@ -706,8 +758,9 @@ class Library:
 
     def _add_movie(self, source: Source, parent: int, level: str) -> list[FileEntry]:
         quality = quality_for(source, level)
+        loader = self.loader_3d if self.loader_3d and not source.two_d else self.loader
         vf = VirtualFile(self.fs.new_inode(), source, self.encoder, quality, self.log_file,
-                         parent, self._path(parent), self.loader)
+                         parent, self._path(parent), loader)
         added: list[FileEntry] = [vf]
         sub = ""
         if source.sub is not None:
@@ -821,8 +874,8 @@ async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None
         if status == CDS_DISC_OK and state == "empty":
             log.info("%s: disc inserted, opening it", device)
             try:
-                source = await trio.to_thread.run_sync(open_disc, device, audio_langs)
-                entries = library.add(source)
+                found = await trio.to_thread.run_sync(open_disc, device, audio_langs)
+                entries = [e for source in found for e in library.add(source)]
                 state = "loaded"
             # whatever goes wrong with one disc (cannot decrypt, not ready yet, a
             # structure the parsers do not expect) must not stop the program
@@ -897,9 +950,13 @@ def main() -> None:
                              "weak Wi-Fi (default: on)")
     parser.add_argument("--debug", action="store_true",
                         help="also log every jump and the player's reads after it")
-    parser.add_argument("--loader", default="none",
-                        help="a short video shown in a loop after a jump until the movie is "
-                             "ready, e.g. a spinner (default: none, the player waits)")
+    parser.add_argument("--loader", default=DEFAULT_LOADER,
+                        help="the animation shown in a loop after a jump until the movie is "
+                             f"ready: {DEFAULT_LOADER} (default, 3D on 3D movies), simple, "
+                             "none (the player waits), or a video file (2D, or side by side "
+                             "3840x1080)")
+    parser.add_argument("--loader-3d", default="none",
+                        help="another animation for 3D movies only, side by side (3840x1080)")
     parser.add_argument("--encoder", choices=["auto", *ENCODERS], default="auto",
                         help="auto = NVENC if available, else x264 on the CPU")
     # a log of our own pipeline at a documented place; the kernel's protected
@@ -911,6 +968,7 @@ def main() -> None:
     audio_lang: str = args.audio_lang
     subs_arg: str = args.subs
     loader_arg: str = args.loader
+    loader_3d_arg: str = args.loader_3d
     mount: str = args.mount
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -929,8 +987,9 @@ def main() -> None:
     Source.sub_depth = args.sub_depth
     subs = subs_arg.strip().lower()
     sub_langs = None if subs in ("", "all") else [] if subs == "none" else lang_list(subs_arg)
-    loader = None if not loader_arg or loader_arg == "none" else loader_arg
-    library = Library(fs, encoder, args.log_file, args.audio_files, args.light, sub_langs, loader)
+    loader, loader_3d = loader_video(loader_arg), loader_video(loader_3d_arg)
+    library = Library(fs, encoder, args.log_file, args.audio_files, args.light, sub_langs, loader,
+                      loader_3d)
     for source in discover(others, audio_langs) if others else []:
         library.add(source)
     if not fs.files() and not drives:
@@ -938,6 +997,9 @@ def main() -> None:
     for device in drives:
         log.info("watching %s: insert a Blu-ray", device)
 
+    if os.path.ismount(mount):
+        raise SystemExit(f"{mount} is already in use: is bluray3d-xr already running? "
+                         f"(if not: fusermount3 -u {mount})")
     options = set(pyfuse3.default_options)
     options |= {"fsname=bd3d", "ro", "allow_other"}
     pyfuse3.init(fs, mount, options)

@@ -1,7 +1,8 @@
 """Stand-ins for a Blu-ray disc, a DVD and ffprobe, built on the synthetic files."""
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from types import TracebackType
+from typing import Any, Self
 
 from bluray import DiscInfo, Title
 from builders import DvdAudioAttr, DvdCell, DvdSubAttr, Item, Stream, clpi, mpls, vmg_ifo, vts_ifo
@@ -85,6 +86,13 @@ class FakeDvd:
 
     def close(self) -> None:
         self.closed = True
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, kind: type[BaseException] | None, value: BaseException | None,
+                 traceback: TracebackType | None) -> None:
+        self.close()
 
 
 # --- MKV (ffprobe output) ------------------------------------------------------

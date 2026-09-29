@@ -228,7 +228,7 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 - **The glasses do not see the share**: check that the PC and the glasses are on the same network, and the firewall (port 445/TCP). From another Linux PC: `smbclient -N -L //<pc-ip>`.
 - **The picture stutters**: check the Wi-Fi first (5 GHz, close to the router). Then the log of the last pipeline (`/tmp/bd3d-pipeline.log`, or `docker compose logs`).
 - **A new file in `MOVIES_DIR` does not appear**: folders are scanned at startup. Restart the program / the container (drives are watched continuously).
-- **After a jump the picture freezes for a few seconds**: that is the drive moving to the new point. [OPTIONS.md](OPTIONS.md#loading-animation-after-a-jump) explains an optional loading animation, and what it costs.
+- **After a jump a loading animation plays for a few seconds, and the movie starts a little after the point you chose**: the drive is moving to the new point. [OPTIONS.md](OPTIONS.md#loading-animation-after-a-jump) explains why, and how to turn it off.
 
 Reporting a problem: include the version (`bluray3d-xr --version`; Docker: the first line of `docker compose logs`) and the program's log around it.
 
@@ -242,7 +242,7 @@ Reporting a problem: include the version (`bluray3d-xr --version`; Docker: the f
 - **Seeking.** A time goes through the EP_map (keyframe positions) and the extent table of the clip to a byte of the `.ssif`. Movies made of several clips (Tron: two) are played in sequence, and the audio timestamps of later clips are moved onto one timeline.
 - **Audio.** `src/disc_reader.py` reads the disc once: video to edge264, the chosen audio track (with its language from the playlist) to FFmpeg through a FIFO, each from its own thread. The keyframe is forwarded with the audio as a timing anchor, so audio and video start exactly together. Measured against the MKV path: 4 ms.
 - **The virtual file.** The encoder uses **constant bitrate** and the MPEG-TS muxer pads to exactly 24 Mbit/s, so byte _X_ is second _X_ / 3,000,000 of the movie. A **FUSE** file system (`src/bd3d_fs.py`) serves the files. It restarts decoding when the player jumps and pauses the pipeline when it gets too far ahead. Only one pipeline per drive runs at a time, because two would make the optical drive seek back and forth. The end of the file, which players read to get the duration, is synthetic: black and silence with the right timestamps, so the drive is not sent to the end of the disc.
-- **DVD.** `src/dvd.py` reads the disc through libdvdread (libdvdcss for CSS) and its IFO files: the main title (the longest), its cells, audio languages, video standard and aspect. Seeking uses the time map to get within a few seconds, then the navigation pack of each VOBU (~0.5 s), which holds its exact time: the restart point is known precisely. FFmpeg's own DVD reader only seeks approximately (seconds off, without knowing where it landed). `src/dvd_reader.py` streams the title from there to FFmpeg, which deinterlaces and scales it to square pixels.
+- **DVD.** `src/dvd.py` reads the disc through libdvdread (libdvdcss for CSS) and its IFO files: the titles, their cells, audio languages, video standard and aspect. It offers the movie, or the episodes of a series; titles that replay cells or jump back on the disc (fake titles of copy protections) are left out. Seeking is a binary search over the navigation packs of the cell's VOBUs (~0.5 s each), which hold their exact time: the restart point is known precisely. Damaged spots are skipped, half a second at a time. FFmpeg's own DVD reader only seeks approximately (seconds off, without knowing where it landed). `src/dvd_reader.py` streams the title from there to FFmpeg, which deinterlaces and scales it to square pixels.
 - **Drives.** Every few seconds the drive is asked whether a disc is in (no reads). On insertion it is opened as a Blu-ray, or else as a DVD, and its movie added; on eject it is removed.
 
 ## Development
@@ -256,7 +256,7 @@ Reporting a problem: include the version (`bluray3d-xr --version`; Docker: the f
 ## Limits
 
 - The last ~2.7 seconds of every movie (after the end credits) are black: the tail of the file is synthetic.
-- Discs tested: one per kind (3D: Tron: Legacy; 2D: Ready Player One; DVD: Back to the Future, PAL). Only AACS: BD+ discs (through MakeMKV), discs with unusual structures and NTSC DVDs are untested.
+- Discs tested: 3D: Tron: Legacy; 2D: Ready Player One, Cowboy Bebop (5 episodes in one title); DVD: Back to the Future (PAL), Utopia series 1 (PAL, a UK series disc with a copy protection of fake titles and a damaged spot). Only AACS: BD+ discs (through MakeMKV) and NTSC DVDs are untested.
 - Subtitles from the disc are drawn into the picture (one version per language), not selectable in the player; the 3D depth is fixed, not taken from the disc. Audio is converted to AAC stereo.
 
 ## Windows?

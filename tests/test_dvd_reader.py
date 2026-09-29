@@ -1,5 +1,8 @@
+import subprocess
+from pathlib import Path
+
 from builders import SECTOR, pack_header, ps_pack
-from dvd_reader import PackFilter, _shift, _timestamp, empty_subpicture_pack
+from dvd_reader import PackFilter, _shift, _timestamp, empty_subpicture_pack, silent_audio_pack
 
 ANCHOR = 900_000
 AC3_1, AC3_2, SUB = 0x80, 0x81, 0x21
@@ -64,3 +67,23 @@ def test_system_header_is_skipped() -> None:
     pack = ps_pack(0xE0, ANCHOR)
     with_header = pack[:14] + system_header + pack[14:-len(system_header)]
     assert PackFilter(set(), ANCHOR).keep(with_header) == with_header
+
+
+def test_silent_audio_pack_announces_the_track(tmp_path: Path) -> None:
+    """A program stream opening with video only, plus the silent frames: ffmpeg
+    finds the AC-3 and MPEG audio tracks at once."""
+    header = pack_header()
+    ac3 = silent_audio_pack(header, 0x80, ANCHOR)
+    mp2 = silent_audio_pack(header, 0x1C0, ANCHOR)
+    assert ac3 is not None and mp2 is not None
+    assert len(ac3) == SECTOR and len(mp2) == SECTOR
+    # one frame before the real audio may start: they never overlap
+    assert pts_of(ac3) == ANCHOR - 2880 and ac3[14 + 9 + 5] == 0x80
+    assert pts_of(mp2) == ANCHOR - 2160
+    assert silent_audio_pack(header, 0x88, ANCHOR) is None        # DTS: not done
+    stream = tmp_path / "title.mpg"
+    stream.write_bytes(ac3 + mp2 + ps_pack(0xE0, ANCHOR) * 3)
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=id,codec_name",
+                            "-of", "csv=p=0", str(stream)], capture_output=True, text=True,
+                           check=True).stdout
+    assert "ac3,0x80" in probe and "mp2,0x1c0" in probe

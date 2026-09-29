@@ -6,23 +6,25 @@ needed to play the main title with an exact seek.
   VIDEO_TS.IFO   titles -> title set (VTS) and title number inside it
   VTS_xx_0.IFO   the title's program chain (PGC): cells with duration and sector
                  range; audio streams and languages; video standard and aspect;
-                 time map (TMAPT, one VOBU address every few seconds);
                  VOBU address map (ADMAP, every VOBU start)
   navigation pack  first sector of every VOBU (~0.5 s): cell id and the exact
                  time elapsed in the cell, and the PTS of its first frame
 
-Seeking: the time map gets within a few seconds, then VOBU by VOBU (reading
-their navigation packs, all close to each other) to the last one starting at
-or before the requested time. Its time is exact, so the virtual file knows
-precisely where playback restarts. FFmpeg's dvdvideo demuxer only seeks
+Seeking: a binary search over the VOBUs of the cell, reading their navigation
+packs, finds the last one starting at or before the requested time. Its time
+is exact, so the virtual file knows precisely where playback restarts. "Play
+all" titles can play the same cells more than once: a navigation pack is
+matched to the occurrence being read. FFmpeg's dvdvideo demuxer only seeks
 approximately (seconds off, and it does not know where it landed).
 """
 import bisect
 import ctypes
 import ctypes.util
 import functools
+import itertools
 import os
 import threading
+import time
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Protocol, Self
@@ -30,6 +32,8 @@ from typing import Protocol, Self
 from langs import lang as to_lang
 
 SECTOR = 2048
+READ_ATTEMPTS = 4
+SLOW_FAILURE = 2.0                  # seconds
 DVD_READ_INFO_FILE, DVD_READ_TITLE_VOBS = 0, 3
 
 AUDIO_FORMATS = {0: "ac3", 2: "mp2", 3: "mp2", 4: "lpcm", 6: "dts"}
@@ -97,9 +101,27 @@ class VobFile:
         self._lock = lock
 
     def read(self, sector: int, count: int) -> bytes:
+        """The sectors; a read the drive fails at once (busy, seeking elsewhere for
+        another reader) is tried again a few times, a slow failure once, before
+        giving up (b'')."""
         buf = ctypes.create_string_buffer(count * SECTOR)
-        with self._lock:
-            n: int = _dvdread().DVDReadBlocks(self._h, sector, count, buf)
+        n = 0
+        slow_failures = 0
+        for attempt in range(READ_ATTEMPTS):
+            if attempt:
+                time.sleep(0.2 * attempt)
+            started = time.monotonic()
+            with self._lock:
+                n = _dvdread().DVDReadBlocks(self._h, sector, count, buf)
+            if n > 0:
+                break
+            # a failure after seconds: the disc spinning up again after a pause
+            # (worth one more try), or a damaged spot the drive already tried
+            # hard to read (more tries would only multiply the wait)
+            if time.monotonic() - started > SLOW_FAILURE:
+                slow_failures += 1
+                if slow_failures > 1:
+                    break
         return buf.raw[:max(0, n) * SECTOR]
 
     def close(self) -> None:
@@ -208,15 +230,16 @@ class DvdTitle:
     palette_raw: bytes = b""                     # the same 16 entries as stored in the PGC
     frame_size: str = "1024x576"   # square-pixel display size
     frame_rate: str = "25"
-    tmap_unit: int = 0
-    tmap: list[int] = field(default_factory=list[int])    # VOBU sector every tmap_unit seconds
     vobus: list[int] = field(default_factory=list[int])   # every VOBU start sector (ADMAP)
 
-    def cell_index(self, vob_id: int, cell_id: int) -> int:
-        for i, c in enumerate(self.cells):
-            if c.vob_id == vob_id and c.cell_id == cell_id:
-                return i
-        return -1
+    def cell_index(self, vob_id: int, cell_id: int, near: int | None = None) -> int:
+        """The title's cell playing that VOB cell. "Play all" titles can play the
+        same cell twice: then the one at index `near` (where we are) if it is one
+        of them, else the first."""
+        found = [i for i, c in enumerate(self.cells) if (c.vob_id, c.cell_id) == (vob_id, cell_id)]
+        if near in found:
+            return near
+        return found[0] if found else -1
 
 
 def titles(vmg: bytes) -> list[tuple[int, int, int]]:
@@ -282,11 +305,6 @@ def parse_title(vts_ifo: bytes, number: int, vts: int, ttn: int) -> DvdTitle:
                             _u16(v, position + c * 4), v[position + c * 4 + 3]))
         start += dur
 
-    tmapt = _u32(v, 0xD4) * SECTOR
-    if tmapt and pgcn <= _u16(v, tmapt):
-        m = tmapt + _u32(v, tmapt + 8 + (pgcn - 1) * 4)
-        t.tmap_unit = v[m]
-        t.tmap = [_u32(v, m + 4 + i * 4) & 0x7FFFFFFF for i in range(_u16(v, m + 2))]
     admap = _u32(v, 0xE4) * SECTOR
     t.vobus = [_u32(v, admap + 4 + i * 4) for i in range((_u32(v, admap) + 1 - 4) // 4)]
     return t
@@ -298,22 +316,53 @@ class IfoReader(Protocol):
     def ifo(self, vts: int) -> bytes: ...
 
 
-def main_title(dvd: IfoReader) -> DvdTitle:
-    """The longest title: the movie (the first title often is not)."""
+EPISODE_MIN = 20 * 60              # seconds: shorter titles are extras
+EPISODE_RATIO = 0.5                # titles at least this share of the longest: episodes
+
+
+def _forward(title: DvdTitle) -> bool:
+    """The title plays the disc from start to end, each cell once. Copy
+    protections of the 2000s-2010s (UK series discs...) add dozens of fake titles
+    that replay the same cells in a scrambled order."""
+    firsts = [c.first for c in title.cells]
+    return all(b > a for a, b in itertools.pairwise(firsts))
+
+
+def _cell_set(title: DvdTitle) -> set[tuple[int, int]]:
+    return {(c.first, c.last) for c in title.cells}
+
+
+def main_titles(dvd: IfoReader) -> list[DvdTitle]:
+    """What to offer from the disc: the movie, or the episodes of a series.
+
+    Titles that jump back on the disc or replay cells are left out (fake titles
+    of copy protections), so are the short ones (extras) and "play all" titles
+    made of others. If several of the rest are of similar length they are the
+    episodes, in title order; otherwise the longest is the movie. A disc where
+    nothing passes those tests gets its longest title, as before."""
     ifos: dict[int, bytes] = {}
-    best = None
+    parsed: list[DvdTitle] = []
     for number, vts, ttn in titles(dvd.ifo(0)):
         if vts not in ifos:
             ifos[vts] = dvd.ifo(vts)
         try:
-            t = parse_title(ifos[vts], number, vts, ttn)
+            parsed.append(parse_title(ifos[vts], number, vts, ttn))
         except (IndexError, ValueError):
             continue
-        if best is None or t.duration > best.duration:
-            best = t
-    if best is None:
+    if not parsed:
         raise OSError("no title found on the DVD")
-    return best
+    candidates: dict[frozenset[tuple[int, int]], DvdTitle] = {}
+    for t in parsed:                           # the same content twice: the first title
+        if t.duration >= EPISODE_MIN and _forward(t):
+            candidates.setdefault(frozenset(_cell_set(t)), t)
+    units = list(candidates.values())
+    units = [t for t in units                  # a "play all" contains other titles
+             if sum(1 for o in units if o is not t and _cell_set(o) <= _cell_set(t)) < 2]
+    if not units:
+        return [max(parsed, key=lambda t: t.duration)]
+    longest = max(units, key=lambda t: t.duration)
+    episodes = [t for t in units if t.duration >= EPISODE_RATIO * longest.duration]
+    return sorted(episodes, key=lambda t: t.number) if len(episodes) > 1 else [longest]
 
 
 @dataclass
@@ -321,38 +370,48 @@ class Nav:
     time: float         # seconds from the start of the title
     pts: int            # 90 kHz PTS of the VOBU's first frame
     sector: int
+    cell: int           # index of the title's cell it belongs to
 
 
-def read_nav(vobs: SectorReader, title: DvdTitle, sector: int) -> Nav | None:
-    """The navigation pack at `sector`, or None if there is none (or it is not ours)."""
+def read_nav(vobs: SectorReader, title: DvdTitle, sector: int,
+             cell: int | None = None) -> Nav | None:
+    """The navigation pack at `sector`, or None if there is none (or it is not ours).
+    `cell`: the title's cell being read, for cells the title plays more than once."""
     s = vobs.read(sector, 1)
     if len(s) < SECTOR or s[0x26:0x2A] != b"\x00\x00\x01\xbf" or s[0x2C] != 0 \
             or s[0x400:0x404] != b"\x00\x00\x01\xbf" or s[0x406] != 1:
         return None
     dsi = 0x407
-    i = title.cell_index(_u16(s, dsi + 0x18), s[dsi + 0x1B])
+    i = title.cell_index(_u16(s, dsi + 0x18), s[dsi + 0x1B], cell)
     if i < 0:
         return None
-    return Nav(title.cells[i].start + _dvd_time(s, dsi + 0x1C), _u32(s, 0x2D + 0x0C), sector)
+    return Nav(title.cells[i].start + _dvd_time(s, dsi + 0x1C), _u32(s, 0x2D + 0x0C), sector, i)
 
 
 def seek(vobs: SectorReader, title: DvdTitle, seconds: float) -> Nav:
-    """The last VOBU starting at or before `seconds`, with its exact time."""
+    """The last VOBU starting at or before `seconds`, with its exact time.
+
+    A binary search over the VOBUs of the cell (from the VOBU address map),
+    reading their navigation packs: about ten reads, and never a VOBU after the
+    time asked for. The disc's time map is not used: on some discs it does not
+    match the title's timeline."""
     seconds = max(0.0, seconds)
     ci = max(0, bisect.bisect_right([c.start for c in title.cells], seconds) - 1)
     cell = title.cells[ci]
-    sector = cell.first
-    if title.tmap_unit and title.tmap:                 # the time map gets close
-        k = int(seconds // title.tmap_unit) - 1
-        if k >= 0 and cell.first <= title.tmap[min(k, len(title.tmap) - 1)] <= cell.last:
-            sector = title.tmap[min(k, len(title.tmap) - 1)]
-    best = read_nav(vobs, title, sector) or read_nav(vobs, title, cell.first)
+    lo = bisect.bisect_left(title.vobus, cell.first)
+    best = None
+    while best is None and lo < len(title.vobus) and title.vobus[lo] <= cell.last:
+        # the cell's first VOBU; if it cannot be read (a damaged spot), the next
+        best = read_nav(vobs, title, title.vobus[lo], ci)
+        lo += 1
     if best is None:
-        raise OSError(f"no navigation pack at sector {sector}")
-    j = bisect.bisect_right(title.vobus, best.sector)  # then VOBU by VOBU
-    while j < len(title.vobus) and title.vobus[j] <= cell.last:
-        nav = read_nav(vobs, title, title.vobus[j])
-        if nav is None or nav.time > seconds:
-            break
-        best, j = nav, j + 1
+        raise OSError(f"no navigation pack in the cell at sector {cell.first}")
+    hi = bisect.bisect_right(title.vobus, cell.last) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        nav = read_nav(vobs, title, title.vobus[mid], ci)
+        if nav is not None and nav.time <= seconds:
+            best, lo = nav, mid + 1
+        else:                                  # later, or unreadable: look earlier
+            hi = mid - 1
     return best

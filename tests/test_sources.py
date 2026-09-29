@@ -268,7 +268,8 @@ def test_open_disc_falls_back_to_dvd(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     monkeypatch.setattr(sources, "_open_disc", no_bluray)
     monkeypatch.setattr(dvd, "Dvd", FakeDvd)
     (tmp_path / "BTTF").mkdir()
-    assert isinstance(open_disc(str(tmp_path / "BTTF")), DvdSource)
+    found = open_disc(str(tmp_path / "BTTF"))
+    assert len(found) == 1 and isinstance(found[0], DvdSource)
 
     def no_dvd(path: str) -> None:
         raise OSError("not a DVD")

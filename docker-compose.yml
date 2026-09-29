@@ -20,6 +20,7 @@ services:
       LIGHT: "${LIGHT:-on}"
       SUBS: "${SUBS:-all}"
       SUB_DEPTH: "${SUB_DEPTH:-8}"
+      LOADER: "${LOADER:-retrowave}"
       ENCODER: "${ENCODER:-auto}"
     # FUSE inside the container needs the device and SYS_ADMIN
     devices:

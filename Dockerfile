@@ -28,6 +28,7 @@ RUN apt-get update \
 # edge264_test finds libedge264.so.1 next to itself (rpath $ORIGIN)
 COPY --from=edge264 /edge264/edge264_test /edge264/libedge264.so.1 /usr/local/bin/
 COPY src/ /app/
+COPY loaders/ /loaders/
 COPY --from=version /version /app/version
 COPY docker/smb.conf /etc/samba/smb.conf
 COPY docker/entrypoint.sh /entrypoint.sh

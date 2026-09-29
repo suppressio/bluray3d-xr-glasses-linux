@@ -108,6 +108,8 @@ def test_decode_dvd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     s.sub = s.subs[0]
     ffmpeg = decode_command(s, 5.0, "OUT").split("|")[1]
     assert "-ifo_palette" in ffmpeg and "-f mpeg " in ffmpeg
+    # DVD titles often open with seconds without audio: ffmpeg looks further for it
+    assert "-analyzeduration 8000000 -probesize 20000000 -i -" in ffmpeg
     assert shlex.split(ffmpeg)[shlex.split(ffmpeg).index("-filter_complex") + 1] == (
         "[0:i:0x1e0]bwdif=deint=interlaced[pre];[pre][0:i:0x20]overlay=eof_action=pass[ov];"
         "[ov]scale=1024:576,setsar=1[v]")

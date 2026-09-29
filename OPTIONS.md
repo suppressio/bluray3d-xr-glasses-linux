@@ -17,7 +17,7 @@ The defaults work: you only need this page to change what the share offers (lang
 | [Subtitle languages](#subtitles) | `SUBS` | `--subs ita,eng`, `all` or `none` | `all` |
 | [3D subtitle depth](#subtitles) (pixels) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | [Lower-bitrate copies in `Light/`](#network-and-quality) | `LIGHT=on\|off` | `--light` / `--no-light` | on |
-| [Animation after a jump](#loading-animation-after-a-jump) | — | `--loader video.mp4` or `none` | `none` |
+| [Animation after a jump](#loading-animation-after-a-jump) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
 | Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
 | Mount point | — | `--mount` | `/srv/bd3d` |
 | Pipeline log | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
@@ -89,11 +89,18 @@ If playback **pauses every few seconds**, the Wi-Fi cannot keep up with that bit
 
 After a jump with the seek bar the movie needs a few seconds (the drive moves, then decoding starts). Meanwhile the player shows the last picture, frozen, and its clock stands still: it looks stuck, but the movie then starts **exactly where you jumped**.
 
-With `--loader spinner.mp4` the file carries that video, in a loop, from the landing point until the movie is ready:
+So by default the file carries a loading animation, in a loop, from the landing point until the movie is ready: a neon grid running to the horizon, the disc rising on it like the sun, a loading bar jumping to the beat. On 3D movies it is in 3D too.
 - you see at once that it is loading;
-- but the player's clock keeps running during the animation, and the movie starts **that many seconds later** than where you jumped (typically 4-6 s). The two things cannot go together: every second of the file is one second of the movie, and the seconds taken by the animation cannot be used again.
+- but the player's clock keeps running during the animation, and the movie starts **that many seconds later** than where you jumped: under a second on a DVD, 2-5 s on a Blu-ray from the drive. The two things cannot go together: every second of the file is one second of the movie, and the seconds taken by the animation cannot be used again.
 
-It is not shown when the player is paused (it waits for the movie's frame) nor when a file is first opened. Any short video that loops cleanly works (16:9, a second or two; 3D movies show it in both eyes). None is included yet: the default is `none`.
+It is not shown when the player is paused (it waits for the movie's frame) nor when a file is first opened.
+
+- `--loader simple` (Docker: `LOADER=simple`): a plainer one, a disc and a spinning arc, 2D.
+- `--loader none` (Docker: `LOADER=none`): no animation. The player waits on the frozen picture and the movie starts exactly where you jumped.
+- `--loader video.mp4`: your own animation, any short video that loops cleanly. 16:9: shown in both eyes on 3D movies. Side by side (3840x1080): in 3D on 3D movies, its left eye on 2D ones.
+- `--loader-3d video.mp4`: a different side-by-side video for 3D movies only.
+
+The animations shipped (`loaders/retrowave.mp4`, 1 MB, side by side; `loaders/simple.mp4`, 100 KB) are made from scratch in Blender: no images or fonts of anyone else.
 
 ## Logs
 

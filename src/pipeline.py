@@ -83,7 +83,7 @@ def decode_command(source: Source, start: float, output_args: str) -> str:
         return (
             f"{source.video_command(start)} "
             f"| ffmpeg -nostdin -v warning {sub_args} -f {source.input_format} "
-            f"-analyzeduration 2000000 -probesize 10000000 -i - "
+            f"{source.probe_args} -i - "
             f"-filter_complex {shlex.quote(graph)} -map '[v]' {source.audio_map(0)} {output_args}"
         )
     # 3D: the subtitle comes with the audio (input #1) and is drawn on both halves,

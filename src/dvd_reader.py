@@ -13,8 +13,11 @@ Usage:
     dvd_reader.py /dev/sr0 --title 1 --start 3000 --audio 0x81 | ffmpeg -f mpeg -i - ...
 """
 import argparse
+import bisect
 import contextlib
+import functools
 import os
+import subprocess
 import sys
 
 from dvd import SECTOR, Dvd, parse_title, read_nav, seek, titles
@@ -72,6 +75,43 @@ def _pes_stream(pack: bytes) -> tuple[int, int] | None:
     if sid == 0xBD:
         return pack[p + 9 + pack[p + 8]], p
     return (0x100 | sid, p) if 0xC0 <= sid <= 0xDF else None
+
+
+@functools.cache
+def _silent_frame(codec: str) -> bytes:
+    """One frame of silence in that codec (48 kHz stereo), made by ffmpeg."""
+    return subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+         "-c:a", codec, "-b:a", "192k", "-frames:a", "1", "-f", codec, "-"],
+        capture_output=True, check=True).stdout
+
+
+def silent_audio_pack(pack_header: bytes, stream: int, pts: int) -> bytes | None:
+    """A 2048-byte pack with one frame of silence of audio stream `stream`,
+    ending at `pts` (where the real audio can start); None for the formats this
+    is not done for (DTS, LPCM).
+
+    Like the subpictures: ffmpeg only creates the audio track when it meets a
+    packet of it, and titles often open with seconds of logos and warnings
+    without audio. The track then did not exist and the pipeline did not start."""
+    if 0x80 <= stream <= 0x87:                       # AC-3 in private stream 1
+        # substream id, 1 frame, the first frame starts at offset 1
+        payload = bytes([stream, 0x01, 0x00, 0x01]) + _silent_frame("ac3")
+        stream_id, duration = 0xBD, 1536 * 90_000 // 48_000
+    elif 0x1C0 <= stream <= 0x1DF:                   # MPEG audio
+        payload, stream_id = _silent_frame("mp2"), stream & 0xFF
+        duration = 1152 * 90_000 // 48_000
+    else:
+        return None
+    # just before the real audio, so the two never overlap (ffmpeg would see
+    # timestamps going backwards)
+    pts = (pts - duration) % (1 << 33)
+    ts = bytes([0x21 | ((pts >> 29) & 0x0E), (pts >> 22) & 0xFF, ((pts >> 14) & 0xFE) | 1,
+                (pts >> 7) & 0xFF, ((pts << 1) & 0xFE) | 1])
+    body = bytes([0x81, 0x80, 0x05]) + ts + payload
+    pes = b"\x00\x00\x01" + bytes([stream_id]) + len(body).to_bytes(2, "big") + body
+    pad = SECTOR - len(pack_header) - len(pes) - 6
+    return pack_header + pes + b"\x00\x00\x01\xbe" + pad.to_bytes(2, "big") + b"\xff" * pad
 
 
 class PackFilter:
@@ -132,7 +172,7 @@ def main() -> None:
                          f"(sector {nav.sector})\n")
         filt = PackFilter({int(a, 0) for a in audio}, nav.pts, sub)
         announced = False
-        first = next(i for i, c in enumerate(title.cells) if c.first <= nav.sector <= c.last)
+        first = nav.cell
         try:
             for i in range(first, len(title.cells)):
                 cell = title.cells[i]
@@ -140,7 +180,7 @@ def main() -> None:
                 if i != first:
                     # timestamps should go on from where the previous cell left
                     # them; some discs restart them at a new VOB: move them back
-                    cn = read_nav(vobs, title, cell.first)
+                    cn = read_nav(vobs, title, cell.first, i)
                     if cn is not None:
                         expected = nav.pts + round((cn.time - nav.time) * 90000)
                         delta = (expected - cn.pts) % (1 << 33)
@@ -150,14 +190,25 @@ def main() -> None:
                     count = min(CHUNK, cell.last - sector + 1)
                     data = vobs.read(sector, count)
                     if not data:
-                        break
+                        # a damaged spot of the disc: go on from the first VOBU
+                        # after it (half a second each) instead of losing the cell
+                        j = bisect.bisect_left(title.vobus, sector + count)
+                        if j >= len(title.vobus) or title.vobus[j] > cell.last:
+                            break
+                        sys.stderr.write(f"dvd_reader: sectors {sector}-{sector + count - 1} "
+                                         f"unreadable, going on from {title.vobus[j]}\n")
+                        sector = title.vobus[j]
+                        continue
                     kept = bytearray()
                     for o in range(0, len(data), SECTOR):
                         pack = filt.keep(data[o:o + SECTOR])
                         if pack is not None:
-                            if sub is not None and not announced:
-                                kept += empty_subpicture_pack(bytes(pack[:14 + (pack[13] & 7)]),
-                                                              sub, nav.pts)
+                            if not announced:
+                                header = bytes(pack[:14 + (pack[13] & 7)])
+                                if sub is not None:
+                                    kept += empty_subpicture_pack(header, sub, nav.pts)
+                                for stream in sorted(filt.audio):
+                                    kept += silent_audio_pack(header, stream, nav.pts) or b""
                                 announced = True
                             kept += pack
                     if kept:

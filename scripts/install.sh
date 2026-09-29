@@ -60,6 +60,7 @@ fi
 step "3/5 Program"
 sudo install -d "$PREFIX/app"
 sudo install -m 644 "$REPO_DIR"/src/*.py "$PREFIX/app/"
+sudo install -D -m 644 -t "$PREFIX/loaders" "$REPO_DIR"/loaders/*.mp4
 # the release (git tag) installed, e.g. v1.0.0; shown by bluray3d-xr --version
 version=$(git -C "$REPO_DIR" describe --tags --always 2>/dev/null || echo unknown)
 echo "$version" | sudo tee "$PREFIX/app/version" >/dev/null

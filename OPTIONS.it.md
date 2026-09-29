@@ -17,7 +17,7 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 | [Lingue dei sottotitoli](#sottotitoli) | `SUBS` | `--subs ita,eng`, `all` oppure `none` | `all` |
 | [Profondità dei sottotitoli 3D](#sottotitoli) (pixel) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | [Copie a bitrate ridotto in `Light/`](#rete-e-qualità) | `LIGHT=on\|off` | `--light` / `--no-light` | attive |
-| [Animazione dopo un salto](#animazione-di-caricamento-dopo-un-salto) | — | `--loader video.mp4` oppure `none` | `none` |
+| [Animazione dopo un salto](#animazione-di-caricamento-dopo-un-salto) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
 | Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |
 | Log della pipeline | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
@@ -89,11 +89,18 @@ Se la riproduzione **si ferma ogni pochi secondi**, il Wi-Fi non regge quel bitr
 
 Dopo un salto con la barra il film ha bisogno di qualche secondo (il lettore si sposta, poi parte la decodifica). Nel frattempo il player mostra l'ultima immagine, ferma, e il suo contatore non avanza: sembra bloccato, ma poi il film riparte **esattamente dove hai saltato**.
 
-Con `--loader spinner.mp4` il file contiene quel video, in loop, dal punto di arrivo finché il film non è pronto:
+Per questo il file, di default, contiene un'animazione di caricamento, in loop, dal punto di arrivo finché il film non è pronto: una griglia al neon che corre verso l'orizzonte, il disco che sorge come il sole, una barra di caricamento che salta a ritmo. Nei film 3D è in 3D anche lei.
 - vedi subito che sta caricando;
-- però durante l'animazione il contatore del player continua ad avanzare, e il film riparte **altrettanti secondi dopo** il punto in cui hai saltato (di solito 4-6 s). Le due cose non possono stare insieme: ogni secondo del file è un secondo del film, e i secondi occupati dall'animazione non si possono riusare.
+- però durante l'animazione il contatore del player continua ad avanzare, e il film riparte **altrettanti secondi dopo** il punto in cui hai saltato: meno di un secondo su un DVD, 2-5 s su un Blu-ray dal lettore. Le due cose non possono stare insieme: ogni secondo del file è un secondo del film, e i secondi occupati dall'animazione non si possono riusare.
 
-Non compare quando il player è in pausa (aspetta il fotogramma del film) né alla prima apertura di un file. Va bene qualsiasi video breve che si ripete senza scatti (16:9, un secondo o due; nei film 3D compare in entrambi gli occhi). Per ora non ne è incluso nessuno: il predefinito è `none`.
+Non compare quando il player è in pausa (aspetta il fotogramma del film) né alla prima apertura di un file.
+
+- `--loader simple` (Docker: `LOADER=simple`): una più sobria, un disco e un arco che gira, in 2D.
+- `--loader none` (Docker: `LOADER=none`): niente animazione. Il player aspetta sull'immagine ferma e il film riparte esattamente dove hai saltato.
+- `--loader video.mp4`: un'animazione tua, qualsiasi video breve che si ripete senza scatti. In 16:9: nei film 3D compare in entrambi gli occhi. Affiancato (3840x1080): in 3D nei film 3D, il suo occhio sinistro in quelli 2D.
+- `--loader-3d video.mp4`: un altro video affiancato, solo per i film 3D.
+
+Le animazioni incluse (`loaders/retrowave.mp4`, 1 MB, affiancata; `loaders/simple.mp4`, 100 KB) sono fatte da zero in Blender: niente immagini o font di altri.
 
 ## Log
 

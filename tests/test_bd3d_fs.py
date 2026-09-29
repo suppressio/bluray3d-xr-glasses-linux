@@ -94,7 +94,7 @@ def fake_decode(source: Source, start: float, output_args: str) -> str:
 
 
 def fake_filler(vf: VirtualFile, video_input: str, t0: float, duration: float | None = None,
-                extra: str = "") -> str:
+                extra: str = "", *, sbs: bool = False) -> str:
     return producer(t0, b"L")
 
 
@@ -489,11 +489,11 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
     opened = iter([OSError("cannot decrypt"), DiscSource(str(tmp_path / "d"))])
 
-    def open_disc(device: str, langs: list[str] | None) -> Source:
+    def open_disc(device: str, langs: list[str] | None) -> list[Source]:
         item = next(opened)
         if isinstance(item, Exception):
             raise item
-        return item
+        return [item]
 
     class Lib:
         def add(self, source: Source) -> list[FileEntry]:
@@ -526,3 +526,22 @@ def test_program_version(tmp_path: Path) -> None:
     assert bd3d_fs.program_version(empty) == "unknown"          # no file, not a git clone
     # from a clone: whatever git describe says (a tag, or the commit before any tag)
     assert bd3d_fs.program_version().strip()
+
+
+def test_a_failing_read_does_not_stop_the_program(tmp_path: Path,
+                                                   caplog: pytest.LogCaptureFixture) -> None:
+    fs, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    lib.add(DiscSource(str(tmp_path / "d")))
+    movie = movies(fs)[0]
+
+    def broken(offset: int, size: int) -> bytes:
+        raise OSError("no navigation pack at sector 35546")
+
+    movie.read = broken  # type: ignore[method-assign]
+
+    async def read() -> None:
+        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+            await fs.read(movie.inode, 0, 10)
+
+    trio.run(read)
+    assert "read at 0 failed" in caplog.text and "navigation pack" in caplog.text
