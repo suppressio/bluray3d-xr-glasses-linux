@@ -106,4 +106,4 @@ Le animazioni incluse (`loaders/retrowave.mp4`, 1 MB, affiancata; `loaders/simpl
 
 - Il log del programma (nel terminale, oppure `docker compose logs`) dice quali film compaiono, da dove parte ogni pipeline e se la rete regge.
 - `--log-file` è l'output di FFmpeg e dei decoder dell'ultima pipeline: il primo posto dove guardare se l'immagine è sbagliata.
-- `--debug` registra anche ogni salto e le letture del player nei 20 secondi successivi: quanto ha aspettato e se sembrava in pausa.
+- `--debug` registra anche ogni salto e le letture del player nei 20 secondi successivi: quanto ha aspettato e se sembrava in pausa. Anche il comando completo di ogni pipeline, per rilanciarlo a mano ([DEVELOPMENT.it.md](DEVELOPMENT.it.md#smontare-una-pipeline)).

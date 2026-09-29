@@ -189,6 +189,7 @@ class Generator:
                      vf.path, start, seconds, self.base)
             if with_loader:
                 self.loader = Generator(vf, seconds, loader=True)
+        log.debug("  %s", cmd)
         with Path(vf.log_path).open("w") as stderr:
             self.proc = subprocess.Popen(
                 ["bash", "-o", "pipefail", "-c", cmd],

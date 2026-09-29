@@ -106,4 +106,4 @@ The animations shipped (`loaders/retrowave.mp4`, 1 MB, side by side; `loaders/si
 
 - The program's log (terminal, or `docker compose logs`) says which movies appear, which pipeline starts where, and whether the network keeps up.
 - `--log-file` is FFmpeg's and the decoders' output for the last pipeline: the first place to look when the picture is wrong.
-- `--debug` also logs every jump and the player's reads in the 20 seconds after it: how long it waited, and whether it looked paused.
+- `--debug` also logs every jump and the player's reads in the 20 seconds after it: how long it waited, and whether it looked paused. Also the full command of each pipeline, to run it by hand ([DEVELOPMENT.md](DEVELOPMENT.md#taking-a-pipeline-apart)).
