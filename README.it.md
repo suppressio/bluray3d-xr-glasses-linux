@@ -141,6 +141,20 @@ sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
 ```console
 bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
+Quando inserisci un disco compaiono i suoi file; ogni riga `pipeline from` è il player che parte o salta:
+```
+11:23:59 bluray3d-xr v1.0.0
+11:24:00 video encoder: nvenc
+11:24:00 watching /dev/sr0: insert a Blu-ray
+11:24:00 mounted on /srv/bd3d — Ctrl+C to unmount
+11:24:00 /dev/sr0: disc inserted, opening it
+11:24:00 + Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, forced subtitles ita)
+11:24:00 + Blu-ray 3D/ITAsubITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, subtitles ita)
+11:24:00 + Blu-ray 3D/ENG - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1100 eng dts-hd ma, forced subtitles eng)
+...
+11:30:24 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 0.0s (requested 0.0s, offset 0)
+11:30:35 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 1634.8s (requested 1635.3s, offset 2043548532)
+```
 Si ferma con `Ctrl+C`. Per aggiornare all'ultima versione: `./scripts/update.sh`. Per togliere tutto: `./scripts/uninstall.sh`.
 
 Lo script è provato con lettore e disco veri in container puliti Debian 13 (trixie) e Ubuntu 24.04; il programma gira ogni giorno su Debian testing.
@@ -208,7 +222,7 @@ Per segnalare un problema: indica la versione (`bluray3d-xr --version`; con Dock
 
 ---
 
-## Come funziona (per i curiosi)
+## Come funziona
 
 - **Lettura del disco.** libbluray legge il disco (o l'ISO/BDMV) e lo decifra tramite libaacs o la libmmbd di MakeMKV (`src/bluray.py`, un piccolo binding ctypes). Il film è la playlist più lunga le cui clip hanno tutte una vista dipendente MVC (`src/bdmv.py` legge playlist e informazioni delle clip).
 - **Le due viste.** Il file `.ssif` di una clip 3D alterna la vista base (PID 0x1011) e quella dipendente (0x1012) a blocchi (extent). `src/ssif_demux.py` accoppia i due pacchetti PES di ogni fotogramma in base al DTS e li scrive in Annex B per edge264. Toglie le unità NAL di separazione, di riempimento e di fine sequenza dei Blu-ray, come fa MakeMKV. Le libbluray più vecchie della 1.4 non aprono i file `.ssif`, quindi gli stessi byte vengono ricostruiti dai due file `.m2ts`.

@@ -141,6 +141,20 @@ sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
 ```console
 bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
+When a disc goes in, its files appear; every `pipeline from` line is the player starting or jumping:
+```
+11:23:59 bluray3d-xr v1.0.0
+11:24:00 video encoder: nvenc
+11:24:00 watching /dev/sr0: insert a Blu-ray
+11:24:00 mounted on /srv/bd3d — Ctrl+C to unmount
+11:24:00 /dev/sr0: disc inserted, opening it
+11:24:00 + Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, forced subtitles ita)
+11:24:00 + Blu-ray 3D/ITAsubITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, subtitles ita)
+11:24:00 + Blu-ray 3D/ENG - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1100 eng dts-hd ma, forced subtitles eng)
+...
+11:30:24 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 0.0s (requested 0.0s, offset 0)
+11:30:35 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 1634.8s (requested 1635.3s, offset 2043548532)
+```
 Stop it with `Ctrl+C`. To update to the latest version: `./scripts/update.sh`. To remove everything: `./scripts/uninstall.sh`.
 
 The script is tested with the real drive and disc in clean Debian 13 (trixie) and Ubuntu 24.04 containers; the program itself runs daily on Debian testing.
@@ -208,7 +222,7 @@ Reporting a problem: include the version (`bluray3d-xr --version`; Docker: the f
 
 ---
 
-## How it works (for the curious)
+## How it works
 
 - **Reading the disc.** libbluray reads the disc (or ISO/BDMV) and decrypts it through libaacs or MakeMKV's libmmbd (`src/bluray.py`, a small ctypes binding). The movie is the longest playlist whose clips all have an MVC dependent view (`src/bdmv.py` reads playlists and clip info).
 - **Both views.** The `.ssif` file of a 3D clip interleaves base (PID 0x1011) and dependent (0x1012) view in extents. `src/ssif_demux.py` pairs the two PES packets of each frame on their DTS and writes them as Annex B for edge264. It drops the Blu-ray delimiter, filler and end-of-sequence NAL units, as MakeMKV does. libbluray older than 1.4 cannot open `.ssif` files, so the same bytes are rebuilt from the two `.m2ts` files.
