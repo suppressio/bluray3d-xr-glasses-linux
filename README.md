@@ -247,16 +247,14 @@ Reporting a problem: include the version (`bluray3d-xr --version`; Docker: the f
 
 ## Development
 
-- `scripts/check.sh` runs what GitHub runs on every push: ruff, pyright (strict), shellcheck and the unit tests. These need no disc: they build MPLS, CLPI and IFO files and TS streams of their own. The first run creates `.venv` with the pinned tools (`requirements-dev.txt`).
-- `scripts/check.sh --integration` also tests the disc in the drive (`BD3D_TEST_DRIVE`, default `/dev/sr0`) or a 3D MKV (`BD3D_TEST_MKV=...`). The first run records a reference for each disc (hashes only, in `~/.cache/bluray3d-xr/`); later runs must match it byte for byte.
-- VS Code: open the folder and pick `.venv` as the interpreter. `.vscode/` turns Pylint off: the checks are the ones in `pyproject.toml`.
+Running it from a clone, where things are in the code, the tests and the logs: [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ---
 
 ## Limits
 
 - The last ~2.7 seconds of every movie (after the end credits) are black: the tail of the file is synthetic.
-- Discs tested: 3D: Tron: Legacy; 2D: Ready Player One, Cowboy Bebop (5 episodes in one title); DVD: Back to the Future (PAL), Utopia series 1 (PAL, a UK series disc with a copy protection of fake titles and a damaged spot). Only AACS: BD+ discs (through MakeMKV) and NTSC DVDs are untested.
+- Discs tested: 3D: Tron: Legacy, Mad Max: Fury Road; 2D: Ready Player One, Cowboy Bebop (5 episodes in one title); DVD: Back to the Future (PAL), Utopia series 1 (PAL, a UK series disc with a copy protection of fake titles and a damaged spot). Only AACS: BD+ discs (through MakeMKV) and NTSC DVDs are untested.
 - Subtitles from the disc are drawn into the picture (one version per language), not selectable in the player; the 3D depth is fixed, not taken from the disc. Audio is converted to AAC stereo.
 
 ## Windows?

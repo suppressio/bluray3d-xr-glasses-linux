@@ -247,16 +247,14 @@ Per segnalare un problema: indica la versione (`bluray3d-xr --version`; con Dock
 
 ## Sviluppo
 
-- `scripts/check.sh` esegue quello che GitHub esegue a ogni push: ruff, pyright (modalità stretta), shellcheck e gli unit test. Non serve un disco: i test si costruiscono da soli file MPLS, CLPI, IFO e flussi TS. Al primo avvio crea `.venv` con gli strumenti alle versioni fissate (`requirements-dev.txt`).
-- `scripts/check.sh --integration` prova anche il disco nel lettore (`BD3D_TEST_DRIVE`, predefinito `/dev/sr0`) o un MKV 3D (`BD3D_TEST_MKV=...`). La prima volta registra un riferimento per ogni disco (solo impronte, in `~/.cache/bluray3d-xr/`); le volte successive il risultato deve coincidere byte per byte.
-- VS Code: apri la cartella e scegli `.venv` come interprete. `.vscode/` spegne Pylint: i controlli sono quelli di `pyproject.toml`.
+Avviarlo da un clone, dove stanno le cose nel codice, i test e i log: [DEVELOPMENT.it.md](DEVELOPMENT.it.md).
 
 ---
 
 ## Limiti
 
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
-- Dischi provati: 3D: Tron: Legacy; 2D: Ready Player One, Cowboy Bebop (5 episodi in un solo titolo); DVD: Ritorno al futuro (PAL), Utopia stagione 1 (PAL, un disco di una serie inglese con una protezione a titoli finti e un punto rovinato). Solo AACS: i dischi con BD+ (tramite MakeMKV) e i DVD NTSC non sono provati.
+- Dischi provati: 3D: Tron: Legacy, Mad Max: Fury Road; 2D: Ready Player One, Cowboy Bebop (5 episodi in un solo titolo); DVD: Ritorno al futuro (PAL), Utopia stagione 1 (PAL, un disco di una serie inglese con una protezione a titoli finti e un punto rovinato). Solo AACS: i dischi con BD+ (tramite MakeMKV) e i DVD NTSC non sono provati.
 - I sottotitoli del disco sono disegnati nell'immagine (una versione per lingua), non si scelgono dal player; la profondità 3D è fissa, non presa dal disco. L'audio è convertito in AAC stereo.
 
 ## E Windows?
