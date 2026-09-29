@@ -40,8 +40,7 @@ Prossimi passi, in quest'ordine:
   potrebbero richiedere lavoro.
 - [ ] **DLNA in alternativa a Samba.** Gli stessi file virtuali serviti via
   HTTP e annunciati con DLNA/UPnP, per i player che sfogliano un media server
-  invece di aprire una condivisione (il lettore video del Pico, le TV, Moon VR,
-  Kodi...). Un'opzione all'avvio: Samba, DLNA o entrambi. Si innesta bene su
+  invece di aprire una condivisione (le TV, Moon VR, Kodi...). Un'opzione all'avvio: Samba, DLNA o entrambi. Si innesta bene su
   com'è fatto: il file ha un bitrate costante, quindi una richiesta HTTP di un
   intervallo di byte equivale a una lettura del file FUSE, e il seek continua a
   funzionare. Con il solo DLNA non servono né FUSE né Samba.

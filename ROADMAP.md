@@ -39,7 +39,7 @@ Next steps, in this order:
   DVDs may need work.
 - [ ] **DLNA as an alternative to Samba.** The same virtual files served over
   HTTP and announced with DLNA/UPnP, for players that browse a media server
-  instead of opening a share (Pico's own video player, TVs, Moon VR, Kodi...).
+  instead of opening a share (TVs, Moon VR, Kodi...).
   An option at start: Samba, DLNA or both. It fits the design as is: the file
   has a constant bitrate, so an HTTP range request is the same as a read of the
   FUSE file, and seeking keeps working. With DLNA alone neither FUSE nor Samba

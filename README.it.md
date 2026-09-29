@@ -3,7 +3,7 @@
 # Blu-ray e DVD su ogni schermo di casa, 3D compreso, da Linux
 #### _Metti un disco nel lettore del PC Linux e guardalo su qualunque dispositivo di casa: TV, tablet, telefono, occhiali XR. Il PC legge, decifra e decodifica il disco al volo e lo serve in rete locale come un normale file video. I Blu-ray 3D diventano 3D affiancato vero per gli occhiali XR (VITURE & co.). Niente rip, niente conversione, niente spazio su disco._
 
-***Nota:*** _Provato con VITURE Pro XR + VITURE Pro Neckband e il suo **3D Player** ufficiale, e con VLC su un visore Pico. Qualsiasi player capace di aprire video da una cartella di rete (SMB), come VLC o Kodi, dovrebbe funzionare allo stesso modo; per il 3D deve anche mostrare il video affiancato. I dischi provati finora sono in [Limiti](#limiti)._
+***Nota:*** _Qualsiasi player capace di aprire video da una cartella di rete (SMB) dovrebbe funzionare; per il 3D deve anche mostrare il video affiancato. Dispositivi, player e dischi provati finora, con una guida per ciascuno: [**TESTED.it.md**](TESTED.it.md)._
 
 ![Il 3D Player VITURE apre la cartella condivisa: un file per lingua audio, con e senza sottotitoli italiani](docs/viture-3d-player.png)
 
@@ -31,7 +31,7 @@ Blu-ray 3D nel lettore (oppure un ISO / una cartella BDMV / un rip MKV)
    "ITA - film - 3D SBS.ts"  file virtuale in una cartella condivisa SMB (su disco non esiste)
         │   Wi-Fi
         ▼
-   Occhiali: 3D Player ► Rete locale ► Disks ► film   → 3D automatico, pausa, seek
+   Occhiali / visore: player ► cartella di rete ► Disks ► film   → 3D, pausa, seek
 ```
 
 - **Inserisci il disco, compare il film.** Circa 15 secondi dopo la chiusura dello sportello il file compare nella cartella condivisa, con il nome del disco; togli il disco e sparisce.
@@ -49,7 +49,7 @@ Tutte le procedure descritte sono un compromesso ragionato tra il "manuale" e il
 - **Un lettore Blu-ray** nel PC Linux (interno o USB), che legge anche i DVD. Di solito si chiama `/dev/sr0`; se ce n'è più di uno, `lsblk -d -o NAME,MODEL | grep sr` dice qual è quale.
 - **Un PC Linux** sulla stessa rete degli occhiali. Decodificare l'MVC è lavoro per la CPU: basta una CPU desktop recente con più core (sul PC di prova la decodifica va a circa 9 volte il tempo reale). CPU a basso consumo non sono state provate.
 - **Facoltativa: una GPU NVIDIA**, per codificare con NVENC. Senza, il video viene codificato dalla CPU con x264 (sulla stessa CPU comunque circa 6 volte il tempo reale).
-- **Occhiali XR + un player** che apra video da una cartella di rete SMB e riproduca il 3D SBS. Provato: VITURE Pro XR + Pro Neckband, 3D Player ufficiale.
+- **Occhiali XR + un player** che apra video da una cartella di rete SMB e riproduca il 3D SBS ([quelli provati](TESTED.it.md)).
 - **RAM**: circa 0,5 GB liberi mentre guardi un film. Su disco non si scrive nulla: la pipeline prepara in memoria fino a circa 256 MB in anticipo sul player e ne tiene circa 190 già letti per i piccoli salti indietro, più 16 MB (inizio e fine) per ogni file aperto.
 - **Un buon Wi-Fi** (consigliati i 5 GHz): 15 Mbit/s per il 2D, 24 Mbit/s per il 3D, meno con le copie in `Light/` (vedi [Rete e qualità](OPTIONS.it.md#rete-e-qualità)).
 
@@ -175,9 +175,8 @@ Poi cancella la cartella del progetto.
 
 ## Passo 2 — Guardarlo sugli occhiali
 
-##### Dal Neckband VITURE:
-- [ ] Apri il **3D Player**, vai nella scheda **Rete locale** e aggiungi il PC: il suo indirizzo IP (sul PC lo trovi con `hostname -I`), accesso ospite / anonimo.
 - [ ] Inserisci il disco nel PC e aspetta circa 15 secondi.
+- [ ] Sugli occhiali, sul visore o sulla TV apri la cartella di rete del PC: molti player la trovano da soli sotto "rete locale", altrimenti aggiungi il suo indirizzo IP (sul PC lo trovi con `hostname -I`), accesso ospite / anonimo.
 - [ ] Apri la cartella **Disks** (se sembra vuota, torna indietro e rientra). I dischi 3D sono in `Blu-ray 3D/` come `ITA - <film> - 3D SBS.ts`, quelli normali in `Blu-ray/` come `ITA - <film>.ts`: un file per ogni lingua audio, più le versioni con i sottotitoli (`ITAsubENG - ...`: audio italiano, sottotitoli inglesi). In `Light/` ci sono gli stessi film a un bitrate più basso, per il Wi-Fi debole.
 
 ```
@@ -194,18 +193,11 @@ Disks/
     ├── ITA - Back To The Future.ts
     └── Light/ ...
 ```
-- [ ] Aprilo. Il player riconosce il formato affiancato e passa in 3D da solo. 🎉
-
-![La riproduzione nel 3D Player VITURE: 3D attivo, barra di avanzamento, nome del file](docs/viture-3d-playback.png)
+- [ ] Aprilo. I file 3D sono affiancati a piena risoluzione (3840×1080, un'immagine 1920×1080 intera per occhio): se il player non passa in 3D da solo, scegli la sua modalità 3D affiancata (SBS). 🎉
 
 La prima apertura e ogni salto con la barra richiedono qualche secondo: è il lettore che si sposta nel nuovo punto.
 
-
-##### Altri occhiali e altri player
-Qualsiasi cosa apra video da una cartella SMB e mostri il 3D SBS dovrebbe andare. Qualche nota dalle mie prove sul Neckband:
-- **VLC** lo riproduce, ma bisogna uscire dall'interfaccia SpaceWalker e passare alla modalità Android, avviare il video e _solo dopo_ mettere gli occhiali in modalità 3D. Funziona ma è scomodo, e a volte gli occhiali sono rimasti bloccati in modalità 3D (ho dovuto staccare il cavo).
-- **XPlayer2** sul mio Neckband non ha funzionato, con nessun video.
-- Il **3D Player non apre un rip MKV di un Blu-ray 3D**: non parte proprio.
+Passo passo per il 3D Player VITURE, il lettore di sistema del PICO 4 e VLC, e cosa sa fare o no ciascuno: [**TESTED.it.md**](TESTED.it.md).
 
 ---
 
@@ -254,7 +246,7 @@ Avviarlo da un clone, dove stanno le cose nel codice, i test e i log: [DEVELOPME
 ## Limiti
 
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
-- Dischi provati: 3D: Tron: Legacy, Mad Max: Fury Road; 2D: Ready Player One, Cowboy Bebop (5 episodi in un solo titolo); DVD: Ritorno al futuro (PAL), Utopia stagione 1 (PAL, un disco di una serie inglese con una protezione a titoli finti e un punto rovinato). Solo AACS: i dischi con BD+ (tramite MakeMKV) e i DVD NTSC non sono provati.
+- Provato su pochi dischi ([TESTED.it.md](TESTED.it.md#dischi)), tutti solo AACS: i dischi con BD+ (tramite MakeMKV) e i DVD NTSC non sono provati.
 - I sottotitoli del disco sono disegnati nell'immagine (una versione per lingua), non si scelgono dal player; la profondità 3D è fissa, non presa dal disco. L'audio è convertito in AAC stereo.
 
 ## E Windows?

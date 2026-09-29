@@ -3,7 +3,7 @@
 # Blu-rays and DVDs on every screen at home, 3D included, from Linux
 #### _Put a disc in your Linux PC's drive and watch it on any device at home: TV, tablet, phone, XR glasses. The PC reads, decrypts and decodes the disc on the fly and serves it over the LAN as an ordinary video file. 3D Blu-rays become real side-by-side 3D for XR glasses (VITURE & co.). No rip, no conversion, no disk space._
 
-***Note:*** _Tested with a VITURE Pro XR + VITURE Pro Neckband and its official **3D Player**, and with VLC on a Pico headset. Any player able to open videos from a network share (SMB), such as VLC or Kodi, should work the same way; for 3D it must also show side-by-side video. Discs tested so far: see [Limits](#limits)._
+***Note:*** _Any player able to open videos from a network share (SMB) should work; for 3D it must also show side-by-side video. Devices, players and discs tested so far, with a guide for each: [**TESTED.md**](TESTED.md)._
 
 ![The VITURE 3D Player opening the share: one file per audio language, with and without Italian subtitles](docs/viture-3d-player.png)
 
@@ -31,7 +31,7 @@ The PC reads the disc and decodes the MVC **while you watch**, and serves the re
    "ITA - movie - 3D SBS.ts"  a virtual file in an SMB share (it does not exist on disk)
         │   Wi-Fi
         ▼
-   Glasses: 3D Player ► Local network ► Disks ► movie   → automatic 3D, pause, seek
+   Glasses / headset: player ► network share ► Disks ► movie   → 3D, pause, seek
 ```
 
 - **Insert the disc, the movie appears.** About 15 seconds after closing the tray the file shows up in the share, named after the disc; eject the disc and it goes away.
@@ -49,7 +49,7 @@ All the procedures described here are a balanced compromise between "manual" and
 - **A Blu-ray drive** in the Linux PC (internal or USB), which reads DVDs too. Its name is usually `/dev/sr0`; with more than one drive, `lsblk -d -o NAME,MODEL | grep sr` tells which is which.
 - **A Linux PC** on the same network as the glasses. Decoding MVC is CPU work: a recent multi-core desktop CPU is plenty (on the test PC decoding runs at ~9× real time). Low-power CPUs have not been tested.
 - **Optional: an NVIDIA GPU** to encode with NVENC. Without it the video is encoded by the CPU with x264 (on the same CPU still ~6× real time).
-- **XR glasses + a player** that opens videos from an SMB network share and plays SBS 3D. Tested: VITURE Pro XR + Pro Neckband, official 3D Player.
+- **XR glasses + a player** that opens videos from an SMB network share and plays SBS 3D ([tested ones](TESTED.md)).
 - **RAM**: about 0.5 GB free while a movie plays. Nothing is written to disk: the pipeline prepares up to ~256 MB ahead of the player in memory and keeps ~190 MB behind for short jumps back, plus 16 MB (start and end) per file opened.
 - **A good Wi-Fi connection** (5 GHz recommended): 15 Mbit/s for 2D, 24 Mbit/s for 3D, less with the `Light/` copies (see [Network and quality](OPTIONS.md#network-and-quality)).
 
@@ -175,9 +175,8 @@ Then delete the project folder.
 
 ## Step 2 — Watch it on the glasses
 
-##### From your VITURE Neckband:
-- [ ] Open the **3D Player**, go to the **Local network** tab and add the PC: its IP address (`hostname -I` on the PC tells you), guest / anonymous access.
 - [ ] Insert the disc in the PC and wait about 15 seconds.
+- [ ] On the glasses, headset or TV, open the network share of the PC: many players find it by themselves under "local network", otherwise add its IP address (`hostname -I` on the PC tells you), guest / anonymous access.
 - [ ] Open the **Disks** folder (go back and in again if it looks empty). 3D discs are in `Blu-ray 3D/` as `ITA - <movie> - 3D SBS.ts`, normal ones in `Blu-ray/` as `ITA - <movie>.ts`: one file per audio language, plus versions with subtitles (`ITAsubENG - ...`: Italian audio, English subtitles). `Light/` has the same movies at a lower bitrate, for weak Wi-Fi.
 
 ```
@@ -194,18 +193,11 @@ Disks/
     ├── ITA - Back To The Future.ts
     └── Light/ ...
 ```
-- [ ] Open it. The player recognizes the side-by-side format and switches to 3D by itself. 🎉
-
-![Playback in the VITURE 3D Player: 3D on, seek bar, the file's name](docs/viture-3d-playback.png)
+- [ ] Open it. 3D files are full side by side (3840×1080, a whole 1920×1080 picture per eye): if the player does not switch to 3D by itself, choose its side-by-side (SBS) 3D mode. 🎉
 
 The first opening and every jump with the seek bar take a few seconds: that is the drive moving to the new point.
 
-
-##### Other glasses and players
-Anything that opens videos from an SMB share and shows SBS 3D should work. Some notes from my tests on the Neckband:
-- **VLC** plays it, but you must leave the SpaceWalker interface for Android mode, start the video and _only then_ switch the glasses to 3D mode. It works but it is clumsy, and sometimes the glasses stayed stuck in 3D mode (I had to unplug the cable).
-- **XPlayer2** did not work on my Neckband, with any video.
-- The **3D Player cannot open a 3D Blu-ray MKV rip**: it does not start at all.
+Step by step for the VITURE 3D Player, the PICO 4's own player and VLC, and what each one can and cannot do: [**TESTED.md**](TESTED.md).
 
 ---
 
@@ -254,7 +246,7 @@ Running it from a clone, where things are in the code, the tests and the logs: [
 ## Limits
 
 - The last ~2.7 seconds of every movie (after the end credits) are black: the tail of the file is synthetic.
-- Discs tested: 3D: Tron: Legacy, Mad Max: Fury Road; 2D: Ready Player One, Cowboy Bebop (5 episodes in one title); DVD: Back to the Future (PAL), Utopia series 1 (PAL, a UK series disc with a copy protection of fake titles and a damaged spot). Only AACS: BD+ discs (through MakeMKV) and NTSC DVDs are untested.
+- Tested on a handful of discs ([TESTED.md](TESTED.md#discs)), all AACS only: BD+ discs (through MakeMKV) and NTSC DVDs are untested.
 - Subtitles from the disc are drawn into the picture (one version per language), not selectable in the player; the 3D depth is fixed, not taken from the disc. Audio is converted to AAC stereo.
 
 ## Windows?
