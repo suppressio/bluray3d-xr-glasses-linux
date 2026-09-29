@@ -16,7 +16,7 @@ Prossimi passi, in quest'ordine:
   `Disks`. Il demuxer `dvdvideo` di FFmpeg salta solo in modo approssimativo
   (secondi di scarto, senza sapere dove è atterrato), quindi i DVD hanno un
   lettore proprio: libdvdread + lettura degli IFO, seek con i pacchetti di navigazione
-  e i pacchetti di navigazione (esatto).
+  (esatto).
 - [x] **Sottotitoli dal disco**, disegnati nell'immagine come fa un lettore da
   salotto (PGS dei Blu-ray, 2D e 3D, sottotitoli dei DVD): una versione per ogni
   lingua, quelli forzati sempre presenti. Estrarli come file esterni vorrebbe dire
@@ -38,6 +38,17 @@ Prossimi passi, in quest'ordine:
 - [ ] **Altri dischi.** Provati: Tron: Legacy 3D, Ready Player One, Cowboy Bebop,
   Ritorno al futuro PAL, Utopia PAL; dischi con BD+, più angolazioni o DVD NTSC
   potrebbero richiedere lavoro.
+- [ ] **DLNA in alternativa a Samba.** Gli stessi file virtuali serviti via
+  HTTP e annunciati con DLNA/UPnP, per i player che sfogliano un media server
+  invece di aprire una condivisione (il lettore video del Pico, le TV, Moon VR,
+  Kodi...). Un'opzione all'avvio: Samba, DLNA o entrambi. Si innesta bene su
+  com'è fatto: il file ha un bitrate costante, quindi una richiesta HTTP di un
+  intervallo di byte equivale a una lettura del file FUSE, e il seek continua a
+  funzionare. Con il solo DLNA non servono né FUSE né Samba.
+- [ ] **Windows e macOS.** Il cuore (lettura del disco, demux, seek, pipeline)
+  è già portabile; le poche parti legate a Linux vanno prima dietro un piccolo
+  strato di piattaforma, su Linux, con risultati identici nei test. Poi prove
+  con un lettore USB su un Mac e su un PC Windows.
 
 Più avanti, forse:
 - **visione di coppia**, due persone con i propri occhiali, sincronizzate: un
