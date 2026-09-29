@@ -191,12 +191,15 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ## Troubleshooting
 
 - **The movie does not appear, the log says `cannot decrypt`**: no working key for that disc. Update your `KEYDB.cfg`, or install and register MakeMKV (native path).
+- **The picture freezes for about 20 seconds after closing the program while watching**: the player waits before giving up on the file that disappeared (the program itself stops in a second). Stop the video on the glasses first, then the program.
 - **Playback pauses every few seconds**: the Wi-Fi is too slow for the file: open it from `Light/`, more in [Network and quality](OPTIONS.md#network-and-quality).
 - **Nothing happens when inserting the disc**: check that the drive really is `/dev/sr0` (`lsblk -d -o NAME,MODEL | grep sr`), that your user can read it (`ls -l /dev/sr0`, `cdrom` group), and for Docker that the device is passed to the container.
 - **The glasses do not see the share**: check that the PC and the glasses are on the same network, and the firewall (port 445/TCP). From another Linux PC: `smbclient -N -L //<pc-ip>`.
 - **The picture stutters**: check the Wi-Fi first (5 GHz, close to the router). Then the log of the last pipeline (`/tmp/bd3d-pipeline.log`, or `docker compose logs`).
 - **A new file in `MOVIES_DIR` does not appear**: folders are scanned at startup. Restart the program / the container (drives are watched continuously).
 - **After a jump the picture freezes for a few seconds**: that is the drive moving to the new point. [OPTIONS.md](OPTIONS.md#loading-animation-after-a-jump) explains an optional loading animation, and what it costs.
+
+Reporting a problem: include the version (`bluray3d-xr --version`; Docker: the first line of `docker compose logs`) and the program's log around it.
 
 ---
 

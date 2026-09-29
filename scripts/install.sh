@@ -60,7 +60,9 @@ fi
 step "3/5 Program"
 sudo install -d "$PREFIX/app"
 sudo install -m 644 "$REPO_DIR"/src/*.py "$PREFIX/app/"
-git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null | sudo tee "$PREFIX/app/version" >/dev/null || true
+# the release (git tag) installed, e.g. v1.0.0; shown by bluray3d-xr --version
+version=$(git -C "$REPO_DIR" describe --tags --always 2>/dev/null || echo unknown)
+echo "$version" | sudo tee "$PREFIX/app/version" >/dev/null
 sudo tee /usr/local/bin/bluray3d-xr >/dev/null <<WRAP
 #!/bin/sh
 PATH="$PREFIX/bin:\$PATH" exec python3 "$PREFIX/app/bd3d_fs.py" "\$@"

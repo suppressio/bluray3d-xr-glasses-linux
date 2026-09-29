@@ -81,6 +81,25 @@ TRACE_READS = 20                     # seconds of reads logged after a jump (--d
 PAUSED_AFTER = 8.0
 
 
+HERE = Path(__file__).resolve().parent
+
+
+def program_version(folder: Path = HERE) -> str:
+    """The release (git tag) of this copy: from the `version` file that install.sh,
+    update.sh and the Docker image write next to the program, or from git when it
+    runs from a clone. E.g. "v1.0.0", or "v1.0.0-3-gabc1234" three commits later."""
+    try:
+        return (folder / "version").read_text().strip() or "unknown"
+    except OSError:
+        pass
+    try:
+        described = subprocess.run(["git", "-C", str(folder), "describe", "--tags", "--always"],
+                                   capture_output=True, text=True, check=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return described.stdout.strip() or "unknown"
+
+
 # files served from the same optical disc (all languages, Light, Multi-audio):
 # only one of them may have pipelines running, or the drive seeks back and forth
 _disc_files: dict[str, weakref.WeakSet[VirtualFile]] = {}
@@ -855,6 +874,7 @@ def main() -> None:
                         help="Blu-ray drives (/dev/sr0: the movie appears when a disc is "
                              "inserted), ISO files, BDMV folders, 3D MKV rips, or folders "
                              "to scan recursively")
+    parser.add_argument("--version", action="version", version=f"bluray3d-xr {program_version()}")
     parser.add_argument("--mount", default="/srv/bd3d", help="mount point (default /srv/bd3d)")
     parser.add_argument("--audio-lang", default="all",
                         help="audio languages to offer, e.g. ita,eng, or all (default: every "
@@ -897,6 +917,7 @@ def main() -> None:
     if args.debug:
         log.setLevel(logging.DEBUG)      # ours only: pyfuse3's debug output is huge
 
+    log.info("bluray3d-xr %s", program_version())
     encoder = pick_encoder(args.encoder)
     log.info("video encoder: %s", encoder)
     audio_langs = None if audio_lang.strip().lower() in ("", "all") else lang_list(audio_lang)

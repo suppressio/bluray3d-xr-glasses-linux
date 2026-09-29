@@ -514,3 +514,15 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # 1st disc: cannot be opened, not retried while it stays in; a busy drive and
     # a single "no disc" are not an eject; two in a row are; the 2nd disc opens
     assert events == ["remove 0", "add"]
+
+
+# --- version ---------------------------------------------------------------------
+
+def test_program_version(tmp_path: Path) -> None:
+    (tmp_path / "version").write_text("v1.0.0-3-gabc1234\n")
+    assert bd3d_fs.program_version(tmp_path) == "v1.0.0-3-gabc1234"
+    empty = tmp_path / "not-installed"
+    empty.mkdir()
+    assert bd3d_fs.program_version(empty) == "unknown"          # no file, not a git clone
+    # from a clone: whatever git describe says (a tag, or the commit before any tag)
+    assert bd3d_fs.program_version().strip()

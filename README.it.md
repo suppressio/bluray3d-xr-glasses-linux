@@ -191,12 +191,15 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ## Risoluzione dei problemi
 
 - **Il film non compare e il log dice `cannot decrypt`**: nessuna chiave funzionante per quel disco. Aggiorna il `KEYDB.cfg`, oppure installa e registra MakeMKV (strada nativa).
+- **Chiudendo il programma mentre guardi, l'immagine resta ferma una ventina di secondi**: è il player che aspetta prima di arrendersi, perché il file è sparito (il programma si ferma in un secondo). Ferma prima il video sugli occhiali, poi il programma.
 - **La riproduzione si ferma ogni pochi secondi**: il Wi-Fi è troppo lento per quel file: aprilo da `Light/`, altro in [Rete e qualità](OPTIONS.it.md#rete-e-qualità).
 - **Inserendo il disco non succede niente**: verifica che il lettore sia davvero `/dev/sr0` (`lsblk -d -o NAME,MODEL | grep sr`), che il tuo utente possa leggerlo (`ls -l /dev/sr0`, gruppo `cdrom`) e, con Docker, che il dispositivo sia passato al container.
 - **Gli occhiali non vedono la cartella condivisa**: verifica che PC e occhiali siano sulla stessa rete, e controlla il firewall (porta 445/TCP). Da un altro PC Linux: `smbclient -N -L //<ip-del-pc>`.
 - **L'immagine va a scatti**: controlla prima il Wi-Fi (5 GHz, vicino al router). Poi il log dell'ultima pipeline (`/tmp/bd3d-pipeline.log`, oppure `docker compose logs`).
 - **Un file nuovo in `MOVIES_DIR` non compare**: le cartelle vengono lette all'avvio. Riavvia il programma o il container (i lettori invece sono controllati di continuo).
 - **Dopo un salto l'immagine resta ferma qualche secondo**: è il lettore che si sposta nel nuovo punto. In [OPTIONS.it.md](OPTIONS.it.md#animazione-di-caricamento-dopo-un-salto) c'è un'animazione di caricamento facoltativa, con quello che costa.
+
+Per segnalare un problema: indica la versione (`bluray3d-xr --version`; con Docker la prima riga di `docker compose logs`) e il log del programma di quel momento.
 
 ---
 
