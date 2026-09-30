@@ -1,5 +1,11 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
+  - name: Ideas and requests
+    url: https://github.com/suppressio/bluray3d-xr-glasses-linux/discussions/categories/ideas
+    about: A feature you would like? Check the ROADMAP, then propose it in Discussions.
+  - name: Questions
+    url: https://github.com/suppressio/bluray3d-xr-glasses-linux/discussions/categories/q-a
+    about: How do I...? Ask in Discussions.
   - name: Devices, players and discs already tested
     url: https://github.com/suppressio/bluray3d-xr-glasses-linux/blob/main/TESTED.md
     about: Check here first how to set up your player.

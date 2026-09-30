@@ -1,0 +1,35 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome! This is a personal project, made in spare time: no promise on if or when. Check the [ROADMAP](../blob/main/ROADMAP.md) first: Windows, macOS and DLNA are already there. English or Italian are both fine.
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: The problem it would solve for you, and what you do today instead. Often the problem has a simpler answer than the feature.
+    validations:
+      required: true
+
+  - type: input
+    id: setup
+    attributes:
+      label: Your setup
+      description: Device, player, kind of discs.
+      placeholder: Meta Quest 3 + Skybox, 3D Blu-rays
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before sending
+      options:
+        - label: I checked the ROADMAP and the open ideas, it is not there yet.
+          required: true
