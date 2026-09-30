@@ -69,7 +69,7 @@ body:
     id: decryption
     attributes:
       label: Decryption
-      description: What you have set up for encrypted discs.
+      description: "Since v1.1.2 the log says it when the disc opens, e.g. `AACS, decrypted with libaacs`. Otherwise: what you have set up for encrypted discs."
       options:
         - libaacs + KEYDB.cfg
         - MakeMKV (libmmbd)

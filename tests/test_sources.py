@@ -193,6 +193,17 @@ def test_decrypt_backends(monkeypatch: pytest.MonkeyPatch) -> None:
                                               "LIBBDPLUS_PATH": "libmmbd"}
 
 
+@pytest.mark.parametrize(("protection", "env", "expected"), [
+    ("", {}, "not encrypted"),
+    ("AACS", {}, "AACS, decrypted with libaacs"),
+    ("AACS + BD+", {"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"},
+     "AACS + BD+, decrypted with MakeMKV (libmmbd)"),
+])
+def test_decrypted_with(protection: str, env: dict[str, str], expected: str) -> None:
+    info = FakeBluray(protection=protection).info()
+    assert sources._decrypted_with(info, env) == expected
+
+
 def test_open_disc_tries_every_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[str | None] = []
 

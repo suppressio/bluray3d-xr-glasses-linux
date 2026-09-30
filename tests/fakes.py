@@ -23,10 +23,11 @@ class FakeBluray:
     name: str = "Tron: Legacy - Blu-ray"
     volume_id: str = "TRON_LEGACY_3D"
     decrypted: bool = True
+    protection: str = "AACS"
     closed: bool = False
 
     def info(self) -> DiscInfo:
-        return DiscInfo(self.name, self.volume_id, self.three_d, self.decrypted, 0)
+        return DiscInfo(self.name, self.volume_id, self.three_d, self.decrypted, 0, self.protection)
 
     def titles(self) -> list[Title]:
         return [Title("00080", 7300.0), Title("00070", 7200.0)]

@@ -93,6 +93,7 @@ class DiscInfo:
     has_3d: bool
     decrypted: bool       # False: AACS/BD+ present and not handled by any backend
     aacs_error: int
+    protection: str = ""   # "AACS", "AACS + BD+", ... ('' = not encrypted)
 
 
 @dataclass
@@ -190,7 +191,9 @@ class Disc:
                         volume_id=(d.udf_volume_id or b"").decode("utf-8", "replace"),
                         has_3d=bool(d.content_exist_3D),
                         decrypted=bool(not encrypted or handled),
-                        aacs_error=d.aacs_error_code)
+                        aacs_error=d.aacs_error_code,
+                        protection=" + ".join(p for p, on in (("AACS", d.aacs_detected),
+                                                              ("BD+", d.bdplus_detected)) if on))
 
     def titles(self, min_seconds: int = 600) -> list[Title]:
         """Playlists at least min_seconds long, duplicates removed."""

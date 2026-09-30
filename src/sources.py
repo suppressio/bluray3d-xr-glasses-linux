@@ -314,6 +314,14 @@ def _decrypt_backends() -> list[dict[str, str]]:
     return envs
 
 
+def _decrypted_with(info: bluray.DiscInfo, env: dict[str, str]) -> str:
+    """For the log and problem reports: which protection, opened by which backend."""
+    if not info.protection:
+        return "not encrypted"
+    backend = "MakeMKV (libmmbd)" if env.get("LIBAACS_PATH") == "libmmbd" else "libaacs"
+    return f"{info.protection}, decrypted with {backend}"
+
+
 def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]:
     """Open a disc/ISO/BDMV with the first decryption backend that works."""
     last = None
@@ -324,6 +332,7 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
             disc = bluray.Disc(path)
             info = disc.info()
             if info.decrypted:
+                log.info("%s: %s", path, _decrypted_with(info, env))
                 return disc, info, env
             last = f"cannot decrypt (AACS error {info.aacs_error})"
             disc.close()
