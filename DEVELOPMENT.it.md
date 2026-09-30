@@ -113,7 +113,7 @@ Va nel terminale e in `~/.local/state/bluray3d-xr/bluray3d-xr.log`, con la data 
 |---|---|
 | `bluray3d-xr v1.1.0` | la versione: la prima cosa da chiedere in una segnalazione |
 | `video encoder: nvenc` | NVENC o x264, scelto all'avvio |
-| `watching /dev/sr0: insert a Blu-ray` | un lettore è sorvegliato, anche se è vuoto |
+| `watching /dev/sr0: insert a disc` | un lettore è sorvegliato, anche se è vuoto |
 | `/dev/sr0: disc inserted, opening it` / `disc ejected` | il lettore ha visto entrare o uscire un disco |
 | `+ Blu-ray 3D/ITA - Film - 3D SBS.ts (120 min, 24.0 Mbit/s, audio …)` | è comparso un file: durata, bitrate e tracce |
 | `- …` | un file è sparito (espulsione) |

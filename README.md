@@ -106,7 +106,7 @@ docker compose up -d --build
 docker compose logs -f
 ```
 ```
-watching /dev/sr0: insert a Blu-ray
+watching /dev/sr0: insert a disc
 /dev/sr0: disc inserted, opening it
 + Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts)
 ```
@@ -145,7 +145,7 @@ When a disc goes in, its files appear; every `pipeline from` line is the player 
 ```
 11:23:59 bluray3d-xr v1.0.0
 11:24:00 video encoder: nvenc
-11:24:00 watching /dev/sr0: insert a Blu-ray
+11:24:00 watching /dev/sr0: insert a disc
 11:24:00 mounted on /srv/bd3d — Ctrl+C to unmount
 11:24:00 /dev/sr0: disc inserted, opening it
 11:24:00 + Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, forced subtitles ita)

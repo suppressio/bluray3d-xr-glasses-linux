@@ -1084,7 +1084,7 @@ def main() -> None:
     if not fs.files() and not drives:
         raise SystemExit("no source found")
     for device in drives:
-        log.info("watching %s: insert a Blu-ray", device)
+        log.info("watching %s: insert a disc", device)
 
     if os.path.ismount(mount):
         raise SystemExit(f"{mount} is already in use: is bluray3d-xr already running? "
