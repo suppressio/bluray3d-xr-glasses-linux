@@ -214,6 +214,7 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ## Troubleshooting
 
 - **The movie does not appear, the log says `cannot decrypt`**: no working key for that disc. Update your `KEYDB.cfg`, or install and register MakeMKV (native path).
+- **A DVD does not appear, the log says `encrypted (CSS) and libdvdcss is missing`**: install libdvdcss (see [Decryption](#decryption-bring-your-own-keys)).
 - **The picture freezes for about 20 seconds after closing the program while watching**: the player waits before giving up on the file that disappeared (the program itself stops in a second). Stop the video on the glasses first, then the program.
 - **Playback pauses every few seconds**: the log says whether the network is too slow for the file (then open it from `Light/`) or the disc cannot keep up (a scratch or a fingerprint: clean it); more in [Network and quality](OPTIONS.md#network-and-quality).
 - **Nothing happens when inserting the disc**: check that the drive really is `/dev/sr0` (`lsblk -d -o NAME,MODEL | grep sr`), that your user can read it (`ls -l /dev/sr0`, `cdrom` group), and for Docker that the device is passed to the container.

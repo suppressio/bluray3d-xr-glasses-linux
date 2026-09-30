@@ -61,8 +61,25 @@ def opener(disc: FakeBluray, env: dict[str, str] | None = None
 
 # --- DVD ---------------------------------------------------------------------
 
+def pack(scrambling: int = 0) -> bytes:
+    """A 2048-byte MPEG-2 pack whose PES has these scrambling bits (0: clear)."""
+    pes = b"\x00\x00\x01\xe0\x07\xec" + bytes([0x80 | scrambling << 4])
+    head = b"\x00\x00\x01\xba" + bytes(10) + pes      # 14-byte pack header, then the PES
+    return head + bytes(2048 - len(head))
+
+
+class FakeVobs:
+    def __init__(self, scrambled: bool) -> None:
+        self.scrambled = scrambled
+
+    def read(self, sector: int, count: int) -> bytes:
+        return pack(0b01 if self.scrambled else 0) * count
+
+
 class FakeDvd:
     """Title 1 is a short trailer (VTS 1), title 2 the movie (VTS 2)."""
+
+    scrambled = False
 
     def __init__(self, path: str = "") -> None:
         self.path, self.closed = path, False
@@ -82,8 +99,8 @@ class FakeDvd:
     def volume_id(self) -> str:
         return "BACK_TO_THE_FUTURE"
 
-    def title_vobs(self, vts: int) -> object:
-        return object()
+    def title_vobs(self, vts: int) -> "FakeVobs":
+        return FakeVobs(self.scrambled)
 
     def close(self) -> None:
         self.closed = True

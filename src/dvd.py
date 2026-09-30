@@ -26,6 +26,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import TracebackType
 from typing import Protocol, Self
 
@@ -85,6 +86,24 @@ def _dvd_time(b: bytes, o: int) -> float:
     """BCD hh:mm:ss:ff, the frame rate in the top bits of the last byte."""
     rate = {1: 25.0, 3: 30000 / 1001}.get(b[o + 3] >> 6, 25.0)
     return _bcd(b[o]) * 3600 + _bcd(b[o + 1]) * 60 + _bcd(b[o + 2]) + _bcd(b[o + 3] & 0x3F) / rate
+
+
+def scrambled(sectors: bytes) -> bool:
+    """True if a pack in these sectors is still CSS-scrambled: the PES scrambling
+    bits right after the pack header, where libdvdcss itself looks. Navigation
+    packs are never scrambled, so one scrambled pack says the title is."""
+    for i in range(0, len(sectors) - SECTOR + 1, SECTOR):
+        pack = sectors[i:i + SECTOR]
+        if pack[:4] == b"\x00\x00\x01\xba" and pack[0x14] & 0x30:
+            return True
+    return False
+
+
+def has_dvdcss() -> bool:
+    """libdvdread decrypts CSS through libdvdcss, when it finds it."""
+    return bool(ctypes.util.find_library("dvdcss")) or \
+        any(Path(d, "libdvdcss.so.2").exists()
+            for d in ("/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib"))
 
 
 class SectorReader(Protocol):

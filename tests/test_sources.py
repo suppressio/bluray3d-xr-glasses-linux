@@ -1,3 +1,4 @@
+import logging
 import os
 import shlex
 import shutil
@@ -11,7 +12,7 @@ import dvd
 import sources
 from bdmv import AudioStream
 from bluray import Title
-from fakes import FakeBluray, FakeDvd, mkv_probe, opener
+from fakes import FakeBluray, FakeDvd, mkv_probe, opener, pack
 from sources import (
     BlurayDiscSource,
     DvdSource,
@@ -254,6 +255,29 @@ def test_dvd_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     assert s.audio_map() == ("-map 0:i:0x80 -metadata:s:a:0 language=ita "
                              "-map 0:i:0x81 -metadata:s:a:1 language=eng")
     assert s.audio_input(0) == ""
+
+
+def test_dvd_css_without_libdvdcss(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(FakeDvd, "scrambled", True)
+    with pytest.raises(OSError, match=r"encrypted \(CSS\) and libdvdcss is missing"):
+        dvd_source(monkeypatch, tmp_path)
+
+
+@pytest.mark.parametrize(("dvdcss", "expected"), [
+    (True, "DVD, read through libdvdcss (for CSS)"), (False, "DVD not encrypted")])
+def test_dvd_protection_logged(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                               caplog: pytest.LogCaptureFixture, dvdcss: bool,
+                               expected: str) -> None:
+    monkeypatch.setattr(dvd, "has_dvdcss", lambda: dvdcss)
+    caplog.set_level(logging.INFO, logger="bd3d_fs")
+    dvd_source(monkeypatch, tmp_path)
+    assert expected in caplog.text
+
+
+def test_scrambled() -> None:
+    assert not dvd.scrambled(pack() * 4)
+    assert dvd.scrambled(pack() + pack(0b01))
+    assert not dvd.scrambled(b"\xff" * 2048)            # not a pack at all
 
 
 def test_temp_files_share_one_folder_removed_at_exit(monkeypatch: pytest.MonkeyPatch) -> None:

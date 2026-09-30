@@ -214,6 +214,7 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ## Risoluzione dei problemi
 
 - **Il film non compare e il log dice `cannot decrypt`**: nessuna chiave funzionante per quel disco. Aggiorna il `KEYDB.cfg`, oppure installa e registra MakeMKV (strada nativa).
+- **Un DVD non compare, il log dice `encrypted (CSS) and libdvdcss is missing`**: installa libdvdcss (vedi [Decifratura](#decifratura-le-chiavi-le-porti-tu)).
 - **Chiudendo il programma mentre guardi, l'immagine resta ferma una ventina di secondi**: è il player che aspetta prima di arrendersi, perché il file è sparito (il programma si ferma in un secondo). Ferma prima il video sugli occhiali, poi il programma.
 - **La riproduzione si ferma ogni pochi secondi**: il log dice se è la rete troppo lenta per quel file (allora aprilo da `Light/`) o il disco che non tiene il passo (un graffio o un'impronta: puliscilo); altro in [Rete e qualità](OPTIONS.it.md#rete-e-qualità).
 - **Inserendo il disco non succede niente**: verifica che il lettore sia davvero `/dev/sr0` (`lsblk -d -o NAME,MODEL | grep sr`), che il tuo utente possa leggerlo (`ls -l /dev/sr0`, gruppo `cdrom`) e, con Docker, che il dispositivo sia passato al container.

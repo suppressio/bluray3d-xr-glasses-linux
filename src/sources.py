@@ -522,6 +522,14 @@ class DvdSource(DiscSource):
             self._dvd.close()
             raise
         self._vobs = self._dvd.title_vobs(self.title.vts)
+        # once per disc (the first episode): each check is a seek of the drive
+        if episode <= 1:
+            if dvd.scrambled(self._vobs.read(self.title.cells[0].first, 16)):
+                self._dvd.close()
+                raise OSError(f"{path}: the DVD is encrypted (CSS) and libdvdcss is missing or "
+                              f"failed: install it (Debian/Ubuntu: libdvd-pkg, see the README)")
+            log.info("%s: %s", path, "DVD, read through libdvdcss (for CSS)"
+                     if dvd.has_dvdcss() else "DVD not encrypted")
         self._lock = threading.Lock()
         self._ifo_copy: str | None = None
         self.name = _safe_name(label.replace("_", " ").title() if label else Path(path).stem)
