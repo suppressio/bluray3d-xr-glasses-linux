@@ -1,0 +1,50 @@
+name: It works with my device or player
+description: Tried it with a device, player or disc not in TESTED.md? Tell how it went, even if everything was fine.
+labels: [documentation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reports like this one fill [TESTED.md](../blob/main/TESTED.md). Discs are listed there only when something about them is special; devices and players are always welcome. English or Italian are both fine.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`bluray3d-xr --version`"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and player
+      placeholder: Meta Quest 3, Skybox
+    validations:
+      required: true
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works, 3D included
+        - Works in 2D only
+        - Works with some effort (explain below)
+        - Does not work
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to open the share and play
+      description: The menus you went through, how 3D is turned on, settings that matter (aspect ratio, audio track...). Screenshots welcome (hide your IP address).
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Audio track menu or not, external subtitles, seeking, what happens on a weak Wi-Fi, a disc with something special...

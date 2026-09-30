@@ -222,7 +222,7 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 - **Un file nuovo in `MOVIES_DIR` non compare**: le cartelle vengono lette all'avvio. Riavvia il programma o il container (i lettori invece sono controllati di continuo).
 - **Dopo un salto compare per qualche secondo un'animazione di caricamento, e il film riparte un po' dopo il punto scelto**: il lettore si sta spostando nel nuovo punto. [OPTIONS.it.md](OPTIONS.it.md#animazione-di-caricamento-dopo-un-salto) spiega perché, e come spegnerla.
 
-Per segnalare un problema: indica la versione (`bluray3d-xr --version`; con Docker la prima riga di `docker compose logs`) e il log del programma di quel momento.
+Per segnalare un problema: [apri una issue](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose) con il modulo **Something does not work**. Chiede la versione (`bluray3d-xr --version`), il disco, il player e il log del programma intorno al problema; se riesci a farlo ripetere, avvia il programma con `--debug`. Non incollare mai chiavi.
 
 ---
 

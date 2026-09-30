@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Devices, players and discs already tested
+    url: https://github.com/suppressio/bluray3d-xr-glasses-linux/blob/main/TESTED.md
+    about: Check here first how to set up your player.

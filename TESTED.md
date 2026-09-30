@@ -2,7 +2,7 @@
 
 # Tested: devices, players, discs
 
-What this project has been tried with so far, and how it went. The [README](README.md) covers the general steps; here are the details for each device and player, and the discs used in the tests. More reports are welcome.
+What this project has been tried with so far, and how it went. The [README](README.md) covers the general steps; here are the details for each device and player, and the discs that taught something. More reports are welcome: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
 
 - [Devices and players](#devices-and-players)
   - [VITURE Pro XR + Pro Neckband: official 3D Player](#viture-pro-xr--pro-neckband-official-3d-player)
@@ -75,7 +75,7 @@ With VLC on a weak Wi-Fi, raising its network cache helps ([Network and quality]
 | **Back to the Future** | DVD (PAL) | Played on the glasses like a local file, subtitles OK. |
 | **Utopia**, series 1 disc 1 | DVD (PAL) | A UK series disc with a copy protection of dozens of fake titles, and a damaged spot: the episodes come out right, the damaged spot is skipped. |
 
-Not tested yet: discs with **BD+** (they should open through MakeMKV), discs with several angles, **NTSC** DVDs.
+From here on only discs with something special are added: a problem, an unusual structure, a protection. Not tested yet: discs with **BD+** (they should open through MakeMKV), discs with several angles, **NTSC** DVDs.
 
 ---
 

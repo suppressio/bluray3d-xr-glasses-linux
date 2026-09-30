@@ -1,0 +1,124 @@
+name: Something does not work
+description: A disc that does not open or plays badly, a player problem, an install that fails.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! The more of these fields you fill, the faster it can be reproduced. English or Italian are both fine.
+        **Never paste keys**: no `KEYDB.cfg` lines, no MakeMKV key, no VUK.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead. When it happens (at the start, after a jump, after an hour...).
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`bluray3d-xr --version` (Docker: the first line of `docker compose logs`)."
+      placeholder: bluray3d-xr v1.1.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed with
+      options:
+        - Native script (scripts/install.sh)
+        - Docker
+        - Running from a clone
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: PC
+      description: Linux distribution and version, GPU (NVIDIA or not), drive model if a disc is involved (`lsblk -d -o NAME,MODEL`).
+      placeholder: Debian 13, NVIDIA RTX, internal SATA Blu-ray drive
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: Source
+      options:
+        - Disc in the drive
+        - ISO file
+        - BDMV / VIDEO_TS folder
+        - MKV rip
+        - Not about a movie (install, share...)
+    validations:
+      required: true
+
+  - type: input
+    id: disc
+    attributes:
+      label: Disc
+      description: Title, kind (Blu-ray 3D, Blu-ray, DVD), country or edition, PAL/NTSC for DVDs. Anything special on the box (several discs, extended cut...).
+      placeholder: Star Trek Into Darkness, Blu-ray 3D, Italian edition
+
+  - type: dropdown
+    id: decryption
+    attributes:
+      label: Decryption
+      description: What you have set up for encrypted discs.
+      options:
+        - libaacs + KEYDB.cfg
+        - MakeMKV (libmmbd)
+        - Not encrypted / already decrypted
+        - The disc does not open
+        - Don't know
+        - Not about a disc
+
+  - type: input
+    id: player
+    attributes:
+      label: Device and player
+      description: Where you watch, and which file you opened (normal, `Light/`, `Multi-audio/`).
+      placeholder: VITURE Pro Neckband, 3D Player, Blu-ray 3D/Light/ITA - ....ts
+
+  - type: input
+    id: options
+    attributes:
+      label: Command line or .env options
+      placeholder: bluray3d-xr --audio-lang ita,eng --subs ita /dev/sr0
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Program log
+      description: What the program printed in the terminal (Docker `docker compose logs`), from the start or at least around the problem, with the times.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: pipeline_log
+    attributes:
+      label: Pipeline log (if the picture or sound is wrong)
+      description: The last lines of `/tmp/bd3d-pipeline.log` (or your `--log-file`), right after the problem.
+      render: text
+
+  - type: textarea
+    id: debug
+    attributes:
+      label: With --debug (if it happens again)
+      description: If you can make it happen again, start the program with `--debug` and paste its log here. It records every jump and the player's reads, and the command of each pipeline.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before sending
+      options:
+        - label: I did not paste any key (KEYDB, MakeMKV key, VUK).
+          required: true
+        - label: I read the Troubleshooting section of the README.

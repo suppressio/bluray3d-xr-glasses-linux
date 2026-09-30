@@ -2,7 +2,7 @@
 
 # Provato: dispositivi, player, dischi
 
-Con cosa è stato provato finora questo progetto, e come è andata. Il [README](README.it.md) spiega i passi generali; qui ci sono i dettagli per ogni dispositivo e player, e i dischi usati nelle prove. Altre segnalazioni sono benvenute.
+Con cosa è stato provato finora questo progetto, e come è andata. Il [README](README.it.md) spiega i passi generali; qui ci sono i dettagli per ogni dispositivo e player, e i dischi che hanno insegnato qualcosa. Altre segnalazioni sono benvenute: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
 
 - [Dispositivi e player](#dispositivi-e-player)
   - [VITURE Pro XR + Pro Neckband: 3D Player ufficiale](#viture-pro-xr--pro-neckband-3d-player-ufficiale)
@@ -75,7 +75,7 @@ Con VLC su un Wi-Fi debole aiuta alzare la sua cache di rete ([Rete e qualità](
 | **Ritorno al futuro** | DVD (PAL) | Sugli occhiali come un file locale, sottotitoli OK. |
 | **Utopia**, stagione 1 disco 1 | DVD (PAL) | Un disco di una serie inglese con una protezione a decine di titoli finti, e un punto rovinato: gli episodi escono giusti, il punto rovinato viene saltato. |
 
-Non ancora provati: dischi con **BD+** (dovrebbero aprirsi tramite MakeMKV), dischi con più angolazioni, DVD **NTSC**.
+D'ora in poi si aggiungono solo i dischi con qualcosa di particolare: un problema, una struttura insolita, una protezione. Non ancora provati: dischi con **BD+** (dovrebbero aprirsi tramite MakeMKV), dischi con più angolazioni, DVD **NTSC**.
 
 ---
 

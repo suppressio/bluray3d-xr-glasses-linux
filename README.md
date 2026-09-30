@@ -222,7 +222,7 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 - **A new file in `MOVIES_DIR` does not appear**: folders are scanned at startup. Restart the program / the container (drives are watched continuously).
 - **After a jump a loading animation plays for a few seconds, and the movie starts a little after the point you chose**: the drive is moving to the new point. [OPTIONS.md](OPTIONS.md#loading-animation-after-a-jump) explains why, and how to turn it off.
 
-Reporting a problem: include the version (`bluray3d-xr --version`; Docker: the first line of `docker compose logs`) and the program's log around it.
+Reporting a problem: [open an issue](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose) with the **Something does not work** form. It asks for the version (`bluray3d-xr --version`), the disc, the player and the program's log around the problem; if you can make it happen again, run the program with `--debug`. Never paste keys.
 
 ---
 
