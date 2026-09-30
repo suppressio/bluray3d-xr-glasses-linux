@@ -30,6 +30,7 @@ import errno
 import fcntl
 import functools
 import logging
+import logging.handlers
 import os
 import shlex
 import signal
@@ -40,7 +41,7 @@ import time
 import weakref
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol, override
+from typing import Protocol, TextIO, override
 
 import pyfuse3
 import trio
@@ -80,6 +81,16 @@ TRACE_READS = 20                     # seconds of reads logged after a jump (--d
 # it does not play it): a jump then shows it one still frame, which must be the
 # movie, not the animation
 PAUSED_AFTER = 8.0
+# a read waiting this long for the pipeline means the disc or the decoding is slow
+# there (not the network); logged at most every SLOW_WAIT_LOG_EVERY seconds
+SLOW_WAIT = 5.0
+SLOW_WAIT_LOG_EVERY = 30.0
+# seconds of movie ready past the player's position: with this much, a player
+# pulling data slowly is held back by the network or itself, not by the disc
+READY_ENOUGH = 4.0
+PIPELINE_LOG_MAX = 10 * 1024 * 1024  # the pipeline log is rotated beyond this size
+PROGRAM_LOG_MAX = 5 * 1024 * 1024    # the program's log file: size and old copies kept
+PROGRAM_LOG_KEEP = 3
 
 
 HERE = Path(__file__).resolve().parent
@@ -149,6 +160,47 @@ def _is_keyframe_packet(buf: bytearray, i: int) -> bool:
             and bool(buf[i + 3] & 0x20) and buf[i + 4] > 0 and bool(buf[i + 5] & 0x40))
 
 
+def clock_time(seconds: float) -> str:
+    """4150.2 -> '1:09:10', a position as the player shows it."""
+    s = int(seconds)
+    return f"{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}"
+
+
+def open_pipeline_log(path: str, title: str) -> TextIO:
+    """The pipeline log, appended to: one section per pipeline, so the output of
+    earlier pipelines (before a jump, before a stall) is still there. Rotated to
+    path.1 when it grows beyond PIPELINE_LOG_MAX."""
+    log_file = Path(path)
+    with contextlib.suppress(OSError):
+        if log_file.stat().st_size > PIPELINE_LOG_MAX:
+            log_file.replace(log_file.with_name(log_file.name + ".1"))
+    stderr = log_file.open("a")
+    stderr.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {title} ===\n")
+    stderr.flush()
+    return stderr
+
+
+def default_program_log() -> Path:
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "bluray3d-xr" / "bluray3d-xr.log"
+
+
+def log_to_file(path: str) -> None:
+    """Also write the program's log to a file, with the date, rotated at
+    PROGRAM_LOG_MAX: it outlives the terminal, and goes with problem reports."""
+    if path == "none":
+        return
+    try:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(
+            path, maxBytes=PROGRAM_LOG_MAX, backupCount=PROGRAM_LOG_KEEP, encoding="utf-8")
+    except OSError as e:
+        log.warning("cannot write the log file %s: %s", path, e)
+        return
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%Y-%m-%d %H:%M:%S"))
+    logging.getLogger().addHandler(handler)
+
+
 class Generator:
     """A running pipeline producing the virtual file from offset `base` on."""
 
@@ -172,6 +224,8 @@ class Generator:
         self.loader: Generator | None = None
         self.switch_at: int | None = None
         self.jump_at: int | None = None       # first offset the player read
+        self.path, self.bytes_per_sec, self.is_loader = vf.path, vf.bytes_per_sec, loader
+        self.slow_logged = 0.0
 
         if loader and vf.loader:
             # same start, so the same timestamps and bytes <-> time mapping as the movie
@@ -190,7 +244,8 @@ class Generator:
             if with_loader:
                 self.loader = Generator(vf, seconds, loader=True)
         log.debug("  %s", cmd)
-        with Path(vf.log_path).open("w") as stderr:
+        with open_pipeline_log(vf.log_path, f"{vf.path}: {'loader' if loader else 'pipeline'} "
+                               f"from {start:.1f}s") as stderr:
             self.proc = subprocess.Popen(
                 ["bash", "-o", "pipefail", "-c", cmd],
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr,
@@ -258,10 +313,19 @@ class Generator:
         with self.cond:
             self.reader_pos = offset
             self.cond.notify_all()
-            deadline = time.monotonic() + 60
+            asked = time.monotonic()
+            deadline = asked + 60
             while (self.end < offset + size and not self.eof and not self.stopped
                    and time.monotonic() < deadline):
                 self.cond.wait(timeout=1)
+            waited = time.monotonic() - asked
+            if (waited >= SLOW_WAIT and not self.is_loader
+                    and time.monotonic() - self.slow_logged >= SLOW_WAIT_LOG_EVERY):
+                self.slow_logged = time.monotonic()
+                log.warning("%s: the player waited %.0fs for the movie at %s: the disc or the "
+                            "decoding is slow here (a damaged disc, a busy drive or CPU), "
+                            "not the network", self.path, waited,
+                            clock_time(offset / self.bytes_per_sec))
             if self.stopped and not (self.buf_start <= offset and offset + size <= self.end):
                 return None
             lo = offset - self.buf_start
@@ -438,6 +502,15 @@ class VirtualFile:
         out = subprocess.run(["bash", "-c", cmd], capture_output=True, check=False).stdout[:length]
         return out + null_padding(tail_start + len(out), length - len(out))
 
+    def ready_ahead(self, offset: int) -> float:
+        """Seconds of movie a pipeline has made past `offset` (0: none covers it)."""
+        with self.lock:
+            gens = list(self.gens)
+        for g in gens:
+            if not g.stopped and g.buf_start <= offset <= g.end:
+                return (g.end - offset) / self.bytes_per_sec
+        return 0.0
+
     def _track_rate(self, offset: int, size: int) -> None:
         """Log when the player pulls data slower than the movie plays: over Wi-Fi
         that means pauses to rebuffer. Reads come from the SMB client, so their
@@ -453,12 +526,20 @@ class VirtualFile:
         ratio = self.rate_bytes / elapsed / self.bytes_per_sec
         if ratio < 0.9 and self.slow_since is None:
             self.slow_since = now
-            hint = f" (try {LIGHT_DIR}/)" if self.quality.name == "normal" else ""
-            log.warning("%s: the player receives %d%% of the data rate the movie needs: "
-                        "the network is too slow for this file, playback will pause%s",
-                        self.path, ratio * 100, hint)
+            ahead = self.ready_ahead(offset)
+            if ahead >= READY_ENOUGH:
+                hint = f" (try {LIGHT_DIR}/)" if self.quality.name == "normal" else ""
+                log.warning("%s: the player receives %d%% of the data rate the movie needs, "
+                            "with %.0fs of movie ready ahead: the network (or the player) "
+                            "is too slow for this file, playback will pause%s",
+                            self.path, ratio * 100, ahead, hint)
+            else:
+                log.warning("%s: the player receives %d%% of the data rate the movie needs, "
+                            "and only %.1fs of movie is ready ahead: the disc or the decoding "
+                            "cannot keep up here (a damaged disc, a busy drive or CPU)",
+                            self.path, ratio * 100, ahead)
         elif ratio >= 1.0 and self.slow_since is not None:
-            log.info("%s: network back to real time (%d%%)", self.path, ratio * 100)
+            log.info("%s: back to real time (%d%%)", self.path, ratio * 100)
             self.slow_since = None
         self.rate_start, self.rate_bytes = now, 0
 
@@ -963,7 +1044,10 @@ def main() -> None:
     # a log of our own pipeline at a documented place; the kernel's protected
     # symlinks keep other users from redirecting it
     parser.add_argument("--log-file", default="/tmp/bd3d-pipeline.log",  # noqa: S108
-                        help="stderr of the last started pipeline")
+                        help="output of the pipelines (FFmpeg, decoders), one section each")
+    parser.add_argument("--log", default=str(default_program_log()),
+                        help="the program's log is also saved here (default "
+                             "~/.local/state/bluray3d-xr/bluray3d-xr.log), or none")
     args = parser.parse_args()
     sources_args: list[str] = args.sources
     audio_lang: str = args.audio_lang
@@ -975,8 +1059,12 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     if args.debug:
         log.setLevel(logging.DEBUG)      # ours only: pyfuse3's debug output is huge
+    log_path: str = args.log
+    log_to_file(log_path)
 
     log.info("bluray3d-xr %s", program_version())
+    if log_path != "none":
+        log.info("log saved in %s", log_path)
     encoder = pick_encoder(args.encoder)
     log.info("video encoder: %s", encoder)
     audio_langs = None if audio_lang.strip().lower() in ("", "all") else lang_list(audio_lang)

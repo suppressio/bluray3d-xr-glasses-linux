@@ -95,7 +95,7 @@ body:
     id: log
     attributes:
       label: Program log
-      description: What the program printed in the terminal (Docker `docker compose logs`), from the start or at least around the problem, with the times.
+      description: "From the start, or at least around the problem. Since v1.1.2 it is saved in `~/.local/state/bluray3d-xr/bluray3d-xr.log`; otherwise copy it from the terminal (Docker: `docker compose logs`)."
       render: text
     validations:
       required: true
@@ -104,7 +104,7 @@ body:
     id: pipeline_log
     attributes:
       label: Pipeline log (if the picture or sound is wrong)
-      description: The last lines of `/tmp/bd3d-pipeline.log` (or your `--log-file`), right after the problem.
+      description: The sections of `/tmp/bd3d-pipeline.log` (or your `--log-file`) around the problem, right after it happens.
       render: text
 
   - type: textarea

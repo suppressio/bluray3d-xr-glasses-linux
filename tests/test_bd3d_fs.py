@@ -7,8 +7,9 @@ import logging
 import re
 import shlex
 import sys
+import threading
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Self, cast, override
 
@@ -314,11 +315,19 @@ class Clock:
         return self.now
 
 
+def ready(seconds: float) -> Callable[[int], float]:
+    """A stand-in for VirtualFile.ready_ahead: always `seconds` of movie ready."""
+    def ready_ahead(offset: int) -> float:
+        return seconds
+    return ready_ahead
+
+
 def test_network_too_slow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                           caplog: pytest.LogCaptureFixture) -> None:
     vf = vfile(tmp_path)
     clock = Clock()
     monkeypatch.setattr(bd3d_fs.time, "monotonic", clock)
+    monkeypatch.setattr(vf, "ready_ahead", ready(30.0))             # the movie is ready
     caplog.set_level(logging.INFO, logger="bd3d_fs")
     offset = 0
     for _ in range(50):                                  # 25 s at 60% of the movie's rate
@@ -333,7 +342,64 @@ def test_network_too_slow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
         vf.last_read = clock.now
         offset += vf.bytes_per_sec // 2
         clock.now += 0.5
-    assert "network back to real time" in caplog.text
+    assert "the network (or the player)" in caplog.text
+    assert "back to real time" in caplog.text
+
+
+def test_disc_too_slow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                       caplog: pytest.LogCaptureFixture) -> None:
+    """The same slow reads, but nothing ready ahead: the disc side is to blame."""
+    vf = vfile(tmp_path)
+    clock = Clock()
+    monkeypatch.setattr(bd3d_fs.time, "monotonic", clock)
+    monkeypatch.setattr(vf, "ready_ahead", ready(0.5))
+    caplog.set_level(logging.INFO, logger="bd3d_fs")
+    offset = 0
+    for _ in range(50):
+        vf._track_rate(offset, int(0.3 * vf.bytes_per_sec))
+        vf.last_read = clock.now
+        offset += int(0.3 * vf.bytes_per_sec)
+        clock.now += 0.5
+    assert "the disc or the decoding cannot keep up" in caplog.text
+    assert "Light/" not in caplog.text                   # a lighter file would not help
+
+
+def test_clock_time() -> None:
+    assert bd3d_fs.clock_time(4150.7) == "1:09:10"
+    assert bd3d_fs.clock_time(59) == "0:00:59"
+
+
+def test_pipeline_log_appends_and_rotates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "pipeline.log"
+    for title in ("first", "second"):
+        with bd3d_fs.open_pipeline_log(str(path), title) as f:
+            f.write(f"output of {title}\n")
+    text = path.read_text()
+    assert "first ===" in text and "output of first" in text and "second ===" in text
+    monkeypatch.setattr(bd3d_fs, "PIPELINE_LOG_MAX", 10)
+    with bd3d_fs.open_pipeline_log(str(path), "third"):
+        pass
+    assert "output of first" in (tmp_path / "pipeline.log.1").read_text()
+    assert "first" not in path.read_text() and "third ===" in path.read_text()
+
+
+def test_log_to_file(tmp_path: Path) -> None:
+    path = tmp_path / "state" / "bluray3d-xr.log"
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        bd3d_fs.log_to_file(str(path))
+        bd3d_fs.log.warning("hello from the test")
+        for h in root.handlers:
+            h.flush()
+        assert "hello from the test" in path.read_text()
+    finally:
+        for h in root.handlers[:]:
+            if h not in before:
+                root.removeHandler(h)
+                h.close()
+    bd3d_fs.log_to_file("none")                          # no file, no error
+    assert root.handlers == before
 
 
 # --- the tree of files ---------------------------------------------------------
@@ -545,3 +611,35 @@ def test_a_failing_read_does_not_stop_the_program(tmp_path: Path,
 
     trio.run(read)
     assert "read at 0 failed" in caplog.text and "navigation pack" in caplog.text
+
+
+def test_slow_pipeline_is_logged(monkeypatch: pytest.MonkeyPatch,
+                                 caplog: pytest.LogCaptureFixture) -> None:
+    """A read that waits for the pipeline names the disc side and the position."""
+    clock = Clock()
+    monkeypatch.setattr(bd3d_fs.time, "monotonic", clock)
+    gen = object.__new__(bd3d_fs.Generator)
+    gen.buf, gen.buf_start, gen.reader_pos = bytearray(), 4_150_000, 4_150_000
+    gen.eof = gen.stopped = gen.is_loader = False
+    gen.slow_logged, gen.last_used = 0.0, 0.0
+    gen.path, gen.bytes_per_sec = "Blu-ray 3D/ITA - x - 3D SBS.ts", 1000
+
+    class Cond:                          # every wait lasts 3 s; data comes after two
+        waits = 0
+
+        def __enter__(self) -> None: ...
+
+        def __exit__(self, *exc: object) -> None: ...
+
+        def notify_all(self) -> None: ...
+
+        def wait(self, timeout: float) -> None:
+            clock.now += 3
+            Cond.waits += 1
+            if Cond.waits == 2:
+                gen.buf += b"x" * 5000
+
+    gen.cond = cast(threading.Condition, Cond())
+    caplog.set_level(logging.INFO, logger="bd3d_fs")
+    assert gen.read(4_150_000, 100) == b"x" * 100
+    assert "waited 6s for the movie at 1:09:10" in caplog.text

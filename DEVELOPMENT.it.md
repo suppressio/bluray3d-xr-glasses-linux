@@ -107,7 +107,7 @@ Quali test contano per quale modifica:
 
 ### Il log del programma
 
-Va nel terminale (con Docker: `docker compose logs -f`). Le righe da conoscere:
+Va nel terminale e in `~/.local/state/bluray3d-xr/bluray3d-xr.log`, con la data (`--log` per cambiarlo; con Docker: `docker compose logs -f`). Le righe da conoscere:
 
 | Riga | Significato |
 |---|---|
@@ -121,7 +121,10 @@ Va nel terminale (con Docker: `docker compose logs -f`). Le righe da conoscere:
 | `…: movie ready, 0.6s after the jump (…)` | dopo un salto, quanto è durata l'animazione di caricamento |
 | `…: ignoring the player's late reads for the position it left` | normale dopo un salto: per un attimo il player chiede ancora la posizione vecchia |
 | `…: stopping its pipeline, … is reading the same disc` | è partito un altro file dello stesso disco: un disco, una pipeline |
-| `…: the player receives 87% of the data rate …` / `network back to real time` | la rete non regge questo file (prova `Light/`), poi si riprende |
+| `/dev/sr0: AACS, decrypted with libaacs` | la protezione del disco e cosa l'ha aperto (`MakeMKV (libmmbd)`, oppure `not encrypted`) |
+| `…: the player receives 87% of the data rate …, with 60s of movie ready ahead …` / `back to real time` | il film è pronto ma il player lo prende piano: la rete (prova `Light/`) o il player stesso; poi si riprende |
+| `…: the player receives 62% …, and only 0.5s of movie is ready ahead …` | il player aspetta noi: lì è lento il disco o la decodifica |
+| `…: the player waited 12s for the movie at 1:09:10 …` | una lettura ha aspettato tanto la pipeline: un punto rovinato o sporco del disco, il lettore o la CPU occupati |
 | `…: no reads for 120s, stopping a pipeline` | il player si è fermato o è in pausa da tempo |
 | `…: read at … failed` + traceback | un bug, o un disco illeggibile: il player riceve un errore di lettura, il programma va avanti |
 
@@ -132,7 +135,7 @@ Va nel terminale (con Docker: `docker compose logs -f`). Le righe da conoscere:
 
 ### Il log della pipeline
 
-`--log-file` (predefinito `/tmp/bd3d-pipeline.log`) contiene l'output dei lettori, dei decoder e di FFmpeg, solo per l'**ultima** pipeline: ogni salto lo sovrascrive. È il primo posto da guardare quando l'immagine o l'audio sono sbagliati. Righe utili:
+`--log-file` (predefinito `/tmp/bd3d-pipeline.log`) contiene l'output dei lettori, dei decoder e di FFmpeg, una sezione per pipeline che inizia con `=== data ora file: pipeline from 1234.5s ===` (oltre i 10 MB la parte vecchia passa in `.1`). È il primo posto da guardare quando l'immagine o l'audio sono sbagliati. Righe utili:
 - `disc_reader: clip 00098, keyframe -0.006s, ssif offset 0`: dove è partito il lettore Blu-ray;
 - `dvd_reader: title 2, VOBU at 600.040s (sector 123456)`: dove è partito il lettore DVD;
 - `dvd_reader: sectors X-Y unreadable, going on from Z`: un punto rovinato, saltato;

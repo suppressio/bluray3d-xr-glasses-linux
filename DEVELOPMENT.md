@@ -107,7 +107,7 @@ Which tests matter for which change:
 
 ### The program's log
 
-It goes to the terminal (with Docker: `docker compose logs -f`). The lines to know:
+It goes to the terminal and to `~/.local/state/bluray3d-xr/bluray3d-xr.log`, with the date (`--log` to change it; with Docker: `docker compose logs -f`). The lines to know:
 
 | Line | Meaning |
 |---|---|
@@ -121,7 +121,10 @@ It goes to the terminal (with Docker: `docker compose logs -f`). The lines to kn
 | `…: movie ready, 0.6s after the jump (…)` | after a jump, how long the loading animation ran |
 | `…: ignoring the player's late reads for the position it left` | normal after a jump: the player still asks for the old position for a moment |
 | `…: stopping its pipeline, … is reading the same disc` | another file on the same disc started playing: one disc, one pipeline |
-| `…: the player receives 87% of the data rate …` / `network back to real time` | the network cannot keep up with this file (try `Light/`), then it recovers |
+| `/dev/sr0: AACS, decrypted with libaacs` | the disc's protection and what opened it (`MakeMKV (libmmbd)`, or `not encrypted`) |
+| `…: the player receives 87% of the data rate …, with 60s of movie ready ahead …` / `back to real time` | the movie is ready but the player pulls it slowly: the network (try `Light/`) or the player itself; then it recovers |
+| `…: the player receives 62% …, and only 0.5s of movie is ready ahead …` | the player is waiting for us: the disc or the decoding is slow there |
+| `…: the player waited 12s for the movie at 1:09:10 …` | one read waited that long for the pipeline: a damaged or dirty spot on the disc, a busy drive or CPU |
 | `…: no reads for 120s, stopping a pipeline` | the player stopped or paused for a long time |
 | `…: read at … failed` + traceback | a bug, or an unreadable disc: the player gets a read error, the program goes on |
 
@@ -132,7 +135,7 @@ It goes to the terminal (with Docker: `docker compose logs -f`). The lines to kn
 
 ### The pipeline log
 
-`--log-file` (default `/tmp/bd3d-pipeline.log`) holds the output of the readers, the decoders and FFmpeg, for the **last** pipeline only: every jump overwrites it. Look here first when the picture or the sound is wrong. Useful lines:
+`--log-file` (default `/tmp/bd3d-pipeline.log`) holds the output of the readers, the decoders and FFmpeg, one section per pipeline headed `=== date time file: pipeline from 1234.5s ===` (beyond 10 MB the older part moves to `.1`). Look here first when the picture or the sound is wrong. Useful lines:
 - `disc_reader: clip 00098, keyframe -0.006s, ssif offset 0`: where the Blu-ray reader started;
 - `dvd_reader: title 2, VOBU at 600.040s (sector 123456)`: where the DVD reader started;
 - `dvd_reader: sectors X-Y unreadable, going on from Z`: a damaged spot, skipped;

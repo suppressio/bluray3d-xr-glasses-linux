@@ -20,7 +20,8 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 | [Animazione dopo un salto](#animazione-di-caricamento-dopo-un-salto) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
 | Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |
-| Log della pipeline | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
+| [File di log del programma](#log) | — | `--log percorso` o `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
+| [Log della pipeline](#log) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 | [Log dei salti](#log) | — | `--debug` | spento |
 
 ---
@@ -79,11 +80,13 @@ Audio: AAC stereo 192 kbit/s per lingua (DTS e TrueHD non sono supportati dalla 
 Se la riproduzione **si ferma ogni pochi secondi**, il Wi-Fi non regge quel bitrate (basta un muro spesso):
 - apri lo stesso film da **`Light/`**;
 - in **VLC** aumenta la cache di rete (*Impostazioni → Avanzate → Cache di rete*) a 5000-10000 ms: assorbe i brevi cali del Wi-Fi;
-- il programma se ne accorge e lo scrive nel suo log:
+- il programma se ne accorge e lo scrive nel suo log, dicendo anche se il film era pronto (allora è lenta la rete o il player) o no (allora è lento il disco o la decodifica):
   ```
-  Blu-ray/ITA - Ready Player One.ts: the player receives 77% of the data rate the movie needs:
-  the network is too slow for this file, playback will pause (try Light/)
+  Blu-ray/ITA - Ready Player One.ts: the player receives 77% of the data rate the movie needs,
+  with 60s of movie ready ahead: the network (or the player) is too slow for this file,
+  playback will pause (try Light/)
   ```
+  Se invece dice "only 0.5s of movie is ready ahead: the disc or the decoding cannot keep up", `Light/` non aiuta: guarda il disco (graffi, impronte) e la CPU.
 
 ## Animazione di caricamento dopo un salto
 
@@ -104,6 +107,6 @@ Le animazioni incluse (`loaders/retrowave.mp4`, 1 MB, affiancata; `loaders/simpl
 
 ## Log
 
-- Il log del programma (nel terminale, oppure `docker compose logs`) dice quali film compaiono, da dove parte ogni pipeline e se la rete regge.
-- `--log-file` è l'output di FFmpeg e dei decoder dell'ultima pipeline: il primo posto dove guardare se l'immagine è sbagliata.
+- Il log del programma dice quali film compaiono, da dove parte ogni pipeline e se la rete e il disco reggono. Va nel terminale ed è anche salvato, con la data, in `~/.local/state/bluray3d-xr/bluray3d-xr.log` (fino a 5 MB, poi tre copie vecchie `.1` `.2` `.3`); `--log` lo salva altrove, `--log none` per niente. Con Docker: `docker compose logs`.
+- `--log-file` è l'output di FFmpeg e dei decoder, una sezione per pipeline (oltre i 10 MB la parte vecchia passa in `.1`): il primo posto dove guardare se l'immagine è sbagliata.
 - `--debug` registra anche ogni salto e le letture del player nei 20 secondi successivi: quanto ha aspettato e se sembrava in pausa. Anche il comando completo di ogni pipeline, per rilanciarlo a mano ([DEVELOPMENT.it.md](DEVELOPMENT.it.md#smontare-una-pipeline)).
