@@ -420,7 +420,7 @@ class BlurayDiscSource(DiscSource):
                 try:
                     items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{t.playlist}.mpls"))
                     return items[0].clip if items else t.playlist
-                except Exception:
+                except Exception:  # noqa: BLE001 — malformed MPLS: treat as unique
                     return t.playlist
             sigs = {t.playlist: first_clip(t) for t in titles}
         finally:
