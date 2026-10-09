@@ -10,7 +10,7 @@ and it disappears on eject. It also works from ISO, BDMV folders and MKV rips.
 The phases below record how it was built and verified, step by step, on Tron:
 Legacy 3D.
 
-Next steps, in this order:
+What's done:
 
 - [x] **2D Blu-ray** and **DVD**, each in its own folder of the `Disks` share.
   FFmpeg's `dvdvideo` demuxer seeks only approximately (seconds off, without
@@ -34,38 +34,8 @@ Next steps, in this order:
   and each episode becomes a file. Damaged spots are skipped, titles opening
   with seconds without audio start, seeking works in titles that play a cell
   twice.
-- [ ] **More discs.** Tested: Tron: Legacy 3D, Ready Player One, Cowboy Bebop,
-  Back to the Future PAL, Utopia PAL; discs with BD+, several angles or NTSC
-  DVDs may need work.
-- [ ] **DLNA as an alternative to Samba.** The same virtual files served over
-  HTTP and announced with DLNA/UPnP, for players that browse a media server
-  instead of opening a share (TVs, Moon VR, Kodi...).
-  An option at start: Samba, DLNA or both. It fits the design as is: the file
-  has a constant bitrate, so an HTTP range request is the same as a read of the
-  FUSE file, and seeking keeps working. With DLNA alone neither FUSE nor Samba
-  is needed.
-- [ ] **Windows and macOS.** The core (disc reading, demux, seek, pipeline)
-  is already portable; the few Linux-specific parts go behind a small platform
-  layer first, on Linux, with identical results in the tests. Then tests with a
-  USB drive on a Mac and on a Windows PC.
 
-Later, maybe:
-- **watching together**, two people with their own glasses in sync: a shared
-  live stream (RTSP/HLS via mediamtx) with shared pause/seek from a web remote.
-  Two players reading the same file already works, but each has its own
-  position. Limits: the VITURE 3D Player opens only SMB files, not network
-  streams, and separate players stay ~1 s apart unless they support a sync
-  protocol;
-- a "passthrough" mode for 2D discs: serve the original stream, no re-encoding
-  (full quality, but seeking depends more on the player);
-- NVIDIA encoding inside Docker (the compose file exists, untested);
-- VAAPI encoding for Intel and AMD GPUs (`h264_vaapi`, untested: no such GPU
-  here). Without NVIDIA the CPU encodes (x264): on a recent 12-core desktop
-  CPU the 3D encode alone runs at 1.4x real time on 2 cores, 3.5x on all 12;
-- a `.deb` package for Debian/Ubuntu, built by GitHub Actions at every release
-  and attached to it: `apt install ./bluray3d-xr_….deb` pulls the dependencies,
-  `apt remove` also removes the Samba share. edge264 built for distribution
-  (x86-64-v2/v3, CPU features picked at runtime), its BSD license included.
+**What's next** is tracked as [GitHub Issues and Milestones](https://github.com/suppressio/bluray3d-xr-glasses-linux/milestones).
 
 ## Decryption
 
@@ -171,4 +141,4 @@ makemkv-oss). The beta key goes in `~/.MakeMKV/settings.conf`
   the drive), clip boundary seamless, eject/insert OK (file back 14 s after
   closing the tray).
 - [~] **Phase 5 — Long run on a real drive.** Done: Tron: Legacy 3D, playback,
-  seeks, eject/insert. To do: a whole movie in one go, more discs.
+  seeks, eject/insert. To do: a whole movie in one go, more discs. (see #3)

@@ -10,7 +10,7 @@ funzionanti, e sparisce quando togli il disco. Funziona anche da ISO, cartelle
 BDMV e rip MKV. Le fasi qui sotto raccontano come è stato costruito e
 verificato, passo per passo, su Tron: Legacy 3D.
 
-Prossimi passi, in quest'ordine:
+Cosa è fatto:
 
 - [x] **Blu-ray 2D** e **DVD**, ciascuno nella sua cartella della condivisione
   `Disks`. Il demuxer `dvdvideo` di FFmpeg salta solo in modo approssimativo
@@ -35,38 +35,8 @@ Prossimi passi, in quest'ordine:
   anticopia): vengono riconosciuti e ogni episodio diventa un file. I punti
   rovinati vengono saltati, partono anche i titoli che si aprono con secondi senza
   audio, il seek funziona nei titoli che riproducono due volte una cella.
-- [ ] **Altri dischi.** Provati: Tron: Legacy 3D, Ready Player One, Cowboy Bebop,
-  Ritorno al futuro PAL, Utopia PAL; dischi con BD+, più angolazioni o DVD NTSC
-  potrebbero richiedere lavoro.
-- [ ] **DLNA in alternativa a Samba.** Gli stessi file virtuali serviti via
-  HTTP e annunciati con DLNA/UPnP, per i player che sfogliano un media server
-  invece di aprire una condivisione (le TV, Moon VR, Kodi...). Un'opzione all'avvio: Samba, DLNA o entrambi. Si innesta bene su
-  com'è fatto: il file ha un bitrate costante, quindi una richiesta HTTP di un
-  intervallo di byte equivale a una lettura del file FUSE, e il seek continua a
-  funzionare. Con il solo DLNA non servono né FUSE né Samba.
-- [ ] **Windows e macOS.** Il cuore (lettura del disco, demux, seek, pipeline)
-  è già portabile; le poche parti legate a Linux vanno prima dietro un piccolo
-  strato di piattaforma, su Linux, con risultati identici nei test. Poi prove
-  con un lettore USB su un Mac e su un PC Windows.
 
-Più avanti, forse:
-- **visione di coppia**, due persone con i propri occhiali, sincronizzate: un
-  flusso live condiviso (RTSP/HLS con mediamtx) con pausa e salti comuni da un
-  telecomando web. Due player che leggono lo stesso file funzionano già, ma
-  ognuno ha la sua posizione. Limiti: il 3D Player VITURE apre solo file SMB,
-  non flussi di rete, e player separati restano a circa 1 s di distanza a meno
-  che supportino un protocollo di sincronizzazione;
-- una modalità "passthrough" per i dischi 2D: servire il flusso originale senza
-  ricodifica (qualità piena, ma il seek dipende di più dal player);
-- codifica NVIDIA dentro Docker (il file compose c'è, non è provato);
-- codifica VAAPI per le GPU Intel e AMD (`h264_vaapi`, non provata: qui non ce
-  ne sono). Senza NVIDIA codifica la CPU (x264): su una CPU desktop recente a
-  12 core la sola codifica 3D va a 1,4x il tempo reale con 2 core, 3,5x con tutti e 12;
-- un pacchetto `.deb` per Debian/Ubuntu, costruito da GitHub Actions a ogni
-  release e allegato a essa: `apt install ./bluray3d-xr_….deb` installa anche le
-  dipendenze, `apt remove` toglie anche la condivisione Samba. edge264 compilato
-  per le distribuzioni (x86-64-v2/v3, istruzioni della CPU scelte a runtime), con
-  la sua licenza BSD.
+**I prossimi passi** sono tracciati come [Issue e Milestone su GitHub](https://github.com/suppressio/bluray3d-xr-glasses-linux/milestones).
 
 ## La decifratura
 
@@ -188,4 +158,4 @@ con FFmpeg 8 (va ricompilato makemkv-oss). La chiave beta va scritta in
   dello sportello).
 - [~] **Fase 5 — Prova lunga su un lettore vero.** Fatto: Tron: Legacy 3D,
   riproduzione, seek, espulsione/reinserimento. Da fare: un film intero tutto
-  di seguito, altri dischi.
+  di seguito, altri dischi. (vedi #3)
