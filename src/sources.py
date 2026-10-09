@@ -408,7 +408,7 @@ class BlurayDiscSource(DiscSource):
     """
 
     @classmethod
-    def all_on(cls, path: str, audio_langs: list[str] | None = None) -> list["BlurayDiscSource"]:
+    def all_on(cls, path: str, audio_langs: list[str] | None = None) -> list[Source]:
         """One source per episode when the disc holds a TV series; one source otherwise."""
         disc, _, _ = _open_disc(path)
         try:
