@@ -402,27 +402,55 @@ class BlurayDiscSource(DiscSource):
 
     3D: the longest playlist whose clips all have an MVC dependent view, decoded
     by edge264 into Full-SBS. Otherwise 2D: the longest playlist, decoded by ffmpeg.
+
+    For multi-episode discs (all titles have similar duration), use all_on() to get
+    one source per episode; it mirrors DvdSource.all_on().
     """
 
-    def __init__(self, path: str, audio_langs: list[str] | None = None) -> None:
+    @classmethod
+    def all_on(cls, path: str, audio_langs: list[str] | None = None) -> list["BlurayDiscSource"]:
+        """One source per episode when the disc holds a TV series; one source otherwise."""
+        disc, _, _ = _open_disc(path)
+        try:
+            titles = sorted(disc.titles(), key=lambda t: t.playlist)
+        finally:
+            disc.close()
+        if len(titles) >= 2:
+            by_dur = sorted(titles, key=lambda t: -t.duration)
+            longest, shortest = by_dur[0].duration, by_dur[-1].duration
+            # All titles long enough and similar enough in duration → episodes
+            if shortest > 300 and longest / shortest < 1.5:
+                return [cls(path, audio_langs, _title=t, _episode=i)
+                        for i, t in enumerate(titles, 1)]
+        return [cls(path, audio_langs)]
+
+    def __init__(self, path: str, audio_langs: list[str] | None = None,
+                 _title: bluray.Title | None = None, _episode: int = 0) -> None:
         self.path = path
         disc, info, self.env = _open_disc(path)
         try:
-            titles = sorted(disc.titles(), key=lambda t: -t.duration)
-            if not titles:
-                raise OSError(f"{path}: no title found")
-            chosen = None
-            if info.has_3d:
-                for title in titles:
+            if _title is not None:
+                # specific title supplied by all_on() for a multi-episode disc
+                items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{_title.playlist}.mpls"))
+                self.two_d = not info.has_3d or not (items and all(it.dep_clip for it in items))
+                title = _title
+            else:
+                titles = sorted(disc.titles(), key=lambda t: -t.duration)
+                if not titles:
+                    raise OSError(f"{path}: no title found")
+                chosen = None
+                if info.has_3d:
+                    for title in titles:
+                        items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
+                        if items and all(it.dep_clip for it in items):
+                            chosen = (title, items)
+                            break
+                self.two_d = chosen is None
+                if chosen is None:
+                    title = titles[0]
                     items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
-                    if items and all(it.dep_clip for it in items):
-                        chosen = (title, items)
-                        break
-            self.two_d = chosen is None
-            if chosen is None:
-                title = titles[0]
-                chosen = (title, parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls")))
-            title, items = chosen
+                else:
+                    title, items = chosen
             self.playlist: str = title.playlist
             self.items: list[PlayItem] = items
             self.clips: dict[str, tuple[Clip, Clip | None]] = {}
@@ -438,6 +466,8 @@ class BlurayDiscSource(DiscSource):
             self.category, self.name_suffix, self.frame_size = "Blu-ray", "", "1920x1080"
             self.quality_key = "2d"
         self.name = _safe_name(info.name or info.volume_id.replace("_", " ").title())
+        if _episode:
+            self.name = f"{self.name} - {_episode}"
         self.duration = sum(it.duration for it in items)
         self.starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
         st = Path(path).stat()
@@ -602,7 +632,7 @@ def open_disc(path: str, audio_langs: list[str] | None = None) -> list[Source]:
     """What the drive/ISO/folder holds: a Blu-ray (3D or 2D), or a DVD (its
     movie, or its episodes)."""
     try:
-        return [BlurayDiscSource(path, audio_langs)]
+        return BlurayDiscSource.all_on(path, audio_langs)
     except OSError as bd_error:
         try:
             return list(DvdSource.all_on(path, audio_langs))
