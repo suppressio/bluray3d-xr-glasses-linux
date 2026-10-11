@@ -541,7 +541,9 @@ def test_file_system_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     ok, no_disc, tray, busy = 4, 1, 2, 3
-    statuses = iter([ok, ok, busy, ok, no_disc, ok, busy, no_disc, tray, tray, ok, ok])
+    # 1st disc: 3 failed attempts (retried every RETRY_AFTER = 3 polls), then left alone
+    statuses = iter([ok, ok, busy, ok, no_disc, ok, ok, ok, ok, busy, no_disc, tray, tray,
+                     ok, ok, no_disc, no_disc, ok, ok, ok, ok, ok])
     events: list[str] = []
 
     class NoMoreStatusError(Exception):
@@ -553,7 +555,9 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         except StopIteration:
             raise NoMoreStatusError from None
 
-    opened = iter([OSError("cannot decrypt"), DiscSource(str(tmp_path / "d"))])
+    opened = iter([OSError("cannot decrypt")] * 3 + [DiscSource(str(tmp_path / "d")),
+                                                       OSError("read error"),
+                                                       DiscSource(str(tmp_path / "d"))])
 
     def open_disc(device: str, langs: list[str] | None) -> list[Source]:
         item = next(opened)
@@ -571,15 +575,18 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr(bd3d_fs, "drive_status", status)
     monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
+    monkeypatch.setattr(bd3d_fs, "RETRY_AFTER", 9)
 
     async def main() -> None:
         with pytest.raises(NoMoreStatusError):
             await bd3d_fs.watch_drive("/dev/sr0", Lib(), None)
 
     trio.run(main, clock=trio.testing.MockClock(autojump_threshold=0))
-    # 1st disc: cannot be opened, not retried while it stays in; a busy drive and
-    # a single "no disc" are not an eject; two in a row are; the 2nd disc opens
-    assert events == ["remove 0", "add"]
+    # 1st disc: cannot be opened, retried twice, then not again while it stays in;
+    # a busy drive and a single "no disc" are not an eject; two in a row are;
+    # the 2nd disc opens; the 3rd fails once (a read error) and opens on the retry
+    assert events == ["remove 0", "add", "remove 0", "add"]
+    assert next(opened, None) is None
 
 
 # --- version ---------------------------------------------------------------------

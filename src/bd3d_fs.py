@@ -928,6 +928,8 @@ class Shelf(Protocol):
 CDROM_DRIVE_STATUS = 0x5326
 CDS_NO_DISC, CDS_TRAY_OPEN, CDS_DISC_OK = 1, 2, 4
 GONE_AFTER = 2                       # "no disc" answers in a row before we believe it
+OPEN_ATTEMPTS = 3                    # a drive can fail a read now and then: retry the disc
+RETRY_AFTER = 30                     # seconds between attempts
 
 
 def drive_status(device: str) -> int:
@@ -949,25 +951,33 @@ async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None
     """A movie appears when a disc is inserted and disappears when it is ejected."""
     entries: list[FileEntry] = []
     state = "empty"                  # empty -> loaded / failed -> (eject) -> empty
-    gone = 0
+    gone = attempts = 0
+    retry_at = 0.0
     while True:
         status = await trio.to_thread.run_sync(drive_status, device)
         gone = gone + 1 if status in (CDS_NO_DISC, CDS_TRAY_OPEN) else 0
-        if status == CDS_DISC_OK and state == "empty":
-            log.info("%s: disc inserted, opening it", device)
+        retry = (state == "failed" and attempts < OPEN_ATTEMPTS
+                 and trio.current_time() >= retry_at)
+        if status == CDS_DISC_OK and (state == "empty" or retry):
+            attempts += 1
+            log.info("%s: %s", device, "disc inserted, opening it" if state == "empty"
+                     else f"opening it again (attempt {attempts} of {OPEN_ATTEMPTS})")
             try:
                 found = await trio.to_thread.run_sync(open_disc, device, audio_langs)
                 entries = [e for source in found for e in library.add(source)]
                 state = "loaded"
             # whatever goes wrong with one disc (cannot decrypt, not ready yet, a
-            # structure the parsers do not expect) must not stop the program
+            # read error, a structure the parsers do not expect) must not stop the
+            # program; a few more attempts, then it waits for the disc to be ejected
             except Exception as e:  # noqa: BLE001
                 log.info("%s: %s", device, e)
-                state = "failed"
+                state, retry_at = "failed", trio.current_time() + RETRY_AFTER
+                if attempts >= OPEN_ATTEMPTS:
+                    log.info("%s: giving up: eject and reinsert the disc to try again", device)
         elif gone >= GONE_AFTER and state != "empty":
             log.info("%s: disc ejected", device)
             await trio.to_thread.run_sync(library.remove, entries)
-            entries, state = [], "empty"
+            entries, state, attempts = [], "empty", 0
         elif status not in (CDS_DISC_OK, CDS_NO_DISC, CDS_TRAY_OPEN):
             log.debug("%s: drive status %d, ignored", device, status)
         await trio.sleep(3)
