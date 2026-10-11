@@ -72,15 +72,15 @@ DVDs (CSS) are decrypted by **libdvdcss**, which you install yourself: on Debian
 
 ## Step 1 — Install: choose your path
 
-| | **A. Docker** | **B. Native script** |
-|---|---|---|
-| For | anyone who already uses Docker | Debian / Ubuntu |
-| Touches the system | no: Samba, FUSE and libraries live in the container | yes: packages, `/opt`, `smb.conf`, `fuse.conf` (`uninstall.sh` removes what it added) |
-| Decryption | libaacs + your KEYDB (MakeMKV is not in the image) | libaacs + KEYDB, or MakeMKV if installed |
-| NVIDIA encoding | needs the NVIDIA Container Toolkit | works out of the box |
-| Samba already installed on the PC | conflicts on port 445: stop it first | the share is added next to yours |
+| | **A. Docker** | **B. Release package** | **C. Native script** |
+|---|---|---|---|
+| For | anyone who already uses Docker | Debian / Ubuntu | a working clone |
+| Touches the system | no: Samba, FUSE and libraries live in the container | yes: packages, `/opt`, `smb.conf`, `fuse.conf` | yes: packages, `/opt`, `smb.conf`, `fuse.conf` |
+| Decryption | libaacs + your KEYDB (MakeMKV is not in the image) | libaacs + KEYDB, or MakeMKV if installed | libaacs + KEYDB, or MakeMKV if installed |
+| NVIDIA encoding | needs the NVIDIA Container Toolkit | works out of the box | works out of the box |
+| Samba already installed on the PC | conflicts on port 445: stop it first | the share is added next to yours | the share is added next to yours |
 
-Get the project first:
+For Docker or a clone-based native install, get the project first:
 ```console
 git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
 cd bluray3d-xr-glasses-linux
@@ -124,19 +124,22 @@ The log should now say `video encoder: nvenc`.
 ##### 💩 happens: port 445 already in use
 If the PC already runs Samba, the container cannot take port 445. Players on phones and glasses usually only speak to port 445, so stop the host Samba while you watch (`sudo systemctl stop smbd`) or use path B, which adds a share to your existing Samba.
 
-### Path B — Native script (Debian / Ubuntu)
+### Path B — Release package (Debian / Ubuntu)
 
-- [ ] Run the installer as your normal user (it asks for `sudo` when needed):
+- [ ] Download the `.deb` for your system from [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases), then install it:
 ```console
-./scripts/install.sh
+sudo apt install ./bluray3d-xr_<version>_amd64.deb
 ```
-It installs the packages, compiles edge264, installs the `bluray3d-xr` command and adds the read-only guest share `[Disks]` to Samba. The header of [`scripts/install.sh`](scripts/install.sh) lists every change it makes.
+- [ ] Add your user to the package's group so you can read the mounted files; log out and back in for the change to take effect:
+```console
+sudo adduser "$USER" bluray3d-xr
+```
 
-- [ ] If `ufw` is active, the script prints the command to open the share to your LAN, e.g.:
+- [ ] Your user must be able to read the drive (on Debian/Ubuntu: the `cdrom` group, usually already set for desktop users).
+- [ ] If `ufw` is active, allow the share through your firewall, e.g.:
 ```console
 sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
 ```
-- [ ] Your user must be able to read the drive (on Debian/Ubuntu: the `cdrom` group, usually already set for desktop users).
 - [ ] Start it when you want to watch something:
 ```console
 bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
@@ -157,15 +160,19 @@ When a disc goes in, its files appear; every `pipeline from` line is the player 
 ```
 Stop it with `Ctrl+C`. Updating and uninstalling: [below](#updating-and-uninstalling).
 
-The script is tested with the real drive and disc in clean Debian 13 (trixie) and Ubuntu 24.04 containers; the program itself runs daily on Debian testing.
+### Path C — Native script (from a clone)
+
+If you are using a working clone instead of the release package, run [`scripts/install.sh`](scripts/install.sh) as your normal user. It installs the packages, compiles edge264, installs the command and adds the read-only guest share `[Disks]` to Samba. The script supports Debian/Ubuntu; it remains available for clone-based installs.
 
 ### Updating and uninstalling
 
 **Updating**, when a new version is out (see [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases)); `bluray3d-xr --version` tells which one you have:
+- release package: download the new `.deb` and install it with `sudo apt install ./bluray3d-xr_<version>_amd64.deb`;
 - native: `./scripts/update.sh` in the project folder. It downloads the latest version and copies the program to `/opt/bluray3d-xr`; it runs the whole `install.sh` again only when needed (edge264 changed, or nothing is installed). It ends with "Updated from vX to vY" and the list of changes. If the program is running, stop it and start it again.
 - Docker: `git pull && docker compose up -d --build`.
 
 **Uninstalling**:
+- release package: `sudo apt remove bluray3d-xr` removes the share and `/srv/bd3d`; `sudo apt purge bluray3d-xr` also removes the `bluray3d-xr` group. The `user_allow_other` line stays in `/etc/fuse.conf`.
 - native: `./scripts/uninstall.sh`. It unmounts `/srv/bd3d` and removes it, removes the `[Disks]` share from `smb.conf` (only the block it added: your own shares stay), `/opt/bluray3d-xr` and the `bluray3d-xr` command. The apt packages (FFmpeg, Samba, libbluray...) and the `user_allow_other` line in `/etc/fuse.conf` stay, since other software may use them: remove them with apt if nothing needs them.
 - Docker: `docker compose down --rmi all` stops the container and deletes its image.
 

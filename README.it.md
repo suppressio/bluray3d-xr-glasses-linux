@@ -72,15 +72,15 @@ I DVD (CSS) vengono decifrati da **libdvdcss**, che installi tu: su Debian/Ubunt
 
 ## Passo 1 — Installazione: scegli la strada
 
-| | **A. Docker** | **B. Script nativo** |
-|---|---|---|
-| Per chi | usa già Docker | Debian / Ubuntu |
-| Tocca il sistema | no: Samba, FUSE e librerie stanno nel container | sì: pacchetti, `/opt`, `smb.conf`, `fuse.conf` (`uninstall.sh` toglie quello che ha aggiunto) |
-| Decifratura | libaacs + il tuo KEYDB (MakeMKV non è nell'immagine) | libaacs + KEYDB, oppure MakeMKV se installato |
-| Codifica NVIDIA | serve il NVIDIA Container Toolkit | funziona subito |
-| Samba già installato sul PC | conflitto sulla porta 445: va fermato | la condivisione si aggiunge alle tue |
+| | **A. Docker** | **B. Pacchetto della release** | **C. Script nativo** |
+|---|---|---|---|
+| Per chi | usa già Docker | Debian / Ubuntu | ha già una copia del progetto |
+| Tocca il sistema | no: Samba, FUSE e librerie stanno nel container | sì: pacchetti, `/opt`, `smb.conf`, `fuse.conf` | sì: pacchetti, `/opt`, `smb.conf`, `fuse.conf` |
+| Decifratura | libaacs + il tuo KEYDB (MakeMKV non è nell'immagine) | libaacs + KEYDB, oppure MakeMKV se installato | libaacs + KEYDB, oppure MakeMKV se installato |
+| Codifica NVIDIA | serve il NVIDIA Container Toolkit | funziona subito | funziona subito |
+| Samba già installato sul PC | conflitto sulla porta 445: va fermato | la condivisione si aggiunge alle tue | la condivisione si aggiunge alle tue |
 
-Per prima cosa scarica il progetto:
+Per Docker o per l'installazione nativa da una copia, scarica prima il progetto:
 ```console
 git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
 cd bluray3d-xr-glasses-linux
@@ -124,19 +124,22 @@ Nel log deve comparire `video encoder: nvenc`.
 ##### 💩 happens: porta 445 già occupata
 Se sul PC gira già Samba, il container non può prendere la porta 445. I player di telefoni e occhiali di solito parlano solo con la 445. Quindi mentre guardi il film ferma il Samba del sistema (`sudo systemctl stop smbd`), oppure usa la strada B, che aggiunge una condivisione al Samba che hai già.
 
-### Strada B — Script nativo (Debian / Ubuntu)
+### Strada B — Pacchetto della release (Debian / Ubuntu)
 
-- [ ] Lancia l'installazione come utente normale (chiede `sudo` quando serve):
+- [ ] Scarica il `.deb` per il tuo sistema dalle [release](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases), poi installalo:
 ```console
-./scripts/install.sh
+sudo apt install ./bluray3d-xr_<versione>_amd64.deb
 ```
-Installa i pacchetti, compila edge264, installa il comando `bluray3d-xr` e aggiunge a Samba la condivisione `[Disks]`, in sola lettura e ad accesso ospite. L'intestazione di [`scripts/install.sh`](scripts/install.sh) elenca tutte le modifiche che fa.
+- [ ] Aggiungi il tuo utente al gruppo del pacchetto per poter leggere i file montati; esci e rientra nella sessione perché la modifica abbia effetto:
+```console
+sudo adduser "$USER" bluray3d-xr
+```
 
-- [ ] Se `ufw` è attivo, lo script stampa il comando per aprire la condivisione alla tua rete locale, per esempio:
+- [ ] Il tuo utente deve poter leggere il lettore (su Debian/Ubuntu: il gruppo `cdrom`, di solito già assegnato agli utenti desktop).
+- [ ] Se `ufw` è attivo, consenti la condivisione nel firewall, per esempio:
 ```console
 sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
 ```
-- [ ] Il tuo utente deve poter leggere il lettore (su Debian/Ubuntu: il gruppo `cdrom`, di solito già assegnato agli utenti desktop).
 - [ ] Avvialo quando vuoi guardare qualcosa:
 ```console
 bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
@@ -157,15 +160,19 @@ Quando inserisci un disco compaiono i suoi file; ogni riga `pipeline from` è il
 ```
 Si ferma con `Ctrl+C`. Aggiornare e disinstallare: [più sotto](#aggiornare-e-disinstallare).
 
-Lo script è provato con lettore e disco veri in container puliti Debian 13 (trixie) e Ubuntu 24.04; il programma gira ogni giorno su Debian testing.
+### Strada C — Script nativo (da una copia del progetto)
+
+Se usi una copia del progetto invece del pacchetto della release, avvia [`scripts/install.sh`](scripts/install.sh) come utente normale. Installa i pacchetti, compila edge264, installa il comando e aggiunge a Samba la condivisione `[Disks]` in sola lettura e ad accesso ospite. Lo script supporta Debian/Ubuntu; resta disponibile per le installazioni da una copia del progetto.
 
 ### Aggiornare e disinstallare
 
 **Aggiornare**, quando esce una versione nuova (vedi [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases)); `bluray3d-xr --version` dice quale hai:
+- pacchetto della release: scarica il nuovo `.deb` e installalo con `sudo apt install ./bluray3d-xr_<versione>_amd64.deb`;
 - strada nativa: `./scripts/update.sh` nella cartella del progetto. Scarica l'ultima versione e copia il programma in `/opt/bluray3d-xr`; ripete tutto `install.sh` solo quando serve (è cambiato edge264, o non c'è nulla di installato). Alla fine scrive "Updated from vX to vY" e l'elenco delle modifiche. Se il programma è acceso, fermalo e riavvialo.
 - Docker: `git pull && docker compose up -d --build`.
 
 **Disinstallare**:
+- pacchetto della release: `sudo apt remove bluray3d-xr` rimuove la condivisione e `/srv/bd3d`; `sudo apt purge bluray3d-xr` rimuove anche il gruppo `bluray3d-xr`. La riga `user_allow_other` resta in `/etc/fuse.conf`.
 - strada nativa: `./scripts/uninstall.sh`. Smonta e cancella `/srv/bd3d`, toglie la condivisione `[Disks]` da `smb.conf` (solo il blocco che aveva aggiunto: le tue condivisioni restano), `/opt/bluray3d-xr` e il comando `bluray3d-xr`. Restano i pacchetti apt (FFmpeg, Samba, libbluray...) e la riga `user_allow_other` in `/etc/fuse.conf`, perché possono servire ad altro: se non servono, toglili con apt.
 - Docker: `docker compose down --rmi all` ferma il container e cancella la sua immagine.
 
