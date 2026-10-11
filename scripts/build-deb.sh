@@ -10,11 +10,11 @@ for command in gcc git make dpkg-deb nproc strip; do
     command -v "$command" >/dev/null || { echo "Missing build tool: $command" >&2; exit 1; }
 done
 
-version=$(git -C "$REPO_DIR" describe --tags --always 2>/dev/null || echo unknown)
-version=${version#v}
-case "$version" in
+app_version=$(git -C "$REPO_DIR" describe --tags --always 2>/dev/null || echo unknown)
+package_version=${app_version#v}
+case "$package_version" in
     [0-9]*) ;;
-    *) version="0~$version" ;;
+    *) package_version="0~$package_version" ;;
 esac
 build=$(mktemp -d)
 trap 'rm -rf "$build"' EXIT
@@ -43,12 +43,12 @@ install -m 755 "$edge264/edge264_test" "$package/opt/bluray3d-xr/bin/"
 install -m 644 "$edge264/libedge264.so.1" "$package/opt/bluray3d-xr/bin/"
 install -m 644 "$edge264/LICENSE_BSD.txt" "$package/usr/share/doc/bluray3d-xr/"
 install -m 644 "$REPO_DIR/LICENSE" "$package/usr/share/doc/bluray3d-xr/copyright"
-printf '%s\n' "$version" > "$package/opt/bluray3d-xr/app/version"
+printf '%s\n' "$app_version" > "$package/opt/bluray3d-xr/app/version"
 printf '%s\n' "$edge264_commit" > "$package/opt/bluray3d-xr/bin/edge264.commit"
 chmod 644 "$package/opt/bluray3d-xr/app/version" "$package/opt/bluray3d-xr/bin/edge264.commit"
 
 {
-    printf 'bluray3d-xr (%s) unstable; urgency=medium\n\n' "$version"
+    printf 'bluray3d-xr (%s) unstable; urgency=medium\n\n' "$package_version"
     printf '  * Automated release package build.\n\n'
     printf ' -- Suppressio <suppressio@users.noreply.github.com>  %s\n' "$(date -R)"
 } | gzip -9n > "$package/usr/share/doc/bluray3d-xr/changelog.gz"
@@ -68,7 +68,7 @@ chmod 755 "$package/usr/bin/bluray3d-xr"
 
 cat > "$package/DEBIAN/control" <<CONTROL
 Package: bluray3d-xr
-Version: $version
+Version: $package_version
 Section: video
 Priority: optional
 Architecture: amd64
@@ -81,7 +81,7 @@ install -m 755 "$REPO_DIR/scripts/deb-postinst" "$package/DEBIAN/postinst"
 install -m 755 "$REPO_DIR/scripts/deb-postrm" "$package/DEBIAN/postrm"
 
 mkdir -p "$OUTPUT_DIR"
-deb="$OUTPUT_DIR/bluray3d-xr_${version}_amd64.deb"
+deb="$OUTPUT_DIR/bluray3d-xr_${package_version}_amd64.deb"
 dpkg-deb --build --root-owner-group -Zxz "$package" "$deb"
 if command -v lintian >/dev/null; then
     lintian --fail-on error "$deb"
