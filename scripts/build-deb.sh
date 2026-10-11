@@ -11,11 +11,8 @@ for command in gcc git make dpkg-deb nproc strip; do
 done
 
 app_version=$(git -C "$REPO_DIR" describe --tags --always 2>/dev/null || echo unknown)
-package_version=${app_version#v}
-case "$package_version" in
-    [0-9]*) ;;
-    *) package_version="0~$package_version" ;;
-esac
+source "$REPO_DIR/scripts/deb-version.sh"
+package_version=$(deb_package_version "$app_version")
 build=$(mktemp -d)
 trap 'rm -rf "$build"' EXIT
 package="$build/package"
