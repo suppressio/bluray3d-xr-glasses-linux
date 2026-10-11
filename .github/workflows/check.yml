@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+# Read-only token: the job only checks out the code and runs the checks.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-24.04
