@@ -21,7 +21,7 @@ step "ruff"
 step "pyright (strict)"
 "${venv}/bin/pyright" --pythonpath "${venv}/bin/python"
 step "shellcheck"
-"${venv}/bin/shellcheck" scripts/*.sh docker/*.sh && echo "ok"
+"${venv}/bin/shellcheck" scripts/*.sh scripts/deb-postinst scripts/deb-postrm docker/*.sh && echo "ok"
 step "tests"
 "${venv}/bin/python" -m pytest -q
 if [[ "${1:-}" == "--integration" ]]; then
