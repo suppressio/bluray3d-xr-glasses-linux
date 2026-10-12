@@ -12,10 +12,13 @@ if ! getent group "$group" >/dev/null; then
 fi
 install -d -o root -g "$group" -m 2775 "$mount"
 
-if ! grep -qxF user_allow_other /etc/fuse.conf; then
+# FUSE and Samba are only recommended: --share dlna needs neither. Configure
+# them when installed (a later install: dpkg-reconfigure bluray3d-xr)
+if [ -f /etc/fuse.conf ] && ! grep -qxF user_allow_other /etc/fuse.conf; then
     printf '%s\n' user_allow_other >> /etc/fuse.conf
 fi
 
+[ -f "$smb_conf" ] || exit 0
 if grep -qF "$mark_begin" "$smb_conf"; then
     sed -i "/^${mark_begin}\$/,/^${mark_end}\$/d" "$smb_conf"
 fi

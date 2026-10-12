@@ -88,6 +88,18 @@ def test_browse_unknown_object_raises_soap_error(tree: Tree) -> None:
     assert exc_info.value.code == 701
 
 
+@pytest.mark.parametrize(("object_id", "flag", "code"), [
+    ("0", "BrowseEverything", 402),       # not one of the two allowed values
+    ("3", "BrowseDirectChildren", 710),   # the movie: a file has no children
+])
+def test_browse_rejects_invalid_requests(tree: Tree, object_id: str, flag: str,
+                                         code: int) -> None:
+    body = soap_body(ObjectID=object_id, BrowseFlag=flag)
+    with pytest.raises(didl.SoapError) as exc_info:
+        didl.browse(tree, body, "http://host:8200")
+    assert exc_info.value.code == code
+
+
 def test_handle_action_dispatches_on_soap_action_header(tree: Tree) -> None:
     body = soap_body(ObjectID="0", BrowseFlag="BrowseDirectChildren")
     response = didl.handle_action(f'"{didl.CONTENT_DIRECTORY}#Browse"', body, tree,

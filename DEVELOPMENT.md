@@ -33,7 +33,7 @@ How to run the program from a clone, where things are in the code, what the test
 
 | File | What it does |
 |---|---|
-| `src/bd3d_fs.py` | The FUSE file system and the command line. It holds the virtual files, the drive watcher and the pipelines (start, jump, pause, stop), and paints the loading picture. |
+| `src/bd3d_fs.py` | The command line and the library of virtual files. It holds the virtual files, the drive watcher and the pipelines (start, jump, pause, stop), and paints the loading picture. |
 | `src/sources.py` | What a movie is made of: `BlurayDiscSource`, `DvdSource`, `MkvSource`. Each one says how to read its video from a given time (`video_command`), and gives its audio, subtitles and keyframes. |
 | `src/pipeline.py` | The decode chain: reader → decoder → FFmpeg encoder at constant bitrate. Also the encoder choice (NVENC or x264) and the quality. |
 | `src/bluray.py` | A small ctypes binding to libbluray: it opens a disc, ISO or folder, and reads its files decrypted. |
@@ -44,6 +44,7 @@ How to run the program from a clone, where things are in the code, what the test
 | `src/dvd_reader.py` | Reads a DVD title from a given time as an MPEG program stream for FFmpeg. It runs as its own process. |
 | `src/langs.py` | One spelling per language (ISO 639-2). |
 | `src/tree.py` | The tree of folders and files Library builds, independent of how it is served: ids, not pyfuse3 inodes, though Bd3dFS reuses them as such. |
+| `src/fuse_fs.py` | The FUSE front end (`--share samba`/`both`): Bd3dFS mounts the tree for Samba. The only module importing pyfuse3, loaded only when FUSE is used, so `--share dlna` runs without it. |
 | `src/http_server.py` | The same tree over plain HTTP: a byte Range maps straight onto a `FileEntry.read()`, like a FUSE read. Used standalone (`--share dlna`/`both`) and as the transport dlna.py's endpoints ride on. |
 | `src/didl.py` | DIDL-Lite (the XML listing media) and the SOAP envelopes of ContentDirectory (Browse) and ConnectionManager: pure string building, no XML parser on untrusted input. |
 | `src/ssdp.py` | SSDP: answers M-SEARCH and sends NOTIFY ssdp:alive/byebye, so DLNA renderers find the server without being told its address. |

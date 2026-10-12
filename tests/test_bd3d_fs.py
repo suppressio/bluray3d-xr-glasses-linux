@@ -6,6 +6,7 @@ import copy
 import logging
 import re
 import shlex
+import subprocess
 import sys
 import threading
 import time
@@ -18,16 +19,17 @@ import trio
 import trio.testing
 
 import bd3d_fs
+import fuse_fs
 from bd3d_fs import (
     AUDIO_TRACK_MUX,
     NULL_PACKET,
     TS_PACKET,
-    Bd3dFS,
     Library,
     SidecarFile,
     VirtualFile,
     null_padding,
 )
+from fuse_fs import Bd3dFS
 from pipeline import Quality
 from sources import Source, SubTrack
 from tree import ROOT_ID, FileEntry, Folder, Tree
@@ -112,7 +114,7 @@ def small_file_system(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         monkeypatch.setattr(bd3d_fs, name, value)
     monkeypatch.setattr(bd3d_fs, "decode_command", fake_decode)
     monkeypatch.setattr(VirtualFile, "filler_command", fake_filler)
-    monkeypatch.setattr(bd3d_fs.pyfuse3, "invalidate_entry_async", no_invalidate)
+    monkeypatch.setattr(fuse_fs.pyfuse3, "invalidate_entry_async", no_invalidate)
     yield
     while _running:
         _running.pop().stop()
@@ -499,30 +501,32 @@ def test_file_system_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         listed.append(name)
         return True
 
-    monkeypatch.setattr(bd3d_fs.pyfuse3, "readdir_reply", reply)
-    token = cast("bd3d_fs.pyfuse3.ReaddirToken", object())
+    monkeypatch.setattr(fuse_fs.pyfuse3, "readdir_reply", reply)
+    token = cast("fuse_fs.pyfuse3.ReaddirToken", object())
 
     async def check() -> None:
         attr = await fs.getattr(movie.inode)
         assert attr.st_size == movie.size and attr.st_mode & 0o777 == 0o444
         assert (await fs.lookup(folder.inode, b"Movie.ts")).st_ino == movie.inode
         assert (await fs.getattr(folder.inode)).st_mode & 0o040000
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.lookup(folder.inode, b"missing.ts")
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):                # not UTF-8: not found
+            await fs.lookup(folder.inode, b"Movie\xff.ts")
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.getattr(9999)
         assert await fs.opendir(folder.inode, None) == folder.inode
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.opendir(movie.inode, None)
         await fs.readdir(folder.inode, 0, token)
         assert listed == [b"Movie.ts", b"Movie.srt"]
         # movies bypass the page cache (their bytes can change), subtitles do not
         assert (await fs.open(movie.inode, 0, None)).direct_io
         assert not (await fs.open(sidecar.inode, 0, None)).direct_io
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.open(movie.inode, 1, None)                     # O_WRONLY
         assert await fs.read(sidecar.inode, 0, 100) == b"hello"
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.read(12345, 0, 10)
         s = await fs.statfs(None)
         assert s.f_bavail == 0 and s.f_blocks >= movie.size // s.f_frsize
@@ -607,7 +611,7 @@ def test_a_failing_read_does_not_stop_the_program(tmp_path: Path,
     movie.read = broken  # type: ignore[method-assign]
 
     async def read() -> None:
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.read(movie.inode, 0, 10)
 
     trio.run(read)
@@ -654,3 +658,16 @@ def test_http_port_rejects_unusable_ports(value: str) -> None:
 
 def test_http_port_accepts_a_real_port() -> None:
     assert bd3d_fs.build_parser().parse_args(["--http-port", "8200", "x.mkv"]).http_port == 8200
+
+
+def test_dlna_only_does_not_need_fuse(monkeypatch: pytest.MonkeyPatch) -> None:
+    # without pyfuse3 the program still imports (--share dlna runs) ...
+    src = Path(bd3d_fs.__file__).parent
+    code = "import sys; sys.modules['pyfuse3'] = None; import bd3d_fs; print('ok')"
+    done = subprocess.run([sys.executable, "-c", code], cwd=src, capture_output=True,
+                          text=True, check=False)
+    assert done.stdout.strip() == "ok", done.stderr
+    # ... and asking for FUSE explains what to install instead of a traceback
+    monkeypatch.setitem(sys.modules, "fuse_fs", None)
+    with pytest.raises(SystemExit, match="install python3-pyfuse3 and fuse3, or use --share dlna"):
+        bd3d_fs.require_fuse("samba")

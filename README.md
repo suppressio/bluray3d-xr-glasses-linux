@@ -66,7 +66,7 @@ DVDs (CSS) are decrypted by **libdvdcss**, which you install yourself: on Debian
 #### Software on the PC
 - **Docker** (path A) _or_ a **Debian/Ubuntu** system (path B). Everything else is installed for you:
   - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc): the only open-source decoder of the MVC dependent view;
-  - libbluray, libaacs, libbdplus (Blu-ray), libdvdread (DVD), FFmpeg, Samba (the network share), FUSE + pyfuse3 (the virtual file).
+  - libbluray, libaacs, libbdplus (Blu-ray), libdvdread (DVD), FFmpeg, Samba (the network share), FUSE + pyfuse3 (the virtual file; Samba and FUSE are not needed with `--share dlna`).
 
 ---
 

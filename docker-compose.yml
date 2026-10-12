@@ -7,14 +7,9 @@ services:
     ports:
       # SMB. The host must not run its own Samba on 445 at the same time.
       - "${SMB_PORT:-445}:445"
-      # DLNA/UPnP with Samba (SHARE=both in .env): the HTTP server, and SSDP discovery
-      # (UDP, must be 1900: renderers do not ask .env for it). Docker's bridge
-      # network does not forward multicast to the LAN: SSDP discovery needs
-      # "network_mode: host" below instead of these two lines (and no "ports:"),
-      # untested here (not run that way on the test PC). DLNA only (SHARE=dlna):
-      # use docker-compose.dlna.yml on top of this file instead
-      # - "${HTTP_PORT:-8200}:${HTTP_PORT:-8200}"
-      # - "1900:1900/udp"
+      # DLNA/UPnP needs the host network (SSDP discovery is multicast, which this
+      # bridge network does not carry): add docker-compose.dlna.yml (DLNA only,
+      # no Samba/FUSE) or docker-compose.both.yml (DLNA and Samba) on top of this file
     volumes:
       - "${MOVIES_DIR:?set MOVIES_DIR in .env}:/films:ro"
       # key database for libaacs (commercial discs); not provided by this project

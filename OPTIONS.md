@@ -58,7 +58,7 @@ bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
 - The server listens on `--http-port` (default `8200`). Open `http://<pc-ip>:8200/` in a browser to see the same folders as a plain page: a quick way to check it is working, and any player that opens a video by URL can use it directly.
 - On the player, look for "bluray3d-xr" among the DLNA/media servers it finds on the network (no IP address to type): browse into `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, the same folders as the SMB share.
 - Seeking works the same way as over SMB: a byte of the file is still a precise second of the movie, so a jump restarts the pipeline from there regardless of whether the player reads it over SMB or HTTP.
-- Docker, DLNA only: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — no Samba, no FUSE, no port 445; it uses the host network, since SSDP discovery is multicast (`HTTP_PORT` in `.env` sets the port). DLNA together with Samba: `SHARE=both` and `HTTP_PORT` in `.env`, and see the commented lines in `docker-compose.yml` (the HTTP port, and UDP 1900 for SSDP, the discovery announcement).
+- Docker, DLNA only: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — no Samba, no FUSE, no port 445; it uses the host network, since SSDP discovery is multicast (`HTTP_PORT` in `.env` sets the port). DLNA together with Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, also on the host network, so Samba uses the host's port 445 directly (`SMB_PORT` does not apply).
 
 ## Audio languages
 
