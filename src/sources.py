@@ -323,8 +323,12 @@ def _decrypted_with(info: bluray.DiscInfo, env: dict[str, str]) -> str:
 
 
 AACS_ERROR_CORRUPTED_DISC = -1
-"""libaacs: opening or reading of the AACS files on the disc failed. A read
-error (bad media, drive dropout), not a missing or wrong key."""
+"""libaacs: opening or reading of the AACS files on the disc failed."""
+AACS_ERROR_MMC_OPEN = -6
+"""libaacs: opening the drive (MMC) failed."""
+AACS_READ_ERRORS = frozenset({AACS_ERROR_CORRUPTED_DISC, AACS_ERROR_MMC_OPEN})
+"""AACS errors that are drive or media problems (bad disc, drive dropout), not
+a missing or wrong key: no KEYDB/MakeMKV hint for these."""
 
 
 def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]:
@@ -347,9 +351,9 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-    if last is not None and last.aacs_error == AACS_ERROR_CORRUPTED_DISC:
-        raise OSError("cannot read the disc: the AACS files could not be read "
-                       "(drive or media problem, not a missing key)")
+    if last is not None and last.aacs_error in AACS_READ_ERRORS:
+        raise OSError(f"cannot read the disc (AACS error {last.aacs_error}): "
+                      "drive or media problem, not a missing key")
     raise OSError(f"cannot decrypt (AACS error {last.aacs_error if last else 'unknown'}). "
                   f"Provide a KEYDB.cfg for libaacs or install MakeMKV (libmmbd).")
 
@@ -711,7 +715,7 @@ def discover(paths: list[str], audio_langs: list[str] | None = None) -> list[Sou
             try:
                 sources += open_disc(str(p), audio_langs)
             except OSError as e:
-                log.info("skipped: %s", e)
+                log.info("%s: skipped: %s", p, e)
         elif p.suffix.lower() != ".mkv":
             log.info("skipped (not a 3D Blu-ray MKV, ISO or BDMV folder): %s", p)
         elif not MkvSource.has_mvc(str(p)):
