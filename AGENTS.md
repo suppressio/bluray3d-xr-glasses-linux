@@ -1,11 +1,11 @@
 # Instructions for coding agents
 
-For AI coding agents (Claude Code, GitHub Copilot and the like) working on this repository. People should start from the [README](README.md) and [DEVELOPMENT.md](DEVELOPMENT.md); this file only adds what an agent needs on top of them.
+For AI coding agents (Claude Code, GitHub Copilot and the like) working on this repository. People should start from the [README](README.md) and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md); this file only adds what an agent needs on top of them.
 
 ## Read first
 
-- [DEVELOPMENT.md](DEVELOPMENT.md): where things are in the code, the checks, the tests, the logs.
-- [OPTIONS.md](OPTIONS.md): every command-line option, when your change adds or changes one.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): where things are in the code, the checks, the tests, the logs.
+- [docs/OPTIONS.md](docs/OPTIONS.md): every command-line option, when your change adds or changes one.
 - [docs/bluray-mpls-internals.md](docs/bluray-mpls-internals.md): Blu-ray playlists (MPLS), play-all playlists, title selection.
 
 ## Branches and pull requests
@@ -28,6 +28,6 @@ scripts/check.sh          # ruff, pyright (strict), shellcheck, unit tests: must
 ## Conventions
 
 - Code, comments and log messages in English.
-- Documentation in two languages: every `.md` file has an `.it.md` twin, changed in the same pull request. Exceptions: this file and `CLAUDE.md`, which are for agents only.
+- Documentation in two languages: every `.md` file has an `.it.md` twin, changed in the same pull request. Exceptions: this file and `CLAUDE.md`, which are for agents only. The README is for users (what it is, install, use); every other document goes in `docs/`, one file per topic.
 - Keep the style of the surrounding code; pyright strict means typed signatures everywhere.
 - Do not change `.github/workflows/` unless the issue asks for it.

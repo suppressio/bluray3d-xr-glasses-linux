@@ -2,7 +2,7 @@
 
 # Le opzioni nel dettaglio
 
-Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiare cosa offre la cartella condivisa (lingue, sottotitoli, qualità) o come si comporta. Torna al [README](README.it.md).
+Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiare cosa offre la cartella condivisa (lingue, sottotitoli, qualità) o come si comporta. Torna al [README](../README.it.md).
 
 **Dove si mettono le opzioni:**
 - strada nativa: sulla riga di comando, per esempio `bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0`;

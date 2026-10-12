@@ -2,7 +2,7 @@
 
 # Tested: devices, players, discs
 
-What this project has been tried with so far, and how it went. The [README](README.md) covers the general steps; here are the details for each device and player, and the discs that taught something. More reports are welcome: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
+What this project has been tried with so far, and how it went. The [README](../README.md) covers the general steps; here are the details for each device and player, and the discs that taught something. More reports are welcome: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
 
 - [Devices and players](#devices-and-players)
   - [VITURE Pro XR + Pro Neckband: official 3D Player](#viture-pro-xr--pro-neckband-official-3d-player)
@@ -23,7 +23,7 @@ What this project has been tried with so far, and how it went. The [README](READ
 - [ ] Open **Disks**, then the folder and the movie (go back and in again if a folder looks empty).
 - [ ] The player recognizes the side-by-side format and switches to 3D by itself. 🎉
 
-![Playback in the VITURE 3D Player: 3D on, seek bar, the file's name](docs/viture-3d-playback.png)
+![Playback in the VITURE 3D Player: 3D on, seek bar, the file's name](viture-3d-playback.png)
 
 Good to know:
 - It has **no audio track menu** and picks a track on its own: that is why each language is its own file by default ([Audio languages](OPTIONS.md#audio-languages)).
@@ -31,7 +31,7 @@ Good to know:
 - It cuts long file names: that is why the language comes first in the name.
 - It opens only files from an SMB share, not network streams.
 - It **cannot open a 3D Blu-ray MKV rip** (MVC) at all: it does not start. The virtual SBS file is really needed here.
-- Closing the program while a movie plays freezes the player for about 20 seconds (see [Troubleshooting](README.md#troubleshooting)).
+- Closing the program while a movie plays freezes the player for about 20 seconds (see [Troubleshooting](TROUBLESHOOTING.md)).
 
 ### PICO 4: built-in File Manager and video player
 
@@ -43,11 +43,11 @@ Good to know:
 - [ ] If the picture shows two images side by side, press the cube button in the player bar (**Switch Mode**): **Non-VR** and **3D SBS**.
 - [ ] In the gear menu (**Advanced Settings → Aspect Ratio**) choose **16:9**. 16:10 fills the screen more, but stretches the picture a bit in height. 🎉
 
-![The Switch Mode panel of the PICO 4 player: Non-VR, 3D SBS](docs/pico-switch-mode.png)
+![The Switch Mode panel of the PICO 4 player: Non-VR, 3D SBS](pico-switch-mode.png)
 
-![The PICO 4 File Manager in the Blu-ray 3D folder: one file per language, with and without subtitles](docs/pico-file-manager.png)
+![The PICO 4 File Manager in the Blu-ray 3D folder: one file per language, with and without subtitles](pico-file-manager.png)
 
-![A 3D Blu-ray in the PICO 4 video player, in the virtual cinema](docs/pico-cinema.png)
+![A 3D Blu-ray in the PICO 4 video player, in the virtual cinema](pico-cinema.png)
 
 Good to know:
 - The scene menu (mountain icon) chooses the room (e.g. **PMAX Cinema**), where you sit (**Close / Centre / Far**) and the screen size.

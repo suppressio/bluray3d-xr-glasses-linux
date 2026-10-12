@@ -1,5 +1,5 @@
 """ssdp.py: the message building/parsing SsdpResponder sends over its
-multicast socket, tested on their own (no socket: see DEVELOPMENT.md on
+multicast socket, tested on their own (no socket: see docs/DEVELOPMENT.md on
 what needs real hardware/network, out of scope for unit tests)."""
 import ssdp
 

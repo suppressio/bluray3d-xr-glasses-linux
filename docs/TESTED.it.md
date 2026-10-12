@@ -2,7 +2,7 @@
 
 # Provato: dispositivi, player, dischi
 
-Con cosa è stato provato finora questo progetto, e come è andata. Il [README](README.it.md) spiega i passi generali; qui ci sono i dettagli per ogni dispositivo e player, e i dischi che hanno insegnato qualcosa. Altre segnalazioni sono benvenute: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
+Con cosa è stato provato finora questo progetto, e come è andata. Il [README](../README.it.md) spiega i passi generali; qui ci sono i dettagli per ogni dispositivo e player, e i dischi che hanno insegnato qualcosa. Altre segnalazioni sono benvenute: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
 
 - [Dispositivi e player](#dispositivi-e-player)
   - [VITURE Pro XR + Pro Neckband: 3D Player ufficiale](#viture-pro-xr--pro-neckband-3d-player-ufficiale)
@@ -23,7 +23,7 @@ Con cosa è stato provato finora questo progetto, e come è andata. Il [README](
 - [ ] Apri **Disks**, poi la cartella e il film (se una cartella sembra vuota, torna indietro e rientra).
 - [ ] Il player riconosce il formato affiancato e passa in 3D da solo. 🎉
 
-![La riproduzione nel 3D Player VITURE: 3D attivo, barra di avanzamento, nome del file](docs/viture-3d-playback.png)
+![La riproduzione nel 3D Player VITURE: 3D attivo, barra di avanzamento, nome del file](viture-3d-playback.png)
 
 Da sapere:
 - **Non ha un menu delle tracce audio** e ne sceglie una da solo: per questo di base ogni lingua è un file a sé ([Lingue audio](OPTIONS.it.md#lingue-audio)).
@@ -31,7 +31,7 @@ Da sapere:
 - Taglia i nomi lunghi dei file: per questo la lingua sta all'inizio del nome.
 - Apre solo file da una cartella SMB, non flussi di rete.
 - **Non apre proprio un rip MKV di un Blu-ray 3D** (MVC): non parte. Qui il file SBS virtuale serve davvero.
-- Chiudere il programma mentre un film è in riproduzione blocca il player per circa 20 secondi (vedi [Risoluzione dei problemi](README.it.md#risoluzione-dei-problemi)).
+- Chiudere il programma mentre un film è in riproduzione blocca il player per circa 20 secondi (vedi [Risoluzione dei problemi](TROUBLESHOOTING.it.md)).
 
 ### PICO 4: File Manager e lettore video di sistema
 
@@ -43,11 +43,11 @@ Da sapere:
 - [ ] Se l'immagine mostra due figure affiancate, premi il pulsante a cubo nella barra del player (**Switch Mode**): **Non-VR** e **3D SBS**.
 - [ ] Nel menu a ingranaggio (**Advanced Settings → Aspect Ratio**) scegli **16:9**. 16:10 riempie di più lo schermo, ma allunga un po' l'immagine in altezza. 🎉
 
-![Il pannello Switch Mode del lettore del PICO 4: Non-VR, 3D SBS](docs/pico-switch-mode.png)
+![Il pannello Switch Mode del lettore del PICO 4: Non-VR, 3D SBS](pico-switch-mode.png)
 
-![Il File Manager del PICO 4 nella cartella Blu-ray 3D: un file per lingua, con e senza sottotitoli](docs/pico-file-manager.png)
+![Il File Manager del PICO 4 nella cartella Blu-ray 3D: un file per lingua, con e senza sottotitoli](pico-file-manager.png)
 
-![Un Blu-ray 3D nel lettore video del PICO 4, nel cinema virtuale](docs/pico-cinema.png)
+![Un Blu-ray 3D nel lettore video del PICO 4, nel cinema virtuale](pico-cinema.png)
 
 Da sapere:
 - Il menu della scena (icona della montagna) sceglie la sala (per esempio **PMAX Cinema**), dove ti siedi (**Close / Centre / Far**) e la dimensione dello schermo.
