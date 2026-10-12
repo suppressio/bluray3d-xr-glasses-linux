@@ -216,10 +216,10 @@ class MultiEpisodeBluray:
 
 def test_bluray_all_on_dedup_and_audio_fallback(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    """Reproduces #25: a German multi-region TV disc with 2 real episodes, each with a
-    second playlist that just prepends a short language-card clip (same episode, must not
-    be listed twice), plus 2 further titles that are genuinely a different encode with no
-    Italian track (must still show up, with the audio fallback made visible)."""
+    """Reproduces #25, shaped like the real disc (Rick_Morty_S1, MPLS dump in PR #34):
+    episodes with ita+eng, a variant playlist per episode with a near-empty clip appended
+    (same episode, must not be listed twice), and further titles with their own clips and
+    no Italian track (must still show up, with the audio fallback made visible)."""
     iso = tmp_path / "Rick.iso"
     iso.write_text("")
 
@@ -234,9 +234,9 @@ def test_bluray_all_on_dedup_and_audio_fallback(
     disc = MultiEpisodeBluray({
         "00001": [ep("00010", ita_and_eng)],
         "00002": [ep("00020", ita_and_eng)],
-        # same two episodes, a language card prepended: the first clip differs, the main one doesn't
-        "00013": [card("00099"), ep("00010", ita_and_eng)],
-        "00014": [card("00098"), ep("00020", ita_and_eng)],
+        # the same two episodes with a short clip appended (01004... on the real disc)
+        "00013": [ep("00010", ita_and_eng), card("00099")],
+        "00014": [ep("00020", ita_and_eng), card("00099")],
         # a separate pair of titles, really without an Italian track
         "00021": [ep("00030", eng_only)],
         "00022": [ep("00040", eng_only)],
