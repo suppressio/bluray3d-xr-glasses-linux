@@ -3,7 +3,7 @@
 # Blu-rays and DVDs on every screen at home, 3D included, from Linux
 #### _Put a disc in your Linux PC's drive and watch it on any device at home: TV, tablet, phone, XR glasses. The PC reads, decrypts and decodes the disc on the fly and serves it over the LAN as an ordinary video file. 3D Blu-rays become real side-by-side 3D for XR glasses (VITURE & co.). No rip, no conversion, no disk space._
 
-***Note:*** _Any player able to open videos from a network share (SMB) should work; for 3D it must also show side-by-side video. Devices, players and discs tested so far, with a guide for each: [**TESTED.md**](TESTED.md)._
+***Note:*** _Any player able to open videos from a network share (SMB), or browse a DLNA/UPnP media server instead ([OPTIONS.md](OPTIONS.md#dlnaupnp-instead-of-samba)), should work; for 3D it must also show side-by-side video. Devices, players and discs tested so far, with a guide for each: [**TESTED.md**](TESTED.md)._
 
 ![The VITURE 3D Player opening the share: one file per audio language, with and without Italian subtitles](docs/viture-3d-player.png)
 
@@ -39,7 +39,7 @@ The PC reads the disc and decodes the MVC **while you watch**, and serves the re
 - **Any device at home.** A TV, tablet or phone with a player that opens network shares plays the Blu-rays and DVDs; the 3D files need a player that shows side-by-side 3D (XR glasses, VR headsets). Several devices can watch at once, even the same disc in two languages.
 - **Nothing is written to disk.** The `.ts` file shows a size of ~22 GB but takes no space: every piece is produced when the player reads it.
 - **Seeking works.** The file has a constant bitrate, so every byte matches a precise second of the movie. When the player jumps, the PC restarts reading the disc from there (a few seconds: the optical drive has to move).
-- **Players see a normal file.** No special app, server or streaming protocol: the player's own interface, pause, seek, and 3D detection.
+- **Players see a normal file.** No special app on the player: its own interface, pause, seek, and 3D detection — over the SMB share by default, or a DLNA/UPnP media server instead ([`--share dlna`](OPTIONS.md#dlnaupnp-instead-of-samba), for players that browse one rather than opening a share).
 
 All the procedures described here are a balanced compromise between "manual" and guided processes. This is one of the possible ways to do it.
 
@@ -242,6 +242,7 @@ Reporting a problem: [open an issue](https://github.com/suppressio/bluray3d-xr-g
 - **Seeking.** A time goes through the EP_map (keyframe positions) and the extent table of the clip to a byte of the `.ssif`. Movies made of several clips (Tron: two) are played in sequence, and the audio timestamps of later clips are moved onto one timeline.
 - **Audio.** `src/disc_reader.py` reads the disc once: video to edge264, the chosen audio track (with its language from the playlist) to FFmpeg through a FIFO, each from its own thread. The keyframe is forwarded with the audio as a timing anchor, so audio and video start exactly together. Measured against the MKV path: 4 ms.
 - **The virtual file.** The encoder uses **constant bitrate** and the MPEG-TS muxer pads to exactly 24 Mbit/s, so byte _X_ is second _X_ / 3,000,000 of the movie. A **FUSE** file system (`src/bd3d_fs.py`) serves the files. It restarts decoding when the player jumps and pauses the pipeline when it gets too far ahead. Only one pipeline per drive runs at a time, because two would make the optical drive seek back and forth. The end of the file, which players read to get the duration, is synthetic: black and silence with the right timestamps, so the drive is not sent to the end of the disc.
+- **DLNA/UPnP, instead of Samba.** `--share dlna` serves the same files over plain HTTP and announces them via SSDP (`src/http_server.py`, `src/dlna.py`), for players that browse a media server rather than opening a share; `--share both` does both. Since the constant bitrate makes a byte offset also a point in time, an HTTP Range request maps 1:1 onto a `VirtualFile.read()` (`src/tree.py`), exactly like a FUSE read: seeking works the same way either way, and FUSE/Samba is not needed at all with `dlna` alone.
 - **DVD.** `src/dvd.py` reads the disc through libdvdread (libdvdcss for CSS) and its IFO files: the titles, their cells, audio languages, video standard and aspect. It offers the movie, or the episodes of a series; titles that replay cells or jump back on the disc (fake titles of copy protections) are left out. Seeking is a binary search over the navigation packs of the cell's VOBUs (~0.5 s each), which hold their exact time: the restart point is known precisely. Damaged spots are skipped, half a second at a time. FFmpeg's own DVD reader only seeks approximately (seconds off, without knowing where it landed). `src/dvd_reader.py` streams the title from there to FFmpeg, which deinterlaces and scales it to square pixels.
 - **Drives.** Every few seconds the drive is asked whether a disc is in (no reads). On insertion it is opened as a Blu-ray, or else as a DVD, and its movie added; on eject it is removed.
 

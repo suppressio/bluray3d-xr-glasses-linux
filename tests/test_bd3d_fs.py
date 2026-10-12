@@ -23,9 +23,6 @@ from bd3d_fs import (
     NULL_PACKET,
     TS_PACKET,
     Bd3dFS,
-    Entry,
-    FileEntry,
-    Folder,
     Library,
     SidecarFile,
     VirtualFile,
@@ -33,6 +30,7 @@ from bd3d_fs import (
 )
 from pipeline import Quality
 from sources import Source, SubTrack
+from tree import ROOT_ID, FileEntry, Folder, Tree
 
 PPS = 500                                  # TS packets per second of movie
 BPS = PPS * TS_PACKET                      # bytes per second
@@ -422,33 +420,27 @@ class DiscSource(FakeSource):
         return out
 
 
-def tree(fs: Bd3dFS) -> list[str]:
-    def path(e: Entry) -> str:
-        parts: list[str] = []
-        while e.inode != bd3d_fs.pyfuse3.ROOT_INODE:
-            parts.append(e.name)
-            e = fs.nodes[e.parent]
-        return "/".join(reversed(parts))
-    return sorted(path(e) for e in fs.nodes.values() if e.inode != bd3d_fs.pyfuse3.ROOT_INODE)
+def paths(tree: Tree) -> list[str]:
+    return sorted(tree.path_of(e.inode) for e in tree.nodes.values() if e.inode != ROOT_ID)
 
 
-def movies(fs: Bd3dFS) -> list[VirtualFile]:
-    return [e for e in fs.files() if isinstance(e, VirtualFile)]
+def movies(tree: Tree) -> list[VirtualFile]:
+    return [e for e in tree.files() if isinstance(e, VirtualFile)]
 
 
 def library(tmp_path: Path, audio_files: str = "per-language", light: bool = False,
-            sub_langs: list[str] | None = None) -> tuple[Bd3dFS, Library]:
-    fs = Bd3dFS()
-    return fs, Library(fs, "x264", str(tmp_path / "log"), audio_files, light, sub_langs)
+            sub_langs: list[str] | None = None) -> tuple[Tree, Library]:
+    tree = Tree()
+    return tree, Library(tree, "x264", str(tmp_path / "log"), audio_files, light, sub_langs)
 
 
 def test_library_per_language(tmp_path: Path) -> None:
-    fs, lib = library(tmp_path, sub_langs=["eng", "ita", "jpn"])
+    tree, lib = library(tmp_path, sub_langs=["eng", "ita", "jpn"])
     lib.add(DiscSource(str(tmp_path / "d")))
-    assert tree(fs) == sorted(["Blu-ray"] + [f"Blu-ray/{a}{s} - Movie.ts"
-                                             for a in ("ITA", "ENG", "DEU")
-                                             for s in ("", "subENG", "subITA")])
-    files = {e.name: e for e in movies(fs)}
+    assert paths(tree) == sorted(["Blu-ray"] + [f"Blu-ray/{a}{s} - Movie.ts"
+                                                for a in ("ITA", "ENG", "DEU")
+                                                for s in ("", "subENG", "subITA")])
+    files = {e.name: e for e in movies(tree)}
     # the plain file carries the forced subtitles of its language, if the disc has them
     assert (files["ITA - Movie.ts"].source.sub, files["ITA - Movie.ts"].source.forced_only) == \
         (SubTrack(1, "ita"), True)
@@ -458,17 +450,17 @@ def test_library_per_language(tmp_path: Path) -> None:
 
 
 def test_library_all_and_no_subtitles(tmp_path: Path) -> None:
-    fs, lib = library(tmp_path, audio_files="single")
+    tree, lib = library(tmp_path, audio_files="single")
     lib.add(DiscSource(str(tmp_path / "d")))
-    assert tree(fs) == ["Blu-ray", "Blu-ray/Movie.ts", "Blu-ray/subENG - Movie.ts",
-                        "Blu-ray/subFRA - Movie.ts", "Blu-ray/subITA - Movie.ts"]
-    fs, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    assert paths(tree) == ["Blu-ray", "Blu-ray/Movie.ts", "Blu-ray/subENG - Movie.ts",
+                           "Blu-ray/subFRA - Movie.ts", "Blu-ray/subITA - Movie.ts"]
+    tree, lib = library(tmp_path, audio_files="single", sub_langs=[])
     lib.add(DiscSource(str(tmp_path / "d2")))
-    assert tree(fs) == ["Blu-ray", "Blu-ray/Movie.ts"]
+    assert paths(tree) == ["Blu-ray", "Blu-ray/Movie.ts"]
 
 
 def test_library_both_light_and_removal(tmp_path: Path) -> None:
-    fs, lib = library(tmp_path, audio_files="both", light=True, sub_langs=[])
+    tree, lib = library(tmp_path, audio_files="both", light=True, sub_langs=[])
     source = DiscSource(str(tmp_path / "d"))
     source.sidecars = [(".ita.srt", str(tmp_path / "x.ita.srt"))]
     (tmp_path / "x.ita.srt").write_text("1\n")
@@ -478,28 +470,29 @@ def test_library_both_light_and_removal(tmp_path: Path) -> None:
         for name in ("ITA - Movie", "ENG - Movie", "DEU - Movie", "Multi-audio/Movie"):
             expected += [f"{folder}/{name}.ts", f"{folder}/{name}.ita.srt"]
         expected += [folder, f"{folder}/Multi-audio"]
-    assert tree(fs) == sorted(expected)
-    light = next(e for e in movies(fs) if e.name == "ITA - Movie.ts" and "Light" in e.path)
+    assert paths(tree) == sorted(expected)
+    light = next(e for e in movies(tree) if e.name == "ITA - Movie.ts" and "Light" in e.path)
     assert light.quality.name == "light" and light.path == "Blu-ray/Light/ITA - Movie.ts"
-    multi = next(e for e in movies(fs) if e.name == "Movie.ts" and "Light" not in e.path)
+    multi = next(e for e in movies(tree) if e.name == "Movie.ts" and "Light" not in e.path)
     assert multi.muxrate == multi.quality.muxrate + 2 * AUDIO_TRACK_MUX
-    sidecar = next(e for e in fs.files() if isinstance(e, SidecarFile))
+    sidecar = next(e for e in tree.files() if isinstance(e, SidecarFile))
     assert sidecar.read(0, 100) == b"1\n"
 
     lib.remove(added)
-    assert tree(fs) == []                              # empty folders go too
-    assert isinstance(fs.nodes[bd3d_fs.pyfuse3.ROOT_INODE], Folder)
+    assert paths(tree) == []                            # empty folders go too
+    assert isinstance(tree.nodes[ROOT_ID], Folder)
 
 
 def test_file_system_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    fs, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    tree, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    fs = Bd3dFS(tree)
     source = DiscSource(str(tmp_path / "d"))
     source.sidecars = [(".srt", str(tmp_path / "x.srt"))]
     (tmp_path / "x.srt").write_text("hello")
     lib.add(source)
-    movie = movies(fs)[0]
-    sidecar = next(e for e in fs.files() if isinstance(e, SidecarFile))
-    folder = fs.folder("Blu-ray")
+    movie = movies(tree)[0]
+    sidecar = next(e for e in tree.files() if isinstance(e, SidecarFile))
+    folder = tree.folder("Blu-ray")
     listed: list[bytes] = []
 
     def reply(token: object, name: bytes, attr: object, next_id: int) -> bool:
@@ -603,9 +596,10 @@ def test_program_version(tmp_path: Path) -> None:
 
 def test_a_failing_read_does_not_stop_the_program(tmp_path: Path,
                                                    caplog: pytest.LogCaptureFixture) -> None:
-    fs, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    tree, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    fs = Bd3dFS(tree)
     lib.add(DiscSource(str(tmp_path / "d")))
-    movie = movies(fs)[0]
+    movie = movies(tree)[0]
 
     def broken(offset: int, size: int) -> bytes:
         raise OSError("no navigation pack at sector 35546")
