@@ -43,11 +43,16 @@ Come avviare il programma da un clone, dove stanno le cose nel codice, cosa cont
 | `src/dvd.py` | libdvdread tramite ctypes, i file IFO, la scelta del titolo principale o degli episodi, e il salto preciso. |
 | `src/dvd_reader.py` | Legge un titolo DVD da un certo istante come flusso MPEG program per FFmpeg. Gira come processo a sé. |
 | `src/langs.py` | Un solo modo di scrivere ogni lingua (ISO 639-2). |
+| `src/tree.py` | L'albero di cartelle e file che costruisce Library, indipendente da come viene servito: identificatori propri, non inode di pyfuse3, anche se Bd3dFS li riusa come tali. |
+| `src/http_server.py` | Lo stesso albero via HTTP semplice: un Range in byte diventa direttamente una `FileEntry.read()`, come una lettura FUSE. Usato da solo (`--share dlna`/`both`) e come trasporto per gli endpoint di dlna.py. |
+| `src/didl.py` | DIDL-Lite (l'XML con cui si elencano i contenuti) e le buste SOAP di ContentDirectory (Browse) e ConnectionManager: solo costruzione di stringhe, nessun parser XML su input non fidato. |
+| `src/ssdp.py` | SSDP: risponde a M-SEARCH e manda NOTIFY ssdp:alive/byebye, così i renderer DLNA trovano il server senza conoscerne l'indirizzo. |
+| `src/dlna.py` | Collega http_server.py, didl.py e ssdp.py in un unico MediaServer: la descrizione del device, gli endpoint di controllo ContentDirectory/ConnectionManager, e l'avvio/stop del responder SSDP. |
 | `loaders/` | Le animazioni di caricamento incluse nel programma. Gli script Blender che le generano sono in [bluray3d-xr-loaders](https://github.com/suppressio/bluray3d-xr-loaders). |
 | `tools/bdprobe.c` | La prima sonda del progetto (fase 0 della roadmap): apre un disco con libbluray e salva l'inizio del flusso 3D. |
 | `typings/pyfuse3/` | Le dichiarazioni dei tipi di pyfuse3: le sue versioni 3.3, 3.4 e 3.5 dichiarano i tipi in modo diverso. |
 
-Il percorso di un pezzo di file, dal player al disco: il player legge dei byte da un file in `/srv/bd3d` → `bd3d_fs.py` trasforma il byte in un istante (il bitrate è costante) → se nessuna pipeline è a quell'istante, ne avvia una: il lettore della sorgente (`disc_reader.py`, `dvd_reader.py` o FFmpeg per gli MKV), poi il decoder (edge264 per il 3D, altrimenti FFmpeg), poi FFmpeg che codifica il `.ts` → i byte tornano al player.
+Il percorso di un pezzo di file, dal player al disco: il player legge dei byte da un file in `/srv/bd3d` → `bd3d_fs.py` trasforma il byte in un istante (il bitrate è costante) → se nessuna pipeline è a quell'istante, ne avvia una: il lettore della sorgente (`disc_reader.py`, `dvd_reader.py` o FFmpeg per gli MKV), poi il decoder (edge264 per il 3D, altrimenti FFmpeg), poi FFmpeg che codifica il `.ts` → i byte tornano al player. `--share dlna` usa lo stesso albero e la stessa `VirtualFile.read()` (`FileEntry` in `tree.py`), passando per la gestione del Range di `http_server.py` invece di una lettura FUSE; `dlna.py` aggiunge solo la descrizione UPnP e la scoperta.
 
 Il codice, i commenti e i messaggi del log sono in inglese. La documentazione è in due lingue: ogni file `.md` ha il suo gemello `.it.md`, da cambiare insieme.
 
@@ -99,6 +104,7 @@ Quali test contano per quale modifica:
 | `bdmv.py`, `disc_reader.py`, `ssif_demux.py`, `bluray.py` | con un Blu-ray nel lettore (3D se puoi): `--integration` |
 | `dvd.py`, `dvd_reader.py` | con un DVD nel lettore: `--integration` |
 | `bd3d_fs.py` (salti, pipeline) | i test, poi una visione vera sugli occhiali o con VLC, con salti avanti e indietro |
+| `tree.py`, `http_server.py`, `didl.py`, `ssdp.py`, `dlna.py` | i test, poi `--share dlna` con un renderer DLNA vero in rete locale (scoperta, navigazione, riproduzione e salti): il socket multicast di SSDP e il comportamento di un renderer vero non si possono testare senza uno |
 | `scripts/install.sh`, `update.sh` | un container pulito Debian 13 e Ubuntu 24.04 |
 
 ---
@@ -114,6 +120,7 @@ Va nel terminale e in `~/.local/state/bluray3d-xr/bluray3d-xr.log`, con la data 
 | `bluray3d-xr v1.1.0` | la versione: la prima cosa da chiedere in una segnalazione |
 | `video encoder: nvenc` | NVENC o x264, scelto all'avvio |
 | `watching /dev/sr0: insert a disc` | un lettore è sorvegliato, anche se è vuoto |
+| `DLNA: bluray3d-xr announced at http://192.168.1.5:8200/description.xml` | `--share dlna`/`both`: il server HTTP+SSDP è partito, con l'URL da cui un renderer scarica la sua descrizione |
 | `/dev/sr0: disc inserted, opening it` / `disc ejected` | il lettore ha visto entrare o uscire un disco |
 | `+ Blu-ray 3D/ITA - Film - 3D SBS.ts (120 min, 24.0 Mbit/s, audio …)` | è comparso un file: durata, bitrate e tracce |
 | `- …` | un file è sparito (espulsione) |

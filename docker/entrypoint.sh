@@ -1,8 +1,11 @@
 #!/bin/sh
 set -e
 mkdir -p /srv/bd3d
-smbd --foreground --no-process-group &
-set -- --mount /srv/bd3d --encoder "${ENCODER:-auto}"
+share="${SHARE:-samba}"
+# samba/both still need the smbd in the image; dlna-only needs neither it nor FUSE
+case "$share" in samba|both) smbd --foreground --no-process-group & ;; esac
+set -- --mount /srv/bd3d --encoder "${ENCODER:-auto}" --share "$share"
+[ -n "$HTTP_PORT" ] && set -- "$@" --http-port "$HTTP_PORT"
 [ -n "$AUDIO_LANG" ] && set -- "$@" --audio-lang "$AUDIO_LANG"
 [ -n "$AUDIO_FILES" ] && set -- "$@" --audio-files "$AUDIO_FILES"
 [ "$LIGHT" = "off" ] && set -- "$@" --no-light
