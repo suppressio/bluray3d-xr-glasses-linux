@@ -2,7 +2,7 @@
 
 # Options in detail
 
-The defaults work: you only need this page to change what the share offers (languages, subtitles, quality) or how it behaves. Back to the [README](README.md).
+The defaults work: you only need this page to change what the share offers (languages, subtitles, quality) or how it behaves. Back to the [README](../README.md).
 
 **Where options go:**
 - native path: on the command line, e.g. `bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0`;
@@ -19,6 +19,8 @@ The defaults work: you only need this page to change what the share offers (lang
 | [Lower-bitrate copies in `Light/`](#network-and-quality) | `LIGHT=on\|off` | `--light` / `--no-light` | on |
 | [Animation after a jump](#loading-animation-after-a-jump) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
 | Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
+| [Share over Samba, DLNA, or both](#dlnaupnp-instead-of-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
+| [DLNA/HTTP port](#dlnaupnp-instead-of-samba) | `HTTP_PORT` | `--http-port` | `8200` |
 | Mount point | — | `--mount` | `/srv/bd3d` |
 | [Program log file](#logs) | — | `--log path` or `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
 | [Pipeline log](#logs) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
@@ -44,6 +46,19 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
 ```
 
 Folders are scanned at startup: restart the program to see a new file. Drives are watched continuously.
+
+## DLNA/UPnP instead of Samba
+
+By default the files are only mounted for Samba, the `[Disks]` share (`--share samba`). `--share dlna` announces the same files over DLNA/UPnP instead, for players that browse a media server rather than opening a network share (smart TVs, Kodi, Moon VR...); neither FUSE nor Samba is needed in this mode. `--share both` does both at once, e.g. to serve a TV over DLNA and a phone over SMB from the same program.
+
+```console
+bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
+```
+
+- The server listens on `--http-port` (default `8200`). Open `http://<pc-ip>:8200/` in a browser to see the same folders as a plain page: a quick way to check it is working, and any player that opens a video by URL can use it directly.
+- On the player, look for "bluray3d-xr" among the DLNA/media servers it finds on the network (no IP address to type): browse into `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, the same folders as the SMB share.
+- Seeking works the same way as over SMB: a byte of the file is still a precise second of the movie, so a jump restarts the pipeline from there regardless of whether the player reads it over SMB or HTTP.
+- Docker, DLNA only: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — no Samba, no FUSE, no port 445; it uses the host network, since SSDP discovery is multicast (`HTTP_PORT` in `.env` sets the port). DLNA together with Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, also on the host network, so Samba uses the host's port 445 directly (`SMB_PORT` does not apply).
 
 ## Audio languages
 

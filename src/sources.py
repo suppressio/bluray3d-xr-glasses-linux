@@ -322,9 +322,21 @@ def _decrypted_with(info: bluray.DiscInfo, env: dict[str, str]) -> str:
     return f"{info.protection}, decrypted with {backend}"
 
 
+AACS_ERROR_CORRUPTED_DISC = -1
+"""libaacs: opening or reading of the AACS files on the disc failed."""
+AACS_ERROR_MMC_OPEN = -6
+"""libaacs: opening the drive (MMC) failed."""
+AACS_ERROR_MMC_FAILURE = -7
+"""libaacs: a command to the drive (MMC) failed."""
+AACS_READ_ERRORS = frozenset({AACS_ERROR_CORRUPTED_DISC, AACS_ERROR_MMC_OPEN,
+                              AACS_ERROR_MMC_FAILURE})
+"""AACS errors that are drive or media problems (bad disc, drive dropout), not
+a missing or wrong key: no KEYDB/MakeMKV hint for these."""
+
+
 def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]:
     """Open a disc/ISO/BDMV with the first decryption backend that works."""
-    last = None
+    last: bluray.DiscInfo | None = None
     for env in _decrypt_backends():
         saved = {k: os.environ.get(k) for k in ("LIBAACS_PATH", "LIBBDPLUS_PATH")}
         os.environ.update(env)
@@ -334,7 +346,7 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
             if info.decrypted:
                 log.info("%s: %s", path, _decrypted_with(info, env))
                 return disc, info, env
-            last = f"cannot decrypt (AACS error {info.aacs_error})"
+            last = info
             disc.close()
         finally:
             for k, v in saved.items():
@@ -342,8 +354,11 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-    raise OSError(f"{path}: {last or 'cannot open'}. Provide a KEYDB.cfg for libaacs "
-                  f"or install MakeMKV (libmmbd).")
+    if last is not None and last.aacs_error in AACS_READ_ERRORS:
+        raise OSError(f"cannot read the disc (AACS error {last.aacs_error}): "
+                      "drive or media problem, not a missing key")
+    raise OSError(f"cannot decrypt (AACS error {last.aacs_error if last else 'unknown'}). "
+                  f"Provide a KEYDB.cfg for libaacs or install MakeMKV (libmmbd).")
 
 
 def _safe_name(name: str) -> str:
@@ -356,9 +371,12 @@ def _safe_name(name: str) -> str:
 AUDIO_PREFERENCE = ["dts-hd ma", "dts-hd", "dts", "ac3", "eac3", "lpcm", "truehd"]
 
 
-def _pick_audio[T: AudioTrack](audio: list[T], langs: list[str] | None) -> list[T]:
+def _pick_audio[T: AudioTrack](audio: list[T], langs: list[str] | None,
+                                log_as: str | None = None) -> list[T]:
     """One track per language: the requested ones in that order, or every language
-    on the disc (langs None, in disc order); none found -> the first track.
+    on the disc (langs None, in disc order); none found -> the first track. The
+    fallback is logged only when `log_as` (the source name) is given: callers
+    that pick tracks for a real source pass it, so there it is not silent.
     Within a language, TrueHD comes last: its PID also carries an AC-3 core that
     ffmpeg shows as a second stream, and players rarely decode it anyway."""
     rank = {c: n for n, c in enumerate(AUDIO_PREFERENCE)}
@@ -367,7 +385,11 @@ def _pick_audio[T: AudioTrack](audio: list[T], langs: list[str] | None) -> list[
         tracks = [a for a in audio if a.lang == lang]
         if tracks:
             chosen.append(min(tracks, key=lambda a: rank.get(a.codec, len(rank))))
-    return chosen or audio[:1]
+    if chosen:
+        return chosen
+    if log_as and langs and audio:
+        log.warning("%s: no %s audio track, using %s", log_as, "/".join(langs), audio[0].lang)
+    return audio[:1]
 
 
 class DiscSource(Source):
@@ -500,7 +522,7 @@ class BlurayDiscSource(DiscSource):
         self.sidecars = [] if stat.S_ISBLK(st.st_mode) else find_sidecars(path)
 
         self.subs = list(_first_per_lang(items[0].subs))
-        chosen_audio = _pick_audio(items[0].audio, audio_langs)
+        chosen_audio = _pick_audio(items[0].audio, audio_langs, log_as=self.name)
         self.audio_pids = [a.pid for a in chosen_audio]
         self.audio_langs = [a.lang for a in chosen_audio]
         self.audio_desc = ", ".join(f"{a.pid:#x} {a.lang} {a.codec}"
@@ -605,7 +627,7 @@ class DvdSource(DiscSource):
         # commentaries only if a language has nothing else
         main = [a for a in self.title.audio if not a.commentary]
         self.sub_desc = ", ".join(s.lang for s in self.subs) or "none"
-        chosen = _pick_audio(main or self.title.audio, audio_langs)
+        chosen = _pick_audio(main or self.title.audio, audio_langs, log_as=self.name)
         self.audio_pids = [a.stream for a in chosen]
         self.audio_langs = [a.lang for a in chosen]
         self.audio_desc = ", ".join(f"{a.stream:#x} {a.lang} {a.codec}"
@@ -703,7 +725,8 @@ def discover(paths: list[str], audio_langs: list[str] | None = None) -> list[Sou
             try:
                 sources += open_disc(str(p), audio_langs)
             except OSError as e:
-                log.info("skipped: %s", e)
+                # some errors already start with the path: keep it once
+                log.info("%s: skipped: %s", p, str(e).removeprefix(f"{p}: "))
         elif p.suffix.lower() != ".mkv":
             log.info("skipped (not a 3D Blu-ray MKV, ISO or BDMV folder): %s", p)
         elif not MkvSource.has_mvc(str(p)):

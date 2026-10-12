@@ -7,6 +7,9 @@ services:
     ports:
       # SMB. The host must not run its own Samba on 445 at the same time.
       - "${SMB_PORT:-445}:445"
+      # DLNA/UPnP needs the host network (SSDP discovery is multicast, which this
+      # bridge network does not carry): add docker-compose.dlna.yml (DLNA only,
+      # no Samba/FUSE) or docker-compose.both.yml (DLNA and Samba) on top of this file
     volumes:
       - "${MOVIES_DIR:?set MOVIES_DIR in .env}:/films:ro"
       # key database for libaacs (commercial discs); not provided by this project
@@ -22,6 +25,8 @@ services:
       SUB_DEPTH: "${SUB_DEPTH:-8}"
       LOADER: "${LOADER:-retrowave}"
       ENCODER: "${ENCODER:-auto}"
+      SHARE: "${SHARE:-samba}"
+      HTTP_PORT: "${HTTP_PORT:-8200}"
     # FUSE inside the container needs the device and SYS_ADMIN
     devices:
       - /dev/fuse

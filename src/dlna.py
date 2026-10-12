@@ -1,0 +1,179 @@
+"""dlna.py — announces the tree as a UPnP MediaServer: SSDP (ssdp.py) so
+renderers find it without being told its address, and the
+ContentDirectory/ConnectionManager control endpoints (didl.py) added in
+front of the same HTTP server that already serves the files
+(http_server.py). A thin adapter on the shared tree, not a parallel
+implementation: a renderer that browses instead of opening the SMB share
+(a TV, Moon VR, Kodi...) gets to the same virtual files, over the same
+Range-aware GET.
+"""
+import logging
+import socket
+import threading
+import uuid as uuid_module
+from typing import cast
+
+import didl
+from http_server import TreeHttpHandler, TreeHttpServer
+from ssdp import SsdpResponder
+from tree import Tree
+
+log = logging.getLogger("dlna")
+
+FRIENDLY_NAME = "bluray3d-xr"
+# a Browse request is a few flat tags: anything bigger is not a renderer
+MAX_SOAP_BODY = 64 * 1024
+MACHINE_ID = "/etc/machine-id"
+SERVER_HEADER = "Linux/1.0 UPnP/1.0 bluray3d-xr/1.0"
+
+
+class DlnaHandler(TreeHttpHandler):
+    """The plain file/listing handler from http_server.py, with the UPnP
+    description, SCPD and SOAP control endpoints added in front of it."""
+
+    @property
+    def dlna_server(self) -> "DlnaServer":
+        return cast("DlnaServer", self.server)
+
+    def do_GET(self) -> None:  # noqa: N802 (http.server's own naming: dispatched by command)
+        if not self._description(send_body=True):
+            super().do_GET()
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        # control points may probe the description/SCPD URLs with HEAD first
+        if not self._description(send_body=False):
+            super().do_HEAD()
+
+    def _description(self, *, send_body: bool) -> bool:
+        """The UPnP description and SCPD documents; False for any other path."""
+        server = self.dlna_server
+        documents = {
+            "/description.xml": lambda: didl.device_description(server.friendly_name,
+                                                                server.device_uuid),
+            "/ContentDirectory.xml": lambda: didl.CONTENT_DIRECTORY_SCPD,
+            "/ConnectionManager.xml": lambda: didl.CONNECTION_MANAGER_SCPD,
+        }
+        document = documents.get(self.path)
+        if document is None:
+            return False
+        self._respond(200, "text/xml; charset=utf-8", document().encode(), send_body=send_body)
+        return True
+
+    def do_POST(self) -> None:  # noqa: N802
+        if self.path in ("/ctl/ContentDirectory", "/ctl/ConnectionManager"):
+            self._soap()
+        else:
+            self.send_error(404)
+
+    def _soap(self) -> None:
+        server = self.dlna_server
+        length_text = self.headers.get("Content-Length", "0").strip()
+        # ASCII and bounded: int() refuses Unicode digits and very long strings
+        if not (length_text.isascii() and length_text.isdigit()) or len(length_text) > 12:
+            self.send_error(400, "invalid Content-Length")
+            return
+        length = int(length_text)
+        if length > MAX_SOAP_BODY:
+            self.send_error(413)
+            return
+        body = self.rfile.read(length)
+        soap_action = self.headers.get("SOAPAction", "")
+        try:
+            response = didl.handle_action(soap_action, body, server.tree, server.base_url)
+        except didl.SoapError as e:
+            self._respond(500, "text/xml; charset=utf-8", didl.soap_fault(e.code, str(e)).encode())
+            return
+        self._respond(200, "text/xml; charset=utf-8", response.encode())
+
+    def _respond(self, status: int, content_type: str, body: bytes, *,
+                 send_body: bool = True) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if send_body:
+            self.wfile.write(body)
+
+
+class DlnaServer(TreeHttpServer):
+    def __init__(self, address: tuple[str, int], tree: Tree, friendly_name: str,
+                 device_uuid: str, base_url: str) -> None:
+        self.friendly_name = friendly_name
+        self.device_uuid = device_uuid
+        self.base_url = base_url
+        super().__init__(address, tree, DlnaHandler)
+
+
+def local_ip() -> str:
+    """The address other devices on the LAN would reach this host at, found
+    without sending anything (a UDP "connect" only picks the outbound route,
+    it transmits nothing)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+        except OSError:
+            return "127.0.0.1"
+
+
+def install_id(machine_id_file: str = MACHINE_ID) -> str:
+    """What identifies this host across reboots, DHCP leases and port
+    changes: systemd's machine id (the Docker overrides mount the host's), or
+    the hostname without one. Only ever used hashed, through device_uuid()."""
+    try:
+        with open(machine_id_file, encoding="ascii") as f:
+            value = f.read().strip()
+        if value:
+            return value
+    except OSError:
+        pass
+    return socket.gethostname()
+
+
+def device_uuid(seed: str) -> str:
+    """Stable across restarts (renderers remember a device by its UUID), not
+    random: derived from what identifies this install (install_id())."""
+    return str(uuid_module.uuid5(uuid_module.NAMESPACE_DNS, f"bluray3d-xr/{seed}"))
+
+
+class Dlna:
+    """Starts/stops the HTTP server (files + UPnP control) and the SSDP
+    responder together: one lifecycle, since neither announces anything
+    useful to a DLNA renderer without the other."""
+
+    def __init__(self, tree: Tree, port: int, host: str | None = None,
+                 friendly_name: str = FRIENDLY_NAME) -> None:
+        self.host = host or local_ip()
+        self.port = port
+        base_url = f"http://{self.host}:{self.port}"
+        uuid_value = device_uuid(f"{install_id()}/{friendly_name}")
+        self.server = DlnaServer((self.host, self.port), tree, friendly_name, uuid_value,
+                                 base_url)
+        self.ssdp = SsdpResponder(f"{base_url}/description.xml", uuid_value, didl.DEVICE_TYPE,
+                                  [didl.CONTENT_DIRECTORY, didl.CONNECTION_MANAGER],
+                                  SERVER_HEADER)
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self._thread.start()
+        try:
+            self.ssdp.start()
+        except OSError:
+            # no multicast (no route, port 1900 taken...): do not leave the HTTP
+            # server running behind an announcement that never went out
+            self._stop_http()
+            raise
+        log.info("DLNA: %s announced at %s/description.xml", self.server.friendly_name,
+                 self.server.base_url)
+
+    def stop(self) -> None:
+        self.ssdp.stop()
+        self._stop_http()
+
+    def _stop_http(self) -> None:
+        if self._thread is not None:
+            self.server.shutdown()
+            self._thread.join(timeout=2)
+            self._thread = None
+        self.server.server_close()

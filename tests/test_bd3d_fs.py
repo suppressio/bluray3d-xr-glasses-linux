@@ -6,6 +6,7 @@ import copy
 import logging
 import re
 import shlex
+import subprocess
 import sys
 import threading
 import time
@@ -18,21 +19,20 @@ import trio
 import trio.testing
 
 import bd3d_fs
+import fuse_fs
 from bd3d_fs import (
     AUDIO_TRACK_MUX,
     NULL_PACKET,
     TS_PACKET,
-    Bd3dFS,
-    Entry,
-    FileEntry,
-    Folder,
     Library,
     SidecarFile,
     VirtualFile,
     null_padding,
 )
+from fuse_fs import Bd3dFS
 from pipeline import Quality
 from sources import Source, SubTrack
+from tree import ROOT_ID, FileEntry, Folder, Tree
 
 PPS = 500                                  # TS packets per second of movie
 BPS = PPS * TS_PACKET                      # bytes per second
@@ -114,7 +114,7 @@ def small_file_system(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         monkeypatch.setattr(bd3d_fs, name, value)
     monkeypatch.setattr(bd3d_fs, "decode_command", fake_decode)
     monkeypatch.setattr(VirtualFile, "filler_command", fake_filler)
-    monkeypatch.setattr(bd3d_fs.pyfuse3, "invalidate_entry_async", no_invalidate)
+    monkeypatch.setattr(fuse_fs.pyfuse3, "invalidate_entry_async", no_invalidate)
     yield
     while _running:
         _running.pop().stop()
@@ -422,33 +422,27 @@ class DiscSource(FakeSource):
         return out
 
 
-def tree(fs: Bd3dFS) -> list[str]:
-    def path(e: Entry) -> str:
-        parts: list[str] = []
-        while e.inode != bd3d_fs.pyfuse3.ROOT_INODE:
-            parts.append(e.name)
-            e = fs.nodes[e.parent]
-        return "/".join(reversed(parts))
-    return sorted(path(e) for e in fs.nodes.values() if e.inode != bd3d_fs.pyfuse3.ROOT_INODE)
+def paths(tree: Tree) -> list[str]:
+    return sorted(tree.path_of(e.inode) for e in tree.nodes.values() if e.inode != ROOT_ID)
 
 
-def movies(fs: Bd3dFS) -> list[VirtualFile]:
-    return [e for e in fs.files() if isinstance(e, VirtualFile)]
+def movies(tree: Tree) -> list[VirtualFile]:
+    return [e for e in tree.files() if isinstance(e, VirtualFile)]
 
 
 def library(tmp_path: Path, audio_files: str = "per-language", light: bool = False,
-            sub_langs: list[str] | None = None) -> tuple[Bd3dFS, Library]:
-    fs = Bd3dFS()
-    return fs, Library(fs, "x264", str(tmp_path / "log"), audio_files, light, sub_langs)
+            sub_langs: list[str] | None = None) -> tuple[Tree, Library]:
+    tree = Tree()
+    return tree, Library(tree, "x264", str(tmp_path / "log"), audio_files, light, sub_langs)
 
 
 def test_library_per_language(tmp_path: Path) -> None:
-    fs, lib = library(tmp_path, sub_langs=["eng", "ita", "jpn"])
+    tree, lib = library(tmp_path, sub_langs=["eng", "ita", "jpn"])
     lib.add(DiscSource(str(tmp_path / "d")))
-    assert tree(fs) == sorted(["Blu-ray"] + [f"Blu-ray/{a}{s} - Movie.ts"
-                                             for a in ("ITA", "ENG", "DEU")
-                                             for s in ("", "subENG", "subITA")])
-    files = {e.name: e for e in movies(fs)}
+    assert paths(tree) == sorted(["Blu-ray"] + [f"Blu-ray/{a}{s} - Movie.ts"
+                                                for a in ("ITA", "ENG", "DEU")
+                                                for s in ("", "subENG", "subITA")])
+    files = {e.name: e for e in movies(tree)}
     # the plain file carries the forced subtitles of its language, if the disc has them
     assert (files["ITA - Movie.ts"].source.sub, files["ITA - Movie.ts"].source.forced_only) == \
         (SubTrack(1, "ita"), True)
@@ -458,17 +452,17 @@ def test_library_per_language(tmp_path: Path) -> None:
 
 
 def test_library_all_and_no_subtitles(tmp_path: Path) -> None:
-    fs, lib = library(tmp_path, audio_files="single")
+    tree, lib = library(tmp_path, audio_files="single")
     lib.add(DiscSource(str(tmp_path / "d")))
-    assert tree(fs) == ["Blu-ray", "Blu-ray/Movie.ts", "Blu-ray/subENG - Movie.ts",
-                        "Blu-ray/subFRA - Movie.ts", "Blu-ray/subITA - Movie.ts"]
-    fs, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    assert paths(tree) == ["Blu-ray", "Blu-ray/Movie.ts", "Blu-ray/subENG - Movie.ts",
+                           "Blu-ray/subFRA - Movie.ts", "Blu-ray/subITA - Movie.ts"]
+    tree, lib = library(tmp_path, audio_files="single", sub_langs=[])
     lib.add(DiscSource(str(tmp_path / "d2")))
-    assert tree(fs) == ["Blu-ray", "Blu-ray/Movie.ts"]
+    assert paths(tree) == ["Blu-ray", "Blu-ray/Movie.ts"]
 
 
 def test_library_both_light_and_removal(tmp_path: Path) -> None:
-    fs, lib = library(tmp_path, audio_files="both", light=True, sub_langs=[])
+    tree, lib = library(tmp_path, audio_files="both", light=True, sub_langs=[])
     source = DiscSource(str(tmp_path / "d"))
     source.sidecars = [(".ita.srt", str(tmp_path / "x.ita.srt"))]
     (tmp_path / "x.ita.srt").write_text("1\n")
@@ -478,58 +472,61 @@ def test_library_both_light_and_removal(tmp_path: Path) -> None:
         for name in ("ITA - Movie", "ENG - Movie", "DEU - Movie", "Multi-audio/Movie"):
             expected += [f"{folder}/{name}.ts", f"{folder}/{name}.ita.srt"]
         expected += [folder, f"{folder}/Multi-audio"]
-    assert tree(fs) == sorted(expected)
-    light = next(e for e in movies(fs) if e.name == "ITA - Movie.ts" and "Light" in e.path)
+    assert paths(tree) == sorted(expected)
+    light = next(e for e in movies(tree) if e.name == "ITA - Movie.ts" and "Light" in e.path)
     assert light.quality.name == "light" and light.path == "Blu-ray/Light/ITA - Movie.ts"
-    multi = next(e for e in movies(fs) if e.name == "Movie.ts" and "Light" not in e.path)
+    multi = next(e for e in movies(tree) if e.name == "Movie.ts" and "Light" not in e.path)
     assert multi.muxrate == multi.quality.muxrate + 2 * AUDIO_TRACK_MUX
-    sidecar = next(e for e in fs.files() if isinstance(e, SidecarFile))
+    sidecar = next(e for e in tree.files() if isinstance(e, SidecarFile))
     assert sidecar.read(0, 100) == b"1\n"
 
     lib.remove(added)
-    assert tree(fs) == []                              # empty folders go too
-    assert isinstance(fs.nodes[bd3d_fs.pyfuse3.ROOT_INODE], Folder)
+    assert paths(tree) == []                            # empty folders go too
+    assert isinstance(tree.nodes[ROOT_ID], Folder)
 
 
 def test_file_system_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    fs, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    tree, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    fs = Bd3dFS(tree)
     source = DiscSource(str(tmp_path / "d"))
     source.sidecars = [(".srt", str(tmp_path / "x.srt"))]
     (tmp_path / "x.srt").write_text("hello")
     lib.add(source)
-    movie = movies(fs)[0]
-    sidecar = next(e for e in fs.files() if isinstance(e, SidecarFile))
-    folder = fs.folder("Blu-ray")
+    movie = movies(tree)[0]
+    sidecar = next(e for e in tree.files() if isinstance(e, SidecarFile))
+    folder = tree.folder("Blu-ray")
     listed: list[bytes] = []
 
     def reply(token: object, name: bytes, attr: object, next_id: int) -> bool:
         listed.append(name)
         return True
 
-    monkeypatch.setattr(bd3d_fs.pyfuse3, "readdir_reply", reply)
-    token = cast("bd3d_fs.pyfuse3.ReaddirToken", object())
+    monkeypatch.setattr(fuse_fs.pyfuse3, "readdir_reply", reply)
+    token = cast("fuse_fs.pyfuse3.ReaddirToken", object())
 
     async def check() -> None:
         attr = await fs.getattr(movie.inode)
         assert attr.st_size == movie.size and attr.st_mode & 0o777 == 0o444
         assert (await fs.lookup(folder.inode, b"Movie.ts")).st_ino == movie.inode
         assert (await fs.getattr(folder.inode)).st_mode & 0o040000
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.lookup(folder.inode, b"missing.ts")
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):                # not UTF-8: not found
+            await fs.lookup(folder.inode, b"Movie\xff.ts")
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.getattr(9999)
         assert await fs.opendir(folder.inode, None) == folder.inode
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.opendir(movie.inode, None)
         await fs.readdir(folder.inode, 0, token)
         assert listed == [b"Movie.ts", b"Movie.srt"]
         # movies bypass the page cache (their bytes can change), subtitles do not
         assert (await fs.open(movie.inode, 0, None)).direct_io
         assert not (await fs.open(sidecar.inode, 0, None)).direct_io
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.open(movie.inode, 1, None)                     # O_WRONLY
         assert await fs.read(sidecar.inode, 0, 100) == b"hello"
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.read(12345, 0, 10)
         s = await fs.statfs(None)
         assert s.f_bavail == 0 and s.f_blocks >= movie.size // s.f_frsize
@@ -541,7 +538,9 @@ def test_file_system_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     ok, no_disc, tray, busy = 4, 1, 2, 3
-    statuses = iter([ok, ok, busy, ok, no_disc, ok, busy, no_disc, tray, tray, ok, ok])
+    # 1st disc: 3 failed attempts (retried every RETRY_AFTER = 3 polls), then left alone
+    statuses = iter([ok, ok, busy, ok, no_disc, ok, ok, ok, ok, busy, no_disc, tray, tray,
+                     ok, ok, no_disc, no_disc, ok, ok, ok, ok, ok])
     events: list[str] = []
 
     class NoMoreStatusError(Exception):
@@ -553,7 +552,9 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         except StopIteration:
             raise NoMoreStatusError from None
 
-    opened = iter([OSError("cannot decrypt"), DiscSource(str(tmp_path / "d"))])
+    opened = iter([OSError("cannot decrypt")] * 3 + [DiscSource(str(tmp_path / "d")),
+                                                       OSError("read error"),
+                                                       DiscSource(str(tmp_path / "d"))])
 
     def open_disc(device: str, langs: list[str] | None) -> list[Source]:
         item = next(opened)
@@ -571,15 +572,18 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr(bd3d_fs, "drive_status", status)
     monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
+    monkeypatch.setattr(bd3d_fs, "RETRY_AFTER", 9)
 
     async def main() -> None:
         with pytest.raises(NoMoreStatusError):
             await bd3d_fs.watch_drive("/dev/sr0", Lib(), None)
 
     trio.run(main, clock=trio.testing.MockClock(autojump_threshold=0))
-    # 1st disc: cannot be opened, not retried while it stays in; a busy drive and
-    # a single "no disc" are not an eject; two in a row are; the 2nd disc opens
-    assert events == ["remove 0", "add"]
+    # 1st disc: cannot be opened, retried twice, then not again while it stays in;
+    # a busy drive and a single "no disc" are not an eject; two in a row are;
+    # the 2nd disc opens; the 3rd fails once (a read error) and opens on the retry
+    assert events == ["remove 0", "add", "remove 0", "add"]
+    assert next(opened, None) is None
 
 
 # --- version ---------------------------------------------------------------------
@@ -596,9 +600,10 @@ def test_program_version(tmp_path: Path) -> None:
 
 def test_a_failing_read_does_not_stop_the_program(tmp_path: Path,
                                                    caplog: pytest.LogCaptureFixture) -> None:
-    fs, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    tree, lib = library(tmp_path, audio_files="single", sub_langs=[])
+    fs = Bd3dFS(tree)
     lib.add(DiscSource(str(tmp_path / "d")))
-    movie = movies(fs)[0]
+    movie = movies(tree)[0]
 
     def broken(offset: int, size: int) -> bytes:
         raise OSError("no navigation pack at sector 35546")
@@ -606,7 +611,7 @@ def test_a_failing_read_does_not_stop_the_program(tmp_path: Path,
     movie.read = broken  # type: ignore[method-assign]
 
     async def read() -> None:
-        with pytest.raises(bd3d_fs.pyfuse3.FUSEError):
+        with pytest.raises(fuse_fs.pyfuse3.FUSEError):
             await fs.read(movie.inode, 0, 10)
 
     trio.run(read)
@@ -643,3 +648,26 @@ def test_slow_pipeline_is_logged(monkeypatch: pytest.MonkeyPatch,
     caplog.set_level(logging.INFO, logger="bd3d_fs")
     assert gen.read(4_150_000, 100) == b"x" * 100
     assert "waited 6s for the movie at 1:09:10" in caplog.text
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "65536", "http"])
+def test_http_port_rejects_unusable_ports(value: str) -> None:
+    with pytest.raises(SystemExit):
+        bd3d_fs.build_parser().parse_args(["--http-port", value, "x.mkv"])
+
+
+def test_http_port_accepts_a_real_port() -> None:
+    assert bd3d_fs.build_parser().parse_args(["--http-port", "8200", "x.mkv"]).http_port == 8200
+
+
+def test_dlna_only_does_not_need_fuse(monkeypatch: pytest.MonkeyPatch) -> None:
+    # without pyfuse3 the program still imports (--share dlna runs) ...
+    src = Path(bd3d_fs.__file__).parent
+    code = "import sys; sys.modules['pyfuse3'] = None; import bd3d_fs; print('ok')"
+    done = subprocess.run([sys.executable, "-c", code], cwd=src, capture_output=True,
+                          text=True, check=False)
+    assert done.stdout.strip() == "ok", done.stderr
+    # ... and asking for FUSE explains what to install instead of a traceback
+    monkeypatch.setitem(sys.modules, "fuse_fs", None)
+    with pytest.raises(SystemExit, match="install python3-pyfuse3 and fuse3, or use --share dlna"):
+        bd3d_fs.require_fuse("samba")

@@ -7,9 +7,10 @@ from typing import Any
 import pytest
 
 import bd3d_fs
-from bd3d_fs import Bd3dFS, Library, VirtualFile, is_side_by_side
+from bd3d_fs import Library, VirtualFile, is_side_by_side
 from pipeline import Quality
-from test_bd3d_fs import FakeSource, no_invalidate
+from test_bd3d_fs import FakeSource
+from tree import Tree
 
 
 def graph_of(cmd: str) -> str:
@@ -57,20 +58,19 @@ def test_is_side_by_side(monkeypatch: pytest.MonkeyPatch) -> None:
     is_side_by_side.cache_clear()
 
 
-def test_library_picks_the_3d_loader(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(bd3d_fs.pyfuse3, "invalidate_entry_async", no_invalidate)
-    fs = Bd3dFS()
-    lib = Library(fs, "x264", str(tmp_path / "log"), "single", False, [], "flat.mp4", "sbs.mp4")
+def test_library_picks_the_3d_loader(tmp_path: Path) -> None:
+    tree = Tree()
+    lib = Library(tree, "x264", str(tmp_path / "log"), "single", False, [], "flat.mp4", "sbs.mp4")
     three_d = FakeSource(str(tmp_path / "a"))
     two_d = FakeSource(str(tmp_path / "b"))
     two_d.two_d, two_d.category = True, "Blu-ray"
     lib.add(three_d)
     lib.add(two_d)
-    loaders = {e.source.two_d: e.loader for e in fs.files() if isinstance(e, VirtualFile)}
+    loaders = {e.source.two_d: e.loader for e in tree.files() if isinstance(e, VirtualFile)}
     assert loaders == {False: "sbs.mp4", True: "flat.mp4"}
-    fs2 = Bd3dFS()
-    Library(fs2, "x264", str(tmp_path / "log"), "single", False, [], "flat.mp4").add(three_d)
-    assert [e.loader for e in fs2.files() if isinstance(e, VirtualFile)] == ["flat.mp4"]
+    tree2 = Tree()
+    Library(tree2, "x264", str(tmp_path / "log"), "single", False, [], "flat.mp4").add(three_d)
+    assert [e.loader for e in tree2.files() if isinstance(e, VirtualFile)] == ["flat.mp4"]
 
 
 def test_the_default_loader_is_side_by_side() -> None:

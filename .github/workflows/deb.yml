@@ -1,0 +1,72 @@
+name: Debian package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential git lintian
+      - name: Build package
+        run: scripts/build-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bluray3d-xr-deb
+          path: dist/*.deb
+          if-no-files-found: error
+
+  install-test:
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        container: [debian:trixie, ubuntu:24.04]
+    container:
+      image: ${{ matrix.container }}
+    steps:
+      - uses: actions/download-artifact@v4.1.3
+        with:
+          name: bluray3d-xr-deb
+          path: dist
+      - name: Install, verify, remove
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y ./dist/*.deb
+          bluray3d-xr --version
+          testparm -s | grep -q '^\[Disks\]$'
+          grep -qxF user_allow_other /etc/fuse.conf
+          apt-get remove -y bluray3d-xr
+          ! grep -qF '# >>> bluray3d-xr >>>' /etc/samba/smb.conf
+          test ! -e /srv/bd3d
+          grep -qxF user_allow_other /etc/fuse.conf
+          apt-get purge -y bluray3d-xr
+          ! getent group bluray3d-xr
+
+  publish:
+    if: github.event_name == 'release' && github.event.action == 'published'
+    needs: [build, install-test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4.1.3
+        with:
+          name: bluray3d-xr-deb
+          path: dist
+      - name: Attach package to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.deb --clobber

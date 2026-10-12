@@ -7,5 +7,5 @@ contact_links:
     url: https://github.com/suppressio/bluray3d-xr-glasses-linux/discussions/categories/q-a
     about: How do I...? Ask in Discussions.
   - name: Devices, players and discs already tested
-    url: https://github.com/suppressio/bluray3d-xr-glasses-linux/blob/main/TESTED.md
+    url: https://github.com/suppressio/bluray3d-xr-glasses-linux/blob/main/docs/TESTED.md
     about: Check here first how to set up your player.

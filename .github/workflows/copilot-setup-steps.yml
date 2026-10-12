@@ -1,0 +1,26 @@
+name: Copilot setup steps
+
+# Prepares the environment of the GitHub Copilot coding agent: the same system
+# packages as the check workflow, then scripts/check.sh, which creates .venv.
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/copilot-setup-steps.yml]
+  pull_request:
+    paths: [.github/workflows/copilot-setup-steps.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  # The job name is fixed: Copilot looks for this one.
+  copilot-setup-steps:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages the program uses
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-pyfuse3 python3-trio python3-venv ffmpeg
+      - name: Tools in .venv and a first run of the checks
+        run: scripts/check.sh

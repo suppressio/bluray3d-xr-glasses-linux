@@ -1,0 +1,19 @@
+# DLNA only (SHARE=dlna): no Samba, no FUSE, so none of what they need in
+# docker-compose.yml (port 445, /dev/fuse, SYS_ADMIN, apparmor). Start with:
+#   docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build
+services:
+  bd3d:
+    # SSDP discovery is multicast: Docker's bridge network does not carry it
+    # to the LAN, the host network does (the HTTP port is then HTTP_PORT)
+    network_mode: host
+    ports: !reset []
+    # a Blu-ray drive: replace the next line with  devices: !override ["/dev/sr0"]
+    devices: !reset []
+    cap_add: !reset []
+    security_opt: !reset []
+    # the DLNA device id comes from the machine id: the host's, so it survives
+    # recreating the container (renderers would otherwise see a new server)
+    volumes:
+      - /etc/machine-id:/etc/machine-id:ro
+    environment:
+      SHARE: dlna
