@@ -1,0 +1,12 @@
+# DLNA and Samba together (SHARE=both). SSDP discovery is multicast, which
+# Docker's bridge network does not carry to the LAN: this runs on the host
+# network instead, keeping what Samba and FUSE need (/dev/fuse, SYS_ADMIN).
+# Samba then listens on the host's own port 445 (SMB_PORT does not apply) and
+# the DLNA server on HTTP_PORT. Start with:
+#   docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build
+services:
+  bd3d:
+    network_mode: host
+    ports: !reset []
+    environment:
+      SHARE: both

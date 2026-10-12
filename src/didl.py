@@ -134,8 +134,12 @@ def browse(tree: Tree, body: bytes, base_url: str) -> str:
         node = tree.nodes[inode]
     except (KeyError, ValueError):
         raise SoapError(701, f"no such object: {object_id}") from None
+    if flag not in {"BrowseMetadata", "BrowseDirectChildren"}:
+        raise SoapError(402, f"invalid BrowseFlag: {flag}")
     if flag == "BrowseMetadata":
         items, total = [node], 1
+    elif not isinstance(node, Folder):
+        raise SoapError(710, f"not a container: {object_id}")
     else:
         children = _browsable(tree, inode)
         total = len(children)

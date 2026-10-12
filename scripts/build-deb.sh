@@ -70,7 +70,8 @@ Section: video
 Priority: optional
 Architecture: amd64
 Maintainer: Suppressio <suppressio@users.noreply.github.com>
-Depends: libc6, python3 (>= 3.12), python3-pyfuse3, python3-trio, fuse3, ffmpeg, samba, libbluray4 | libbluray2, libaacs0, libbdplus0, libdvdread8t64 | libdvdread8
+Depends: libc6, python3 (>= 3.12), python3-trio, ffmpeg, libbluray4 | libbluray2, libaacs0, libbdplus0, libdvdread8t64 | libdvdread8
+Recommends: python3-pyfuse3, fuse3, samba
 Description: Stream Blu-ray and DVD movies over the home network, including 3D
  Read discs on Linux and serve them to network players as ordinary video files.
 CONTROL

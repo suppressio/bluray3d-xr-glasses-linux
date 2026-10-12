@@ -33,7 +33,7 @@ Come avviare il programma da un clone, dove stanno le cose nel codice, cosa cont
 
 | File | Cosa fa |
 |---|---|
-| `src/bd3d_fs.py` | Il file system FUSE e la riga di comando. Contiene i file virtuali, il controllo del lettore e le pipeline (avvio, salto, pausa, stop), e disegna l'immagine di caricamento. |
+| `src/bd3d_fs.py` | La riga di comando e la libreria dei file virtuali. Contiene i file virtuali, il controllo del lettore e le pipeline (avvio, salto, pausa, stop), e disegna l'immagine di caricamento. |
 | `src/sources.py` | Di cosa è fatto un film: `BlurayDiscSource`, `DvdSource`, `MkvSource`. Ognuno dice come leggere il suo video da un certo istante (`video_command`) e dà audio, sottotitoli e fotogrammi chiave. |
 | `src/pipeline.py` | La catena di decodifica: lettore → decoder → FFmpeg che codifica a bitrate costante. Anche la scelta dell'encoder (NVENC o x264) e la qualità. |
 | `src/bluray.py` | Un piccolo collegamento ctypes a libbluray: apre un disco, una ISO o una cartella, e ne legge i file decifrati. |
@@ -44,6 +44,7 @@ Come avviare il programma da un clone, dove stanno le cose nel codice, cosa cont
 | `src/dvd_reader.py` | Legge un titolo DVD da un certo istante come flusso MPEG program per FFmpeg. Gira come processo a sé. |
 | `src/langs.py` | Un solo modo di scrivere ogni lingua (ISO 639-2). |
 | `src/tree.py` | L'albero di cartelle e file che costruisce Library, indipendente da come viene servito: identificatori propri, non inode di pyfuse3, anche se Bd3dFS li riusa come tali. |
+| `src/fuse_fs.py` | Il front end FUSE (`--share samba`/`both`): Bd3dFS monta l'albero per Samba. È l'unico modulo che importa pyfuse3 e viene caricato solo quando serve FUSE, quindi `--share dlna` gira anche senza. |
 | `src/http_server.py` | Lo stesso albero via HTTP semplice: un Range in byte diventa direttamente una `FileEntry.read()`, come una lettura FUSE. Usato da solo (`--share dlna`/`both`) e come trasporto per gli endpoint di dlna.py. |
 | `src/didl.py` | DIDL-Lite (l'XML con cui si elencano i contenuti) e le buste SOAP di ContentDirectory (Browse) e ConnectionManager: solo costruzione di stringhe, nessun parser XML su input non fidato. |
 | `src/ssdp.py` | SSDP: risponde a M-SEARCH e manda NOTIFY ssdp:alive/byebye, così i renderer DLNA trovano il server senza conoscerne l'indirizzo. |

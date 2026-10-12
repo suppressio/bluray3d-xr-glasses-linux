@@ -9,7 +9,7 @@ case "$1" in
         if mountpoint -q /srv/bd3d; then
             fusermount3 -u /srv/bd3d || umount /srv/bd3d || true
         fi
-        if grep -qF "$mark_begin" /etc/samba/smb.conf; then
+        if grep -qsF "$mark_begin" /etc/samba/smb.conf; then
             sed -i "/^${mark_begin}\$/,/^${mark_end}\$/d" /etc/samba/smb.conf
             if testparm -s >/dev/null 2>&1 &&
                     [ -d /run/systemd/system ] &&
