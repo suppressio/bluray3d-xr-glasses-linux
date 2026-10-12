@@ -11,5 +11,9 @@ services:
     devices: !reset []
     cap_add: !reset []
     security_opt: !reset []
+    # the DLNA device id comes from the machine id: the host's, so it survives
+    # recreating the container (renderers would otherwise see a new server)
+    volumes:
+      - /etc/machine-id:/etc/machine-id:ro
     environment:
       SHARE: dlna

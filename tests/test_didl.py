@@ -167,6 +167,7 @@ def test_sidecars_are_not_offered_to_renderers(tree: Tree) -> None:
 @pytest.mark.parametrize("args", [
     {"StartingIndex": "abc"}, {"StartingIndex": "-1"}, {"RequestedCount": "1.5"},
     {"RequestedCount": "4294967296"},
+    {"RequestedCount": "9" * 5000},     # beyond int()'s digit limit: 402, not ValueError
 ])
 def test_invalid_ui4_arguments_are_error_402(tree: Tree, args: dict[str, str]) -> None:
     with pytest.raises(didl.SoapError) as excinfo:

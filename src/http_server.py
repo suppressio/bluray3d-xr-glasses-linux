@@ -111,6 +111,10 @@ class TreeHttpHandler(BaseHTTPRequestHandler):
         offset = start
         try:
             while offset <= end:
+                # the disc was ejected meanwhile: end the response, do not
+                # read again (that would start a new pipeline for a gone disc)
+                if self.tree.nodes.get(entry.inode) is not entry:
+                    break
                 data = entry.read(offset, min(CHUNK, end - offset + 1))
                 if not data:
                     break
