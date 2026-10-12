@@ -230,10 +230,12 @@ def test_open_disc_tries_every_backend(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize(("aacs_error", "expected", "unexpected"), [
-    # AACS errors -1 (AACS files unreadable) and -6 (drive/MMC open failed):
-    # drive or media problems, not a missing key -> no KEYDB/MakeMKV hint
+    # AACS errors -1 (AACS files unreadable), -6 (drive/MMC open failed) and
+    # -7 (drive/MMC command failed): drive or media problems, not a missing key
+    # -> no KEYDB/MakeMKV hint
     (-1, "cannot read the disc", "KEYDB"),
     (-6, "cannot read the disc", "KEYDB"),
+    (-7, "cannot read the disc", "KEYDB"),
     # any other AACS error: an actual key/decryption failure -> keep the hint
     (-3, r"cannot decrypt .*KEYDB\.cfg.*MakeMKV", "cannot read the disc"),
 ])
@@ -403,13 +405,17 @@ def test_discover(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         discover([str(tmp_path / "missing")])
 
 
+@pytest.mark.parametrize("prefixed", [False, True])
 def test_discover_logs_the_failed_candidate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-                                            caplog: pytest.LogCaptureFixture) -> None:
+                                            caplog: pytest.LogCaptureFixture,
+                                            prefixed: bool) -> None:
     iso = tmp_path / "broken.iso"
     iso.write_text("")
 
     def fails(path: str, audio_langs: list[str] | None = None) -> list[sources.Source]:
-        raise OSError("cannot read the disc (AACS error -1): drive or media problem")
+        # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
+        prefix = f"{path}: " if prefixed else ""
+        raise OSError(prefix + "cannot read the disc (AACS error -1): drive or media problem")
 
     monkeypatch.setattr(sources, "open_disc", fails)
     with caplog.at_level(logging.INFO, logger=sources.log.name):
