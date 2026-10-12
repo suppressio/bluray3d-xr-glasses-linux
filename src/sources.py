@@ -435,26 +435,25 @@ class BlurayDiscSource(DiscSource):
         disc, _, _ = _open_disc(path)
         try:
             titles = sorted(disc.titles(), key=lambda t: t.playlist)
-            # Read the longest clip of each playlist to deduplicate alternate-audio/subtitle
-            # variants: same main clip = same episode. The longest clip (not the first one)
-            # is used because some variants add a short clip — a language card or warning —
-            # before or after the episode clip, which would otherwise look like a new episode.
-            def main_clip(t: bluray.Title) -> str:
+            # Read the first clip of each playlist to deduplicate alternate-audio/subtitle
+            # variants: same opening clip = same episode (variants may append short clips
+            # for language cards or warnings; keep the lowest playlist number per episode).
+            def first_clip(t: bluray.Title) -> str:
                 try:
                     items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{t.playlist}.mpls"))
-                    return max(items, key=lambda it: it.duration).clip if items else t.playlist
+                    return items[0].clip if items else t.playlist
                 except Exception:  # noqa: BLE001 — malformed MPLS: treat as unique
                     return t.playlist
-            sigs = {t.playlist: main_clip(t) for t in titles}
+            sigs = {t.playlist: first_clip(t) for t in titles}
         finally:
             disc.close()
 
         if len(titles) < 2:
             return [cls(path, audio_langs)]
 
-        # Deduplicate: keep only the first title (lowest playlist number) per main clip.
-        # This removes alternate-audio/subtitle variants AND "play all" playlists, whose
-        # longest clip is always the longest episode's, already seen in its own playlist.
+        # Deduplicate: keep only the first title (lowest playlist number) per opening clip.
+        # This removes alternate-audio/subtitle variants AND "play all" playlists, which
+        # always start with the same clip as the first episode.
         seen_sigs: set[str] = set()
         unique: list[bluray.Title] = []
         for t in titles:
