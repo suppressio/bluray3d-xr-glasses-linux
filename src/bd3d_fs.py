@@ -976,6 +976,18 @@ async def run(tree: Tree, library: Library, drives: list[str], audio_langs: list
         nursery.cancel_scope.cancel()
 
 
+def tcp_port(value: str) -> int:
+    """--http-port: 1-65535. Not 0: the OS would pick a port, but the DLNA
+    description would still announce :0, an address nobody can reach."""
+    try:
+        port = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a port number: {value}") from None
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError(f"port out of range 1-65535: {port}")
+    return port
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Expose Blu-rays (3D as Full-SBS) as virtual .ts files on a share.")
@@ -1020,7 +1032,7 @@ def build_parser() -> argparse.ArgumentParser:
                              "announce them over DLNA/UPnP instead, for players that browse a "
                              "media server (TVs, Moon VR, Kodi...); neither FUSE nor Samba is "
                              "needed. both: do both")
-    parser.add_argument("--http-port", type=int, default=8200,
+    parser.add_argument("--http-port", type=tcp_port, default=8200,
                         help="port of the DLNA/HTTP server (--share dlna/both, default 8200)")
     # a log of our own pipeline at a documented place; the kernel's protected
     # symlinks keep other users from redirecting it
@@ -1081,10 +1093,15 @@ def main() -> None:
         options |= {"fsname=bd3d", "ro", "allow_other"}
         pyfuse3.init(Bd3dFS(tree), mount, options)
         log.info("mounted on %s — Ctrl+C to unmount", mount)
-    dlna = Dlna(tree, args.http_port) if use_dlna else None
-    if dlna is not None:
-        dlna.start()
+    dlna: Dlna | None = None
     try:
+        if use_dlna:
+            try:
+                dlna = Dlna(tree, args.http_port)
+                dlna.start()
+            except OSError as e:
+                dlna = None  # Dlna() / start() close what they had opened before failing
+                raise SystemExit(f"DLNA: cannot start on port {args.http_port}: {e}") from e
         trio.run(run, tree, library, drives, audio_langs, use_fuse)
     except KeyboardInterrupt:
         pass

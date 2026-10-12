@@ -2,14 +2,16 @@
 http_server.py's plain file serving, over a real loopback server (SSDP is
 not started here: it needs a multicast socket, out of scope for a unit
 test, see test_ssdp.py for its message building)."""
+import socket
 import threading
 from collections.abc import Iterator
 from http.client import HTTPConnection
+from pathlib import Path
 
 import pytest
 
 import didl
-from dlna import DlnaServer, device_uuid, local_ip
+from dlna import MAX_SOAP_BODY, Dlna, DlnaServer, device_uuid, install_id, local_ip
 from tree import Tree
 
 
@@ -21,6 +23,34 @@ def test_local_ip_returns_something_usable() -> None:
 def test_device_uuid_is_stable_and_specific() -> None:
     assert device_uuid("http://a") == device_uuid("http://a")
     assert device_uuid("http://a") != device_uuid("http://b")
+
+
+def test_install_id_comes_from_the_machine_not_the_address(tmp_path: Path) -> None:
+    machine_id = tmp_path / "machine-id"
+    machine_id.write_text("0123456789abcdef\n")
+    assert install_id(str(machine_id)) == "0123456789abcdef"
+    assert install_id(str(tmp_path / "missing")) == socket.gethostname()
+
+
+def test_dlna_uuid_does_not_change_with_port() -> None:
+    a, b = Dlna(Tree(), 0, host="127.0.0.1"), Dlna(Tree(), 0, host="127.0.0.1")
+    try:
+        assert a.server.device_uuid == b.server.device_uuid
+    finally:
+        a.server.server_close()
+        b.server.server_close()
+
+
+def test_start_rolls_back_http_when_ssdp_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    dlna = Dlna(Tree(), 0, host="127.0.0.1")
+
+    def no_multicast() -> None:
+        raise OSError("no route to multicast")
+
+    monkeypatch.setattr(dlna.ssdp, "start", no_multicast)
+    with pytest.raises(OSError, match="multicast"):
+        dlna.start()
+    assert dlna.server.socket.fileno() == -1          # HTTP server closed
 
 
 @pytest.fixture
@@ -101,3 +131,20 @@ def test_soap_unknown_action_is_500(server: DlnaServer) -> None:
 def test_post_to_unknown_path_is_404(server: DlnaServer) -> None:
     status, _ = get(server, "POST", "/nope")
     assert status == 404
+
+
+def raw_post(server: DlnaServer, content_length: str) -> int:
+    """A POST with a hand-written Content-Length (http.client would fix it)."""
+    with socket.create_connection(("127.0.0.1", server.server_address[1]), timeout=5) as s:
+        s.sendall(b"POST /ctl/ContentDirectory HTTP/1.1\r\nHost: x\r\n"
+                  b'SOAPAction: "x#Browse"\r\n'
+                  + f"Content-Length: {content_length}\r\n\r\n".encode())
+        return int(s.recv(1024).split(b" ", 2)[1])
+
+
+@pytest.mark.parametrize(("content_length", "status"), [
+    ("-1", 400), ("abc", 400), (str(MAX_SOAP_BODY + 1), 413), ("999999999999", 413),
+])
+def test_soap_body_length_is_checked_before_reading(server: DlnaServer, content_length: str,
+                                                    status: int) -> None:
+    assert raw_post(server, content_length) == status

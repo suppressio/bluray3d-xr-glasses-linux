@@ -644,3 +644,13 @@ def test_slow_pipeline_is_logged(monkeypatch: pytest.MonkeyPatch,
     caplog.set_level(logging.INFO, logger="bd3d_fs")
     assert gen.read(4_150_000, 100) == b"x" * 100
     assert "waited 6s for the movie at 1:09:10" in caplog.text
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "65536", "http"])
+def test_http_port_rejects_unusable_ports(value: str) -> None:
+    with pytest.raises(SystemExit):
+        bd3d_fs.build_parser().parse_args(["--http-port", value, "x.mkv"])
+
+
+def test_http_port_accepts_a_real_port() -> None:
+    assert bd3d_fs.build_parser().parse_args(["--http-port", "8200", "x.mkv"]).http_port == 8200
