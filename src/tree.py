@@ -56,6 +56,9 @@ class Tree:
         self.by_name: dict[tuple[int, str], Entry] = {}
         self.lock = threading.Lock()
         self._next_id = ROOT_ID + 1
+        # bumped on every add/remove: DLNA's SystemUpdateID, so a renderer that
+        # cached a listing sees that a disc went in or out
+        self.revision = 0
         # front ends that need to react to a removal (Bd3dFS: invalidate the
         # kernel's cache of the name) subscribe here; Library itself only
         # changes the tree, it does not know who else is serving it
@@ -71,12 +74,14 @@ class Tree:
             self.nodes[e.inode] = e
             self.children.setdefault(e.parent, []).append(e)
             self.by_name[(e.parent, e.name)] = e
+            self.revision += 1
 
     def remove(self, e: Entry) -> None:
         with self.lock:
             self.nodes.pop(e.inode, None)
             self.children.get(e.parent, []).remove(e)
             self.by_name.pop((e.parent, e.name), None)
+            self.revision += 1
         for callback in self.on_remove:
             callback(e)
 

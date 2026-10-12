@@ -107,15 +107,19 @@ class SsdpResponder:
 
     def start(self) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        # bound to the group, not to every interface: the socket gets only SSDP
-        # multicast (M-SEARCH), never datagrams addressed to this host (Linux)
-        sock.bind((MULTICAST_ADDR, PORT))
-        # INADDR_ANY: join the multicast group on every interface, not a listening
-        # bind (SSDP discovery must be heard on whichever interface the LAN is on)
-        group = socket.inet_aton(MULTICAST_ADDR) + socket.inet_aton("0.0.0.0")  # noqa: S104
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, group)
-        sock.settimeout(1.0)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # bound to the group, not to every interface: the socket gets only SSDP
+            # multicast (M-SEARCH), never datagrams addressed to this host (Linux)
+            sock.bind((MULTICAST_ADDR, PORT))
+            # INADDR_ANY: join the multicast group on every interface, not a listening
+            # bind (SSDP discovery must be heard on whichever interface the LAN is on)
+            group = socket.inet_aton(MULTICAST_ADDR) + socket.inet_aton("0.0.0.0")  # noqa: S104
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, group)
+            sock.settimeout(1.0)
+        except OSError:
+            sock.close()
+            raise
         self._sock = sock
         self._notify(alive=True)
         self._thread = threading.Thread(target=self._run, daemon=True)

@@ -127,3 +127,60 @@ def test_scpd_is_well_formed_enough(scpd: str) -> None:
     assert re.match(r'^<\?xml version="1\.0"\?><scpd ', scpd)
     assert scpd.count("<action>") == scpd.count("</action>")
     assert scpd.count("<argument>") == scpd.count("</argument>")
+
+
+def browse_xml(tree: Tree, **args: str) -> str:
+    return didl_lite_of(didl.browse(tree, soap_body(**args), "http://host:8200"))
+
+
+def test_root_metadata_has_parent_minus_one(tree: Tree) -> None:
+    xml = browse_xml(tree, ObjectID="0", BrowseFlag="BrowseMetadata")
+    assert 'id="0" parentID="-1"' in xml
+
+
+def test_sidecars_are_not_offered_to_renderers(tree: Tree) -> None:
+    bluray = tree.folder("Blu-ray")
+    sub_id = tree.new_id()
+
+    class Subtitle:
+        inode, parent, name, path = sub_id, bluray.inode, "ITA - x.srt", "Blu-ray/ITA - x.srt"
+        size = 10
+
+    tree.add(Subtitle())  # type: ignore[arg-type]
+    xml = browse_xml(tree, ObjectID=str(bluray.inode), BrowseFlag="BrowseDirectChildren")
+    assert "x.ts" in xml and ".srt" not in xml
+    assert 'childCount="1"' in browse_xml(tree, ObjectID="0", BrowseFlag="BrowseDirectChildren")
+
+
+@pytest.mark.parametrize("args", [
+    {"StartingIndex": "abc"}, {"StartingIndex": "-1"}, {"RequestedCount": "1.5"},
+    {"RequestedCount": "4294967296"},
+])
+def test_invalid_ui4_arguments_are_error_402(tree: Tree, args: dict[str, str]) -> None:
+    with pytest.raises(didl.SoapError) as excinfo:
+        didl.browse(tree, soap_body(ObjectID="0", **args), "http://host:8200")
+    assert excinfo.value.code == 402
+
+
+def test_update_id_follows_the_tree(tree: Tree) -> None:
+    def update_ids() -> tuple[str, str]:
+        browse = didl.browse(tree, soap_body(ObjectID="0"), "http://host:8200")
+        system = didl.handle_action(f'"{didl.CONTENT_DIRECTORY}#GetSystemUpdateID"', b"",
+                                    tree, "http://host:8200")
+        b = re.search(r"<UpdateID>(\d+)</UpdateID>", browse)
+        s = re.search(r"<Id>(\d+)</Id>", system)
+        assert b and s
+        return b.group(1), s.group(1)
+
+    before = update_ids()
+    assert before[0] == before[1]
+    tree.folder("DVD")                       # a disc went in
+    after = update_ids()
+    assert after[0] == after[1] and int(after[0]) > int(before[0])
+
+
+def test_no_eventing_is_advertised() -> None:
+    description = didl.device_description("bluray3d-xr", "u")
+    assert "<eventSubURL></eventSubURL>" in description and "/evt/" not in description
+    for scpd in (didl.CONTENT_DIRECTORY_SCPD, didl.CONNECTION_MANAGER_SCPD):
+        assert 'sendEvents="yes"' not in scpd

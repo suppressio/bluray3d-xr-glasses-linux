@@ -21,6 +21,9 @@ from tree import Tree
 log = logging.getLogger("dlna")
 
 FRIENDLY_NAME = "bluray3d-xr"
+# a Browse request is a few flat tags: anything bigger is not a renderer
+MAX_SOAP_BODY = 64 * 1024
+MACHINE_ID = "/etc/machine-id"
 SERVER_HEADER = "Linux/1.0 UPnP/1.0 bluray3d-xr/1.0"
 
 
@@ -54,7 +57,14 @@ class DlnaHandler(TreeHttpHandler):
 
     def _soap(self) -> None:
         server = self.dlna_server
-        length = int(self.headers.get("Content-Length", "0"))
+        length_text = self.headers.get("Content-Length", "0").strip()
+        if not length_text.isdigit():
+            self.send_error(400, "invalid Content-Length")
+            return
+        length = int(length_text)
+        if length > MAX_SOAP_BODY:
+            self.send_error(413)
+            return
         body = self.rfile.read(length)
         soap_action = self.headers.get("SOAPAction", "")
         try:
@@ -93,9 +103,23 @@ def local_ip() -> str:
             return "127.0.0.1"
 
 
+def install_id(machine_id_file: str = MACHINE_ID) -> str:
+    """What identifies this host across reboots, DHCP leases and port
+    changes: systemd's machine id (the hostname without one, e.g. in a bare
+    container). Only ever used hashed, through device_uuid()."""
+    try:
+        with open(machine_id_file, encoding="ascii") as f:
+            value = f.read().strip()
+        if value:
+            return value
+    except OSError:
+        pass
+    return socket.gethostname()
+
+
 def device_uuid(seed: str) -> str:
     """Stable across restarts (renderers remember a device by its UUID), not
-    random: derived from what identifies this install (its address)."""
+    random: derived from what identifies this install (install_id())."""
     return str(uuid_module.uuid5(uuid_module.NAMESPACE_DNS, f"bluray3d-xr/{seed}"))
 
 
@@ -109,7 +133,7 @@ class Dlna:
         self.host = host or local_ip()
         self.port = port
         base_url = f"http://{self.host}:{self.port}"
-        uuid_value = device_uuid(base_url)
+        uuid_value = device_uuid(f"{install_id()}/{friendly_name}")
         self.server = DlnaServer((self.host, self.port), tree, friendly_name, uuid_value,
                                  base_url)
         self.ssdp = SsdpResponder(f"{base_url}/description.xml", uuid_value, didl.DEVICE_TYPE,
@@ -120,13 +144,23 @@ class Dlna:
     def start(self) -> None:
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._thread.start()
-        self.ssdp.start()
+        try:
+            self.ssdp.start()
+        except OSError:
+            # no multicast (no route, port 1900 taken...): do not leave the HTTP
+            # server running behind an announcement that never went out
+            self._stop_http()
+            raise
         log.info("DLNA: %s announced at %s/description.xml", self.server.friendly_name,
                  self.server.base_url)
 
     def stop(self) -> None:
         self.ssdp.stop()
-        self.server.shutdown()
-        self.server.server_close()
+        self._stop_http()
+
+    def _stop_http(self) -> None:
         if self._thread is not None:
+            self.server.shutdown()
             self._thread.join(timeout=2)
+            self._thread = None
+        self.server.server_close()

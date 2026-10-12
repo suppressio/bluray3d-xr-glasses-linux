@@ -37,9 +37,35 @@ def _arg(body: bytes, name: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+# what a renderer can play: the virtual movies. Sidecars (external subtitles
+# .srt/.ass/.sup...) stay on the Samba share, where players pick them up next
+# to the movie; over DLNA they would show up as unplayable "videos"
+VIDEO_SUFFIXES = (".ts", ".m2ts", ".mkv", ".mp4")
+
+
 def _object_id(tree: Tree, inode: int) -> str:
     """UPnP wants the root container's id to be literally "0"."""
     return "0" if inode == tree.root.inode else str(inode)
+
+
+def _parent_id(tree: Tree, node: Folder | FileEntry) -> str:
+    """The root container has no parent: "-1" (ContentDirectory spec)."""
+    return "-1" if node.inode == tree.root.inode else _object_id(tree, node.parent)
+
+
+def _browsable(tree: Tree, inode: int) -> list[Folder | FileEntry]:
+    """The children a renderer is shown: folders and videos, by name."""
+    return sorted((e for e in tree.children_of(inode)
+                   if isinstance(e, Folder) or e.name.lower().endswith(VIDEO_SUFFIXES)),
+                  key=lambda e: e.name)
+
+
+def _ui4(body: bytes, name: str) -> int:
+    """A UPnP ui4 argument (absent = 0); anything else is error 402."""
+    text = _arg(body, name) or "0"
+    if not text.isdigit() or int(text) > 0xFFFFFFFF:
+        raise SoapError(402, f"invalid {name}: {text[:20]}")
+    return int(text)
 
 
 def _soap_response(service: str, action: str, args: dict[str, str]) -> str:
@@ -71,10 +97,10 @@ def soap_fault(code: int, message: str) -> str:
 
 def _container_xml(tree: Tree, folder: Folder) -> str:
     title = escape(folder.name or "bluray3d-xr")
-    child_count = len(tree.children_of(folder.inode))
+    child_count = len(_browsable(tree, folder.inode))
     return (
         f'<container id="{_object_id(tree, folder.inode)}" '
-        f'parentID="{_object_id(tree, folder.parent)}" restricted="1" searchable="0" '
+        f'parentID="{_parent_id(tree, folder)}" restricted="1" searchable="0" '
         f'childCount="{child_count}">'
         f"<dc:title>{title}</dc:title>"
         "<upnp:class>object.container.storageFolder</upnp:class>"
@@ -101,8 +127,8 @@ def browse(tree: Tree, body: bytes, base_url: str) -> str:
     virtual files, since they do not open the share."""
     object_id = _arg(body, "ObjectID") or "0"
     flag = _arg(body, "BrowseFlag") or "BrowseDirectChildren"
-    starting = int(_arg(body, "StartingIndex") or "0")
-    requested = int(_arg(body, "RequestedCount") or "0")
+    starting = _ui4(body, "StartingIndex")
+    requested = _ui4(body, "RequestedCount")
     try:
         inode = tree.root.inode if object_id in ("0", "") else int(object_id)
         node = tree.nodes[inode]
@@ -111,7 +137,7 @@ def browse(tree: Tree, body: bytes, base_url: str) -> str:
     if flag == "BrowseMetadata":
         items, total = [node], 1
     else:
-        children = sorted(tree.children_of(inode), key=lambda e: e.name)
+        children = _browsable(tree, inode)
         total = len(children)
         end = len(children) if requested == 0 else starting + requested
         items = children[starting:end]
@@ -128,7 +154,7 @@ def browse(tree: Tree, body: bytes, base_url: str) -> str:
         "Result": escape(didl_lite),
         "NumberReturned": str(len(items)),
         "TotalMatches": str(total),
-        "UpdateID": "0",
+        "UpdateID": str(tree.revision),
     })
 
 
@@ -140,8 +166,8 @@ def get_sort_capabilities() -> str:
     return _soap_response(CONTENT_DIRECTORY, "GetSortCapabilities", {"SortCaps": ""})
 
 
-def get_system_update_id() -> str:
-    return _soap_response(CONTENT_DIRECTORY, "GetSystemUpdateID", {"Id": "0"})
+def get_system_update_id(tree: Tree) -> str:
+    return _soap_response(CONTENT_DIRECTORY, "GetSystemUpdateID", {"Id": str(tree.revision)})
 
 
 def get_protocol_info() -> str:
@@ -169,7 +195,6 @@ def get_current_connection_info() -> str:
 _SIMPLE_ACTIONS: dict[str, Callable[[], str]] = {
     "GetSearchCapabilities": get_search_capabilities,
     "GetSortCapabilities": get_sort_capabilities,
-    "GetSystemUpdateID": get_system_update_id,
     "GetProtocolInfo": get_protocol_info,
     "GetCurrentConnectionIDs": get_current_connection_ids,
     "GetCurrentConnectionInfo": get_current_connection_info,
@@ -181,6 +206,8 @@ def handle_action(soap_action: str, body: bytes, tree: Tree, base_url: str) -> s
     action = soap_action.strip('"').rsplit("#", 1)[-1]
     if action == "Browse":
         return browse(tree, body, base_url)
+    if action == "GetSystemUpdateID":
+        return get_system_update_id(tree)
     simple = _SIMPLE_ACTIONS.get(action)
     if simple is None:
         raise SoapError(401, f"no such action: {action}")
@@ -190,7 +217,9 @@ def handle_action(soap_action: str, body: bytes, tree: Tree, base_url: str) -> s
 def device_description(friendly_name: str, udn: str) -> str:
     """The UPnP device description: one MediaServer with ContentDirectory
     (the folders and files) and ConnectionManager (mandatory, even though
-    http-get needs no real connection setup)."""
+    http-get needs no real connection setup). No GENA eventing: eventSubURL
+    is empty and no state variable is evented, so renderers poll
+    GetSystemUpdateID / UpdateID instead of subscribing."""
     return (
         '<?xml version="1.0"?>'
         '<root xmlns="urn:schemas-upnp-org:device-1-0">'
@@ -207,14 +236,14 @@ def device_description(friendly_name: str, udn: str) -> str:
         "<serviceId>urn:upnp-org:serviceId:ContentDirectory</serviceId>"
         "<SCPDURL>/ContentDirectory.xml</SCPDURL>"
         "<controlURL>/ctl/ContentDirectory</controlURL>"
-        "<eventSubURL>/evt/ContentDirectory</eventSubURL>"
+        "<eventSubURL></eventSubURL>"
         "</service>"
         "<service>"
         f"<serviceType>{CONNECTION_MANAGER}</serviceType>"
         "<serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>"
         "<SCPDURL>/ConnectionManager.xml</SCPDURL>"
         "<controlURL>/ctl/ConnectionManager</controlURL>"
-        "<eventSubURL>/evt/ConnectionManager</eventSubURL>"
+        "<eventSubURL></eventSubURL>"
         "</service>"
         "</serviceList>"
         "</device></root>"
@@ -278,7 +307,7 @@ CONTENT_DIRECTORY_SCPD = (
     "<dataType>string</dataType></stateVariable>"
     '<stateVariable sendEvents="no"><name>SortCapabilities</name>'
     "<dataType>string</dataType></stateVariable>"
-    '<stateVariable sendEvents="yes"><name>SystemUpdateID</name>'
+    '<stateVariable sendEvents="no"><name>SystemUpdateID</name>'
     "<dataType>ui4</dataType></stateVariable>"
     "</serviceStateTable>"
     "</scpd>"
@@ -323,7 +352,7 @@ CONNECTION_MANAGER_SCPD = (
     "<dataType>string</dataType></stateVariable>"
     '<stateVariable sendEvents="no"><name>SinkProtocolInfo</name>'
     "<dataType>string</dataType></stateVariable>"
-    '<stateVariable sendEvents="yes"><name>CurrentConnectionIDs</name>'
+    '<stateVariable sendEvents="no"><name>CurrentConnectionIDs</name>'
     "<dataType>string</dataType></stateVariable>"
     "<stateVariable><name>A_ARG_TYPE_ConnectionID</name><dataType>i4</dataType></stateVariable>"
     "<stateVariable><name>A_ARG_TYPE_RcsID</name><dataType>i4</dataType></stateVariable>"

@@ -11,6 +11,7 @@ same way in both.
 """
 import html
 import logging
+import re
 from collections.abc import Iterable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import cast, override
@@ -21,6 +22,7 @@ from tree import Entry, FileEntry, Folder, Tree
 log = logging.getLogger("http_server")
 
 CHUNK = 1 << 20
+_RANGE = re.compile(r"bytes=(?P<start>\d*)-(?P<end>\d*)")
 
 
 def parse_range(header: str, size: int) -> tuple[int, int] | None:
@@ -28,22 +30,15 @@ def parse_range(header: str, size: int) -> tuple[int, int] | None:
     (the last 500 bytes) -> (max(0, size-500), size-1). None for a header this
     function does not understand, or that does not fit the file: the caller
     then answers 416 (if a Range was sent) or the whole file (if it was not)."""
-    if not header.startswith("bytes="):
-        return None
-    spec = header[len("bytes="):].split(",", maxsplit=1)[0].strip()  # one range: enough to seek
-    start_s, _, end_s = spec.partition("-")
-    if size <= 0:
-        return None
-    if not start_s:
-        if not end_s:
-            return None
-        length = min(int(end_s), size)
+    m = _RANGE.fullmatch(header.split(",", maxsplit=1)[0].strip())  # one range: enough to seek
+    if m is None or size <= 0 or not (m["start"] or m["end"]):
+        return None  # also e.g. "bytes=abc-def": answered with 416 like any other bad range
+    if not m["start"]:
+        length = min(int(m["end"]), size)
         return (size - length, size - 1) if length > 0 else None
-    start = int(start_s)
-    if start >= size:
-        return None
-    end = min(int(end_s), size - 1) if end_s else size - 1
-    return (start, end) if end >= start else None
+    start = int(m["start"])
+    end = min(int(m["end"]), size - 1) if m["end"] else size - 1
+    return (start, end) if start < size and end >= start else None
 
 
 class TreeHttpHandler(BaseHTTPRequestHandler):

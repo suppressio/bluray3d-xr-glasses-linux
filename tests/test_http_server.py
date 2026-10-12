@@ -29,6 +29,10 @@ def test_parse_range_satisfiable(header: str, size: int, expected: tuple[int, in
     ("bytes=-0", 1000),               # the last zero bytes: nothing to serve
     ("not-bytes=0-10", 1000),         # a unit this function does not understand
     ("bytes=0-10", 0),                # an empty file has no satisfiable range
+    ("bytes=abc-def", 1000),          # not numbers: 416, not a crashed handler
+    ("bytes=1-x", 1000),
+    ("bytes=-", 1000),
+    ("bytes=10", 1000),               # no "-"
 ])
 def test_parse_range_unsatisfiable(header: str, size: int) -> None:
     assert parse_range(header, size) is None

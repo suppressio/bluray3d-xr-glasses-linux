@@ -58,7 +58,7 @@ bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
 - Il server ascolta su `--http-port` (predefinito `8200`). Apri `http://<ip-pc>:8200/` in un browser per vedere le stesse cartelle come una pagina semplice: un modo rapido per controllare che funzioni, e qualsiasi player che apre un video da un URL può usarlo direttamente.
 - Sul player, cerca "bluray3d-xr" tra i media server DLNA che trova in rete (nessun indirizzo IP da digitare): entra in `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, le stesse cartelle della condivisione SMB.
 - Il salto funziona come su SMB: un byte del file corrisponde sempre a un secondo preciso del film, quindi un salto riavvia la pipeline da lì, che il player legga via SMB o via HTTP.
-- Docker: `SHARE=dlna` (oppure `both`) e `HTTP_PORT` in `.env`, e pubblica la porta — vedi le righe commentate in `docker-compose.yml` (la porta HTTP, e la UDP 1900 per SSDP, l'annuncio di scoperta).
+- Docker, solo DLNA: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — niente Samba, niente FUSE, niente porta 445; usa la rete dell'host, perché la scoperta SSDP è multicast (la porta si imposta con `HTTP_PORT` in `.env`). DLNA insieme a Samba: `SHARE=both` e `HTTP_PORT` in `.env`, e vedi le righe commentate in `docker-compose.yml` (la porta HTTP, e la UDP 1900 per SSDP, l'annuncio di scoperta).
 
 ## Lingue audio
 
