@@ -1,14 +1,16 @@
+[🇬🇧 English](DEVELOPMENT.md) | 🇮🇹 Italiano
+
 # Sviluppo
 
 🌍 [English](DEVELOPMENT.md)
 
-Come avviare il programma da un clone, dove stanno le cose nel codice, cosa controllano i test e come leggere i log. Per cosa fa il programma e come, vedi [Come funziona](README.it.md#come-funziona) nel README.
+Come avviare il programma da un clone, dove stanno le cose nel codice, cosa controllano i test e come leggere i log. Per cosa fa il programma e come, vedi [ARCHITECTURE.it.md](ARCHITECTURE.it.md).
 
 ---
 
 ## Preparazione
 
-1. Fai una volta l'installazione nativa (**Strada B** nel [README](README.it.md#strada-b--script-nativo-debian--ubuntu)), compresa la condivisione Samba. Installa anche tutto quello che serve a un clone:
+1. Fai una volta l'installazione nativa (**Strada C** nel [README](../README.it.md#strada-c--script-nativo-da-una-copia-del-progetto)), compresa la condivisione Samba. Installa anche tutto quello che serve a un clone:
    - i pacchetti di sistema (FFmpeg, libbluray, libdvdread, pyfuse3, trio);
    - il decoder edge264 in `/opt/bluray3d-xr/bin`;
    - il punto di montaggio `/srv/bd3d`;

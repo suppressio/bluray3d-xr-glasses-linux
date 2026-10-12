@@ -2,7 +2,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Ideas are welcome! This is a personal project, made in spare time: no promise on if or when. Check the [ROADMAP](../blob/main/ROADMAP.md) first: Windows, macOS and DLNA are already there. English or Italian are both fine.
+        Ideas are welcome! This is a personal project, made in spare time: no promise on if or when. Check the [ROADMAP](../blob/main/docs/ROADMAP.md) first: Windows, macOS and DLNA are already there. English or Italian are both fine.
 
   - type: textarea
     id: idea

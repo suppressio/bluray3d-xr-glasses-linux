@@ -2,7 +2,7 @@
 
 # Options in detail
 
-The defaults work: you only need this page to change what the share offers (languages, subtitles, quality) or how it behaves. Back to the [README](README.md).
+The defaults work: you only need this page to change what the share offers (languages, subtitles, quality) or how it behaves. Back to the [README](../README.md).
 
 **Where options go:**
 - native path: on the command line, e.g. `bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0`;

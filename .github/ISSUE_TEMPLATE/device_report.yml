@@ -1,11 +1,11 @@
 name: It works with my device or player
-description: Tried it with a device, player or disc not in TESTED.md? Tell how it went, even if everything was fine.
+description: Tried it with a device, player or disc not in docs/TESTED.md? Tell how it went, even if everything was fine.
 labels: [documentation]
 body:
   - type: markdown
     attributes:
       value: |
-        Reports like this one fill [TESTED.md](../blob/main/TESTED.md). Discs are listed there only when something about them is special; devices and players are always welcome. English or Italian are both fine.
+        Reports like this one fill [docs/TESTED.md](../blob/main/TESTED.md). Discs are listed there only when something about them is special; devices and players are always welcome. English or Italian are both fine.
 
   - type: input
     id: version
