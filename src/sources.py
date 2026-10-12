@@ -359,8 +359,9 @@ AUDIO_PREFERENCE = ["dts-hd ma", "dts-hd", "dts", "ac3", "eac3", "lpcm", "truehd
 def _pick_audio[T: AudioTrack](audio: list[T], langs: list[str] | None,
                                 log_as: str | None = None) -> list[T]:
     """One track per language: the requested ones in that order, or every language
-    on the disc (langs None, in disc order); none found -> the first track, logged
-    against `log_as` (the source name) so the fallback is never silent.
+    on the disc (langs None, in disc order); none found -> the first track. The
+    fallback is logged only when `log_as` (the source name) is given: callers
+    that pick tracks for a real source pass it, so there it is not silent.
     Within a language, TrueHD comes last: its PID also carries an AC-3 core that
     ffmpeg shows as a second stream, and players rarely decode it anyway."""
     rank = {c: n for n, c in enumerate(AUDIO_PREFERENCE)}
