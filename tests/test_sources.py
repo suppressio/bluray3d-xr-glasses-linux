@@ -229,6 +229,30 @@ def test_open_disc_tries_every_backend(monkeypatch: pytest.MonkeyPatch) -> None:
         sources._open_disc("/dev/sr0")
 
 
+@pytest.mark.parametrize(("aacs_error", "expected", "unexpected"), [
+    # AACS error -1 (AACS_ERROR_CORRUPTED_DISC): libaacs could not even read the
+    # AACS files, a read error, not a missing key -> no KEYDB/MakeMKV hint
+    (-1, "cannot read the disc", "KEYDB"),
+    # any other AACS error: an actual key/decryption failure -> keep the hint
+    (-3, "cannot decrypt", "cannot read the disc"),
+])
+def test_open_disc_distinguishes_read_errors_from_missing_keys(
+        monkeypatch: pytest.MonkeyPatch, aacs_error: int, expected: str, unexpected: str) -> None:
+    class Disc(FakeBluray):
+        def __init__(self, path: str) -> None:
+            super().__init__(decrypted=False, aacs_error=aacs_error)
+
+    def one_backend() -> list[dict[str, str]]:
+        return [{}]
+
+    monkeypatch.setattr(bluray_module, "Disc", Disc)
+    monkeypatch.setattr(sources, "_decrypt_backends", one_backend)
+    with pytest.raises(OSError, match=expected) as excinfo:
+        sources._open_disc("/dev/sr0")
+    assert unexpected not in str(excinfo.value)
+    assert str(excinfo.value).count("/dev/sr0") == 0           # the caller adds the path once
+
+
 # --- DVD -----------------------------------------------------------------------
 
 def dvd_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
