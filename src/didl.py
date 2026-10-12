@@ -63,8 +63,9 @@ def _browsable(tree: Tree, inode: int) -> list[Folder | FileEntry]:
 def _ui4(body: bytes, name: str) -> int:
     """A UPnP ui4 argument (absent = 0); anything else is error 402."""
     text = _arg(body, name) or "0"
-    # the length first: int() refuses (ValueError) digit strings over ~4300 digits
-    if not text.isdigit() or len(text) > 10 or int(text) > 0xFFFFFFFF:
+    # ASCII and the length first: int() refuses (ValueError) Unicode digits
+    # like "²" and digit strings over ~4300 digits
+    if not (text.isascii() and text.isdigit()) or len(text) > 10 or int(text) > 0xFFFFFFFF:
         raise SoapError(402, f"invalid {name}: {text[:20]}")
     return int(text)
 

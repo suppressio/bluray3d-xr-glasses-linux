@@ -119,6 +119,12 @@ class Bd3dFS(pyfuse3.Operations):
             return await trio.to_thread.run_sync(e.read, off, size)
         except pyfuse3.FUSEError:
             raise
+        except OSError as err:
+            # EIO is expected (no pipeline can serve the file) and was already
+            # explained when it happened: no traceback for every read after it
+            if err.errno != errno.EIO:
+                log.warning("%s: read at %d failed: %s", e.path, off, err)
+            raise pyfuse3.FUSEError(err.errno or errno.EIO) from None
         # anything else going wrong for one read (a disc that cannot be read
         # there, a pipeline that cannot start) is an I/O error for that read:
         # it must not stop the program and every other file with it

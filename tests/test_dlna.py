@@ -150,6 +150,8 @@ def raw_post(server: DlnaServer, content_length: str) -> int:
 
 @pytest.mark.parametrize(("content_length", "status"), [
     ("-1", 400), ("abc", 400), (str(MAX_SOAP_BODY + 1), 413), ("999999999999", 413),
+    # beyond int()'s digit limit: 400, not a crashed handler
+    pytest.param("9" * 5000, 400, id="5000-digits"),
 ])
 def test_soap_body_length_is_checked_before_reading(server: DlnaServer, content_length: str,
                                                     status: int) -> None:

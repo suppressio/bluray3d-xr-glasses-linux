@@ -68,7 +68,8 @@ class DlnaHandler(TreeHttpHandler):
     def _soap(self) -> None:
         server = self.dlna_server
         length_text = self.headers.get("Content-Length", "0").strip()
-        if not length_text.isdigit():
+        # ASCII and bounded: int() refuses Unicode digits and very long strings
+        if not (length_text.isascii() and length_text.isdigit()) or len(length_text) > 12:
             self.send_error(400, "invalid Content-Length")
             return
         length = int(length_text)

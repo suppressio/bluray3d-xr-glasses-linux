@@ -77,6 +77,8 @@ Description: Stream Blu-ray and DVD movies over the home network, including 3D
 CONTROL
 install -m 755 "$REPO_DIR/scripts/deb-postinst" "$package/DEBIAN/postinst"
 install -m 755 "$REPO_DIR/scripts/deb-postrm" "$package/DEBIAN/postrm"
+# Samba is only recommended: when it is installed later, postinst adds the share
+echo "interest-noawait /usr/sbin/smbd" > "$package/DEBIAN/triggers"
 
 mkdir -p "$OUTPUT_DIR"
 deb="$OUTPUT_DIR/bluray3d-xr_${package_version}_amd64.deb"
