@@ -2,14 +2,16 @@
 same TreeHttpServer dlna.py and bd3d_fs.py start) exercised with real HTTP
 requests: a byte Range maps straight onto FileEntry.read(), as it does
 through FUSE."""
+import contextlib
 import threading
 from collections.abc import Iterator
-from http.client import HTTPConnection
+from http.client import HTTPConnection, IncompleteRead
 
 import pytest
 
+import http_server
 from http_server import TreeHttpServer, parse_range
-from tree import Tree
+from tree import Folder, Tree
 
 
 @pytest.mark.parametrize(("header", "size", "expected"), [
@@ -137,3 +139,27 @@ def test_folder_listing(server: tuple[TreeHttpServer, Tree]) -> None:
     body = resp.read().decode()
     assert resp.status == 200 and "movie.ts" in body
     conn.close()
+
+
+def test_an_ejected_file_ends_the_response_without_reading_again(
+        server: tuple[TreeHttpServer, Tree], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(http_server, "CHUNK", 1000)     # 10 chunks for the 10 kB movie
+    srv, tree = server
+    movie = tree.lookup("Blu-ray/movie.ts")
+    assert movie is not None and not isinstance(movie, Folder)
+    reads: list[int] = []
+    original = movie.read
+
+    def read_then_eject(offset: int, size: int) -> bytes:
+        reads.append(offset)
+        tree.remove(movie)          # the disc goes out during the first chunk
+        return original(offset, size)
+
+    movie.read = read_then_eject  # type: ignore[method-assign]
+    conn = HTTPConnection("127.0.0.1", srv.server_address[1])
+    conn.request("GET", "/Blu-ray/movie.ts")
+    resp = conn.getresponse()
+    with contextlib.suppress(IncompleteRead):
+        resp.read()
+    conn.close()
+    assert reads == [0]             # one chunk, then no read of the gone file

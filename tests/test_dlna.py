@@ -101,6 +101,12 @@ def test_scpd_endpoints(server: DlnaServer) -> None:
         assert status == 200 and body == expected
 
 
+def test_head_on_description_documents(server: DlnaServer) -> None:
+    for path in ("/description.xml", "/ContentDirectory.xml", "/ConnectionManager.xml"):
+        status, body = get(server, "HEAD", path)
+        assert status == 200 and body == ""
+
+
 def test_plain_files_still_served_through_the_same_handler(server: DlnaServer) -> None:
     status, body = get(server, "GET", "/Blu-ray/x.ts")
     assert status == 200 and body == "x" * 42

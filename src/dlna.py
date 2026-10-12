@@ -36,24 +36,34 @@ class DlnaHandler(TreeHttpHandler):
         return cast("DlnaServer", self.server)
 
     def do_GET(self) -> None:  # noqa: N802 (http.server's own naming: dispatched by command)
-        server = self.dlna_server
-        if self.path == "/description.xml":
-            self._xml(didl.device_description(server.friendly_name, server.device_uuid))
-        elif self.path == "/ContentDirectory.xml":
-            self._xml(didl.CONTENT_DIRECTORY_SCPD)
-        elif self.path == "/ConnectionManager.xml":
-            self._xml(didl.CONNECTION_MANAGER_SCPD)
-        else:
+        if not self._description(send_body=True):
             super().do_GET()
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        # control points may probe the description/SCPD URLs with HEAD first
+        if not self._description(send_body=False):
+            super().do_HEAD()
+
+    def _description(self, *, send_body: bool) -> bool:
+        """The UPnP description and SCPD documents; False for any other path."""
+        server = self.dlna_server
+        documents = {
+            "/description.xml": lambda: didl.device_description(server.friendly_name,
+                                                                server.device_uuid),
+            "/ContentDirectory.xml": lambda: didl.CONTENT_DIRECTORY_SCPD,
+            "/ConnectionManager.xml": lambda: didl.CONNECTION_MANAGER_SCPD,
+        }
+        document = documents.get(self.path)
+        if document is None:
+            return False
+        self._respond(200, "text/xml; charset=utf-8", document().encode(), send_body=send_body)
+        return True
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path in ("/ctl/ContentDirectory", "/ctl/ConnectionManager"):
             self._soap()
         else:
             self.send_error(404)
-
-    def _xml(self, body_text: str) -> None:
-        self._respond(200, "text/xml; charset=utf-8", body_text.encode())
 
     def _soap(self) -> None:
         server = self.dlna_server
@@ -74,12 +84,14 @@ class DlnaHandler(TreeHttpHandler):
             return
         self._respond(200, "text/xml; charset=utf-8", response.encode())
 
-    def _respond(self, status: int, content_type: str, body: bytes) -> None:
+    def _respond(self, status: int, content_type: str, body: bytes, *,
+                 send_body: bool = True) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        if send_body:
+            self.wfile.write(body)
 
 
 class DlnaServer(TreeHttpServer):
@@ -105,8 +117,8 @@ def local_ip() -> str:
 
 def install_id(machine_id_file: str = MACHINE_ID) -> str:
     """What identifies this host across reboots, DHCP leases and port
-    changes: systemd's machine id (the hostname without one, e.g. in a bare
-    container). Only ever used hashed, through device_uuid()."""
+    changes: systemd's machine id (the Docker overrides mount the host's), or
+    the hostname without one. Only ever used hashed, through device_uuid()."""
     try:
         with open(machine_id_file, encoding="ascii") as f:
             value = f.read().strip()
