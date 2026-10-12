@@ -322,9 +322,14 @@ def _decrypted_with(info: bluray.DiscInfo, env: dict[str, str]) -> str:
     return f"{info.protection}, decrypted with {backend}"
 
 
+AACS_ERROR_CORRUPTED_DISC = -1
+"""libaacs: opening or reading of the AACS files on the disc failed. A read
+error (bad media, drive dropout), not a missing or wrong key."""
+
+
 def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]:
     """Open a disc/ISO/BDMV with the first decryption backend that works."""
-    last = None
+    last: bluray.DiscInfo | None = None
     for env in _decrypt_backends():
         saved = {k: os.environ.get(k) for k in ("LIBAACS_PATH", "LIBBDPLUS_PATH")}
         os.environ.update(env)
@@ -334,7 +339,7 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
             if info.decrypted:
                 log.info("%s: %s", path, _decrypted_with(info, env))
                 return disc, info, env
-            last = f"cannot decrypt (AACS error {info.aacs_error})"
+            last = info
             disc.close()
         finally:
             for k, v in saved.items():
@@ -342,8 +347,11 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-    raise OSError(f"{path}: {last or 'cannot open'}. Provide a KEYDB.cfg for libaacs "
-                  f"or install MakeMKV (libmmbd).")
+    if last is not None and last.aacs_error == AACS_ERROR_CORRUPTED_DISC:
+        raise OSError("cannot read the disc: the AACS files could not be read "
+                       "(drive or media problem, not a missing key)")
+    raise OSError(f"cannot decrypt (AACS error {last.aacs_error if last else 'unknown'}). "
+                  f"Provide a KEYDB.cfg for libaacs or install MakeMKV (libmmbd).")
 
 
 def _safe_name(name: str) -> str:
