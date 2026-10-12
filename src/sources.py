@@ -326,7 +326,10 @@ AACS_ERROR_CORRUPTED_DISC = -1
 """libaacs: opening or reading of the AACS files on the disc failed."""
 AACS_ERROR_MMC_OPEN = -6
 """libaacs: opening the drive (MMC) failed."""
-AACS_READ_ERRORS = frozenset({AACS_ERROR_CORRUPTED_DISC, AACS_ERROR_MMC_OPEN})
+AACS_ERROR_MMC_FAILURE = -7
+"""libaacs: a command to the drive (MMC) failed."""
+AACS_READ_ERRORS = frozenset({AACS_ERROR_CORRUPTED_DISC, AACS_ERROR_MMC_OPEN,
+                              AACS_ERROR_MMC_FAILURE})
 """AACS errors that are drive or media problems (bad disc, drive dropout), not
 a missing or wrong key: no KEYDB/MakeMKV hint for these."""
 
@@ -715,7 +718,8 @@ def discover(paths: list[str], audio_langs: list[str] | None = None) -> list[Sou
             try:
                 sources += open_disc(str(p), audio_langs)
             except OSError as e:
-                log.info("%s: skipped: %s", p, e)
+                # some errors already start with the path: keep it once
+                log.info("%s: skipped: %s", p, str(e).removeprefix(f"{p}: "))
         elif p.suffix.lower() != ".mkv":
             log.info("skipped (not a 3D Blu-ray MKV, ISO or BDMV folder): %s", p)
         elif not MkvSource.has_mvc(str(p)):
