@@ -3,6 +3,7 @@ import os
 import shlex
 import shutil
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -11,8 +12,9 @@ import bluray as bluray_module
 import dvd
 import sources
 from bdmv import AudioStream
-from bluray import Title
-from fakes import FakeBluray, FakeDvd, mkv_probe, opener, pack
+from bluray import DiscInfo, Title
+from builders import Item, Stream, clpi, mpls
+from fakes import EPS, FakeBluray, FakeDvd, mkv_probe, opener, pack
 from sources import (
     BlurayDiscSource,
     DvdSource,
@@ -57,6 +59,17 @@ def test_pick_audio() -> None:
     assert [a.pid for a in _pick_audio(A, ["ita", "eng"])] == [4, 2]  # requested order
     assert [a.pid for a in _pick_audio(A, ["jpn"])] == [1]            # none found: the first
     assert _pick_audio([], ["ita"]) == []
+
+
+def test_pick_audio_logs_fallback(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger="bd3d_fs")
+    _pick_audio(A, ["jpn"], log_as="Episode 1")
+    assert "Episode 1: no jpn audio track, using eng" in caplog.text
+    caplog.clear()
+    _pick_audio(A, ["ita"], log_as="Episode 1")   # found: nothing logged
+    assert not caplog.text
+    _pick_audio(A, ["jpn"])                        # no log_as: nothing logged
+    assert not caplog.text
 
 
 def test_first_per_lang() -> None:
@@ -174,6 +187,74 @@ def test_bluray_no_title(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     with pytest.raises(OSError, match="no title"):
         bluray(monkeypatch, tmp_path, disc)
     assert disc.closed
+
+
+@dataclass
+class MultiEpisodeBluray:
+    """A disc whose titles are given directly as {playlist: items}, for all_on()."""
+    playlists: dict[str, list[Item]]
+    name: str = "Rick and Morty Staffel1 - Blu-ray"
+    volume_id: str = "RICK_AND_MORTY_S1"
+    closed: bool = False
+
+    def info(self) -> DiscInfo:
+        return DiscInfo(self.name, self.volume_id, False, True, 0, "AACS")
+
+    def titles(self) -> list[Title]:
+        return [Title(pl, sum((it.out_time - it.in_time) / 45_000 for it in items))
+                for pl, items in self.playlists.items()]
+
+    def read_file(self, path: str) -> bytes:
+        name = path.rsplit("/", 1)[1][:5]
+        if path.endswith(".mpls"):
+            return mpls(self.playlists[name])
+        return clpi(3_000_000, EPS, extents=list(range(0, 3_000_000, 50_000)))
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_bluray_all_on_dedup_and_audio_fallback(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """Reproduces #25: a German multi-region TV disc with 2 real episodes, each with a
+    second playlist that just prepends a short language-card clip (same episode, must not
+    be listed twice), plus 2 further titles that are genuinely a different encode with no
+    Italian track (must still show up, with the audio fallback made visible)."""
+    iso = tmp_path / "Rick.iso"
+    iso.write_text("")
+
+    def ep(clip: str, audio: list[Stream]) -> Item:
+        return Item(clip, 0, 45_000 * 1200, audio=audio)
+
+    def card(clip: str) -> Item:
+        return Item(clip, 0, 45_000 * 5)
+
+    ita_and_eng = [Stream(0x1100, "eng", 0x81), Stream(0x1101, "ita", 0x81)]
+    eng_only = [Stream(0x1100, "eng", 0x81)]
+    disc = MultiEpisodeBluray({
+        "00001": [ep("00010", ita_and_eng)],
+        "00002": [ep("00020", ita_and_eng)],
+        # same two episodes, a language card prepended: the first clip differs, the main one doesn't
+        "00013": [card("00099"), ep("00010", ita_and_eng)],
+        "00014": [card("00098"), ep("00020", ita_and_eng)],
+        # a separate pair of titles, really without an Italian track
+        "00021": [ep("00030", eng_only)],
+        "00022": [ep("00040", eng_only)],
+    })
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    caplog.set_level(logging.WARNING, logger="bd3d_fs")
+
+    found = [s for s in BlurayDiscSource.all_on(str(iso), ["ita"])
+             if isinstance(s, BlurayDiscSource)]
+
+    assert [s.playlist for s in found] == ["00001", "00002", "00021", "00022"]
+    assert [s.audio_langs for s in found] == [["ita"], ["ita"], ["eng"], ["eng"]]
+    assert caplog.text.count("no ita audio track, using eng") == 2
+    assert "Rick and Morty Staffel1 - 3: no ita audio track, using eng" in caplog.text
+    assert "Rick and Morty Staffel1 - 4: no ita audio track, using eng" in caplog.text
 
 
 def test_decrypt_backends(monkeypatch: pytest.MonkeyPatch) -> None:
