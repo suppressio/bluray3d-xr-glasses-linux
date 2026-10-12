@@ -108,7 +108,9 @@ class SsdpResponder:
     def start(self) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("", PORT))
+        # bound to the group, not to every interface: the socket gets only SSDP
+        # multicast (M-SEARCH), never datagrams addressed to this host (Linux)
+        sock.bind((MULTICAST_ADDR, PORT))
         # INADDR_ANY: join the multicast group on every interface, not a listening
         # bind (SSDP discovery must be heard on whichever interface the LAN is on)
         group = socket.inet_aton(MULTICAST_ADDR) + socket.inet_aton("0.0.0.0")  # noqa: S104
