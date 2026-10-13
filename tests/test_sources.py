@@ -253,8 +253,41 @@ def test_bluray_all_on_dedup_and_audio_fallback(
     assert [s.playlist for s in found] == ["00001", "00002", "00021", "00022"]
     assert [s.audio_langs for s in found] == [["ita"], ["ita"], ["eng"], ["eng"]]
     assert caplog.text.count("no ita audio track, using eng") == 2
-    assert "Rick and Morty Staffel1 - 3: no ita audio track, using eng" in caplog.text
-    assert "Rick and Morty Staffel1 - 4: no ita audio track, using eng" in caplog.text
+    assert "Rick and Morty Staffel1 - Extra 1: no ita audio track, using eng" in caplog.text
+    assert "Rick and Morty Staffel1 - Extra 2: no ita audio track, using eng" in caplog.text
+    # #39: the eng-only titles are the disc's extras, numbered apart in Extra/
+    assert [(s.name, s.subfolder) for s in found] == [
+        ("Rick and Morty Staffel1 - 1", ""), ("Rick and Morty Staffel1 - 2", ""),
+        ("Rick and Morty Staffel1 - Extra 1", "Extra"),
+        ("Rick and Morty Staffel1 - Extra 2", "Extra")]
+    # the same split whatever language is asked for (#39: eng would number them 3, 4)
+    for langs in (["eng"], None):
+        again = BlurayDiscSource.all_on(str(iso), langs)
+        assert [s.subfolder for s in again] == ["", "", "Extra", "Extra"]
+
+
+NO_EXTRAS: list[str] = []
+
+
+@pytest.mark.parametrize(("langs", "expected"), [
+    # second copy of each episode with fewer dubs, plus a bonus: split
+    (["ie", "ie", "ie", "e", "e", "e"], (["ie"] * 3, ["e"] * 3)),
+    # second copy plus bonuses (Rick and Morty S1: 11 + 12)
+    (["ie"] * 11 + ["e"] * 12, (["ie"] * 11, ["e"] * 12)),
+    # the last episodes were never dubbed: all stay episodes
+    (["ji"] * 7 + ["j"] * 3, (["ji"] * 7 + ["j"] * 3, NO_EXTRAS)),
+    # two episodes carry one more dub: they are not "the episodes"
+    (["eis"] * 2 + ["ei"] * 7, (["eis"] * 2 + ["ei"] * 7, NO_EXTRAS)),
+    # a single episode missing a dub stays an episode
+    (["ie", "ie", "ie", "e"], (["ie", "ie", "ie", "e"], NO_EXTRAS)),
+    # no group holds every other group's languages: no split
+    (["ie", "ie", "ef", "ef"], (["ie", "ie", "ef", "ef"], NO_EXTRAS)),
+    # all the same: no split
+    (["ie", "ie"], (["ie", "ie"], NO_EXTRAS)),
+])
+def test_split_extras(langs: list[str], expected: tuple[list[str], list[str]]) -> None:
+    episodes, extras = sources._split_extras(langs, frozenset)
+    assert (episodes, extras) == expected
 
 
 def test_bluray_partial_injection_closes_own_disc(monkeypatch: pytest.MonkeyPatch,

@@ -34,7 +34,7 @@ import tempfile
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, Self, override
@@ -83,6 +83,7 @@ class Source(ABC):
 
     label: str = ""      # prefix of the file name of a variant, e.g. "ITA"
     category: str = "Blu-ray 3D"    # folder of the share it goes in
+    subfolder: str = ""             # inside it, e.g. "Extra" for a series' bonus titles
     name_suffix: str = " - 3D SBS"  # after the movie name in the file name
     two_d: bool = False  # True: video_command gives one stream with video and audio for ffmpeg
     frame_size: str = "3840x1080"   # output picture size (Full-SBS for 3D)
@@ -392,6 +393,39 @@ def _pick_audio[T: AudioTrack](audio: list[T], langs: list[str] | None,
     return audio[:1]
 
 
+# extras / episodes count for _split_extras: a second copy of every episode, plus a few bonuses
+EXTRAS_RATIO = (0.8, 1.5)
+
+
+def _split_extras[T](titles: list[T], langs_of: Callable[[T], frozenset[str]]
+                     ) -> tuple[list[T], list[T]]:
+    """Split a series' titles into episodes and extras by their audio languages.
+
+    Some discs carry a second copy of every episode with fewer dubs (Rick and Morty S1,
+    German edition: 11 episodes in ita+eng, then 11 eng-only copies and a bonus). The
+    group whose languages include every other group's, and has more of them, is the
+    episodes; the rest are extras. Only when the extras look like such a second set:
+    about as many titles as the episodes (EXTRAS_RATIO), and at least 2 on each side.
+    A series whose last episodes were never dubbed (7 dubbed, 3 not), or where a few
+    episodes carry one more dub, keeps all its episodes. Otherwise: all episodes.
+    """
+    groups: dict[frozenset[str], list[T]] = {}
+    for t in titles:
+        groups.setdefault(langs_of(t), []).append(t)
+    if len(groups) < 2:
+        return titles, []
+    richest = max(groups, key=len)
+    if not all(g < richest for g in groups if g != richest):
+        return titles, []
+    episodes = groups[richest]
+    extras = [t for t in titles if langs_of(t) != richest]
+    low, high = EXTRAS_RATIO
+    if len(episodes) < 2 or len(extras) < 2 or \
+            not low * len(episodes) <= len(extras) <= high * len(episodes):
+        return titles, []
+    return episodes, extras
+
+
 class DiscSource(Source):
     """A disc (Blu-ray or DVD): its audio tracks are PIDs / stream ids of one stream."""
 
@@ -443,9 +477,13 @@ class BlurayDiscSource(DiscSource):
             # Read the first clip of each playlist to deduplicate alternate-audio/subtitle
             # variants: same opening clip = same episode (variants may append short clips
             # for language cards or warnings; keep the lowest playlist number per episode).
+            langs: dict[str, frozenset[str]] = {}
+
             def first_clip(t: bluray.Title) -> str:
                 try:
                     items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{t.playlist}.mpls"))
+                    # every play item: an intro clip may carry other audio than the episode
+                    langs[t.playlist] = frozenset(a.lang for it in items for a in it.audio)
                     return items[0].clip if items else t.playlist
                 except Exception:  # noqa: BLE001 — malformed MPLS: treat as unique
                     return t.playlist
@@ -470,15 +508,23 @@ class BlurayDiscSource(DiscSource):
                 longest, shortest = by_dur[0].duration, by_dur[-1].duration
                 # All titles long enough and similar enough in duration → episodes
                 if shortest > 300 and longest / shortest < 1.5:
-                    return [cls(path, audio_langs, _title=t, _episode=i,
-                                _disc=disc, _info=info, _env=env)
-                            for i, t in enumerate(unique, 1)]
+                    # an unreadable MPLS gives no languages (an extra): __init__ re-reads it
+                    # and raises anyway
+                    episodes, extras = _split_extras(
+                        unique, lambda t: langs.get(t.playlist, frozenset()))
+                    found: list[Source] = [cls(path, audio_langs, _title=t, _episode=i,
+                                               _disc=disc, _info=info, _env=env)
+                                           for i, t in enumerate(episodes, 1)]
+                    found += [cls(path, audio_langs, _title=t, _episode=i, _extra=True,
+                                  _disc=disc, _info=info, _env=env)
+                              for i, t in enumerate(extras, 1)]
+                    return found
             return [cls(path, audio_langs, _disc=disc, _info=info, _env=env)]
         finally:
             disc.close()
 
     def __init__(self, path: str, audio_langs: list[str] | None = None,
-                 _title: bluray.Title | None = None, _episode: int = 0,
+                 _title: bluray.Title | None = None, _episode: int = 0, _extra: bool = False,
                  _disc: bluray.Disc | None = None, _info: bluray.DiscInfo | None = None,
                  _env: dict[str, str] | None = None) -> None:
         self.path = path
@@ -530,8 +576,9 @@ class BlurayDiscSource(DiscSource):
             self.category, self.name_suffix, self.frame_size = "Blu-ray", "", "1920x1080"
             self.quality_key = "2d"
         self.name = _safe_name(info.name or info.volume_id.replace("_", " ").title())
-        if _episode:
-            self.name = f"{self.name} - {_episode}"
+        if _episode:  # extras (#39) are numbered apart and go in Extra/
+            self.name = f"{self.name} - {'Extra ' if _extra else ''}{_episode}"
+            self.subfolder = "Extra" if _extra else ""
         self.duration = sum(it.duration for it in items)
         self.starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
         st = Path(path).stat()
