@@ -485,7 +485,8 @@ class BlurayDiscSource(DiscSource):
         # _disc: an already-open disc handed down by all_on(), shared by every episode
         # source instead of each one opening (and AACS-handshaking) its own; all_on()
         # closes it once every episode has been built, so it is left open here.
-        if _disc is not None and _info is not None and _env is not None:
+        borrowed = _disc is not None and _info is not None and _env is not None
+        if borrowed:
             disc, info, self.env = _disc, _info, _env
         else:
             disc, info, self.env = _open_disc(path)
@@ -521,7 +522,7 @@ class BlurayDiscSource(DiscSource):
                     parse_clpi(disc.read_file(f"BDMV/CLIPINF/{it.dep_clip}.clpi"), pid=0x1012)
                 self.clips[it.clip] = (base, dep)
         finally:
-            if _disc is None:
+            if not borrowed:  # opened here (also when only part of disc/info/env was passed)
                 disc.close()
 
         if self.two_d:
