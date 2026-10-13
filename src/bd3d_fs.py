@@ -751,8 +751,11 @@ class Library:
         return added
 
     def add(self, source: Source) -> list[FileEntry]:
-        """Files go in the folder of their kind: Blu-ray 3D/, Blu-ray/ ..."""
+        """Files go in the folder of their kind: Blu-ray 3D/, Blu-ray/ ... (a series'
+        bonus titles in its Extra/ sub-folder)."""
         category = self.tree.folder(source.category).inode
+        if source.subfolder:
+            category = self.tree.folder(source.subfolder, category).inode
         added = self._add_set(source, category, "normal")
         if self.light:
             added += self._add_set(source, self.tree.folder(LIGHT_DIR, category).inode, "light")

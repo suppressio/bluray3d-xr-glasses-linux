@@ -485,6 +485,21 @@ def test_library_both_light_and_removal(tmp_path: Path) -> None:
     assert isinstance(tree.nodes[ROOT_ID], Folder)
 
 
+def test_library_extra_subfolder(tmp_path: Path) -> None:
+    """#39: a series' bonus titles go in Extra/ inside their kind's folder (Light too),
+    and the folder goes away with them."""
+    tree, lib = library(tmp_path, audio_files="single", light=True, sub_langs=[])
+    episode, extra = DiscSource(str(tmp_path / "d")), DiscSource(str(tmp_path / "d"))
+    episode.name, extra.name, extra.subfolder = "Show - 1", "Show - Extra 1", "Extra"
+    added = lib.add(episode) + lib.add(extra)
+    assert paths(tree) == sorted([
+        "Blu-ray", "Blu-ray/Show - 1.ts", "Blu-ray/Extra", "Blu-ray/Extra/Show - Extra 1.ts",
+        "Blu-ray/Light", "Blu-ray/Light/Show - 1.ts",
+        "Blu-ray/Extra/Light", "Blu-ray/Extra/Light/Show - Extra 1.ts"])
+    lib.remove(added)
+    assert paths(tree) == []
+
+
 def test_file_system_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     tree, lib = library(tmp_path, audio_files="single", sub_langs=[])
     fs = Bd3dFS(tree)
