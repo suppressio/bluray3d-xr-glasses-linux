@@ -431,8 +431,13 @@ class BlurayDiscSource(DiscSource):
 
     @classmethod
     def all_on(cls, path: str, audio_langs: list[str] | None = None) -> list[Source]:
-        """One source per episode when the disc holds a TV series; one source otherwise."""
-        disc, _, _ = _open_disc(path)
+        """One source per episode when the disc holds a TV series; one source otherwise.
+
+        A single bd_open (+ AACS handshake) for the whole disc, kept open while every
+        episode source is built from it (see the `_disc` parameter of __init__), instead
+        of each one reopening the disc on its own.
+        """
+        disc, info, env = _open_disc(path)
         try:
             titles = sorted(disc.titles(), key=lambda t: t.playlist)
             # Read the first clip of each playlist to deduplicate alternate-audio/subtitle
@@ -445,36 +450,45 @@ class BlurayDiscSource(DiscSource):
                 except Exception:  # noqa: BLE001 — malformed MPLS: treat as unique
                     return t.playlist
             sigs = {t.playlist: first_clip(t) for t in titles}
+
+            if len(titles) < 2:
+                return [cls(path, audio_langs, _disc=disc, _info=info, _env=env)]
+
+            # Deduplicate: keep only the first title (lowest playlist number) per opening
+            # clip. This removes alternate-audio/subtitle variants AND "play all" playlists,
+            # which always start with the same clip as the first episode.
+            seen_sigs: set[str] = set()
+            unique: list[bluray.Title] = []
+            for t in titles:
+                sig = sigs[t.playlist]
+                if sig not in seen_sigs:
+                    seen_sigs.add(sig)
+                    unique.append(t)
+
+            if len(unique) >= 2:
+                by_dur = sorted(unique, key=lambda t: -t.duration)
+                longest, shortest = by_dur[0].duration, by_dur[-1].duration
+                # All titles long enough and similar enough in duration → episodes
+                if shortest > 300 and longest / shortest < 1.5:
+                    return [cls(path, audio_langs, _title=t, _episode=i,
+                                _disc=disc, _info=info, _env=env)
+                            for i, t in enumerate(unique, 1)]
+            return [cls(path, audio_langs, _disc=disc, _info=info, _env=env)]
         finally:
             disc.close()
 
-        if len(titles) < 2:
-            return [cls(path, audio_langs)]
-
-        # Deduplicate: keep only the first title (lowest playlist number) per opening clip.
-        # This removes alternate-audio/subtitle variants AND "play all" playlists, which
-        # always start with the same clip as the first episode.
-        seen_sigs: set[str] = set()
-        unique: list[bluray.Title] = []
-        for t in titles:
-            sig = sigs[t.playlist]
-            if sig not in seen_sigs:
-                seen_sigs.add(sig)
-                unique.append(t)
-
-        if len(unique) >= 2:
-            by_dur = sorted(unique, key=lambda t: -t.duration)
-            longest, shortest = by_dur[0].duration, by_dur[-1].duration
-            # All titles long enough and similar enough in duration → episodes
-            if shortest > 300 and longest / shortest < 1.5:
-                return [cls(path, audio_langs, _title=t, _episode=i)
-                        for i, t in enumerate(unique, 1)]
-        return [cls(path, audio_langs)]
-
     def __init__(self, path: str, audio_langs: list[str] | None = None,
-                 _title: bluray.Title | None = None, _episode: int = 0) -> None:
+                 _title: bluray.Title | None = None, _episode: int = 0,
+                 _disc: bluray.Disc | None = None, _info: bluray.DiscInfo | None = None,
+                 _env: dict[str, str] | None = None) -> None:
         self.path = path
-        disc, info, self.env = _open_disc(path)
+        # _disc: an already-open disc handed down by all_on(), shared by every episode
+        # source instead of each one opening (and AACS-handshaking) its own; all_on()
+        # closes it once every episode has been built, so it is left open here.
+        if _disc is not None and _info is not None and _env is not None:
+            disc, info, self.env = _disc, _info, _env
+        else:
+            disc, info, self.env = _open_disc(path)
         try:
             if _title is not None:
                 # specific title supplied by all_on() for a multi-episode disc
@@ -507,7 +521,8 @@ class BlurayDiscSource(DiscSource):
                     parse_clpi(disc.read_file(f"BDMV/CLIPINF/{it.dep_clip}.clpi"), pid=0x1012)
                 self.clips[it.clip] = (base, dep)
         finally:
-            disc.close()
+            if _disc is None:
+                disc.close()
 
         if self.two_d:
             self.category, self.name_suffix, self.frame_size = "Blu-ray", "", "1920x1080"
