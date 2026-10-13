@@ -69,4 +69,4 @@ jobs:
       - name: Attach package to release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" dist/*.deb --clobber
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.deb --clobber --repo "$GITHUB_REPOSITORY"

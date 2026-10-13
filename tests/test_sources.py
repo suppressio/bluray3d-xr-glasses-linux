@@ -257,6 +257,45 @@ def test_bluray_all_on_dedup_and_audio_fallback(
     assert "Rick and Morty Staffel1 - 4: no ita audio track, using eng" in caplog.text
 
 
+def test_bluray_partial_injection_closes_own_disc(monkeypatch: pytest.MonkeyPatch,
+                                                  tmp_path: Path) -> None:
+    """A disc passed without info/env is not used: the source opens its own and must close
+    it, leaving the passed one alone."""
+    own, passed = FakeBluray(), FakeBluray()
+    iso = tmp_path / "Tron.iso"
+    iso.write_text("")
+    monkeypatch.setattr(sources, "_open_disc", opener(own))
+    BlurayDiscSource(str(iso), _disc=passed)  # type: ignore[arg-type]
+    assert own.closed and not passed.closed
+
+
+def test_bluray_all_on_opens_disc_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#24: a multi-episode disc must open once (one bd_open + AACS handshake), not
+    once per episode: all_on() keeps its disc open and hands it down to every episode."""
+    iso = tmp_path / "Rick.iso"
+    iso.write_text("")
+
+    def ep(clip: str) -> Item:
+        return Item(clip, 0, 45_000 * 1200, audio=[Stream(0x1100, "eng", 0x81)])
+
+    disc = MultiEpisodeBluray({
+        "00001": [ep("00010")], "00002": [ep("00020")], "00003": [ep("00030")],
+    })
+    opens = 0
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        nonlocal opens
+        opens += 1
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = BlurayDiscSource.all_on(str(iso))
+
+    assert len(found) == 3
+    assert opens == 1
+    assert disc.closed
+
+
 def test_decrypt_backends(monkeypatch: pytest.MonkeyPatch) -> None:
     def nothing(name: str) -> str | None:
         return None
