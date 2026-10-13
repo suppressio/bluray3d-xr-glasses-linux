@@ -272,6 +272,12 @@ NO_EXTRAS: list[str] = []
 @pytest.mark.parametrize(("langs", "expected"), [
     # second copy of each episode with fewer dubs, plus a bonus: split
     (["ie", "ie", "ie", "e", "e", "e"], (["ie"] * 3, ["e"] * 3)),
+    # second copy plus bonuses (Rick and Morty S1: 11 + 12)
+    (["ie"] * 11 + ["e"] * 12, (["ie"] * 11, ["e"] * 12)),
+    # the last episodes were never dubbed: all stay episodes
+    (["ji"] * 7 + ["j"] * 3, (["ji"] * 7 + ["j"] * 3, NO_EXTRAS)),
+    # two episodes carry one more dub: they are not "the episodes"
+    (["eis"] * 2 + ["ei"] * 7, (["eis"] * 2 + ["ei"] * 7, NO_EXTRAS)),
     # a single episode missing a dub stays an episode
     (["ie", "ie", "ie", "e"], (["ie", "ie", "ie", "e"], NO_EXTRAS)),
     # no group holds every other group's languages: no split

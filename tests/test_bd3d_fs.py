@@ -498,6 +498,10 @@ def test_library_extra_subfolder(tmp_path: Path) -> None:
         "Blu-ray/Extra/Light", "Blu-ray/Extra/Light/Show - Extra 1.ts"])
     lib.remove(added)
     assert paths(tree) == []
+    # all-tracks copies too: Extra/Multi-audio/
+    tree, lib = library(tmp_path, audio_files="both", sub_langs=[])
+    lib.add(extra)
+    assert "Blu-ray/Extra/Multi-audio/Show - Extra 1.ts" in paths(tree)
 
 
 def test_file_system_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

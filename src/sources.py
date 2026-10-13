@@ -393,6 +393,10 @@ def _pick_audio[T: AudioTrack](audio: list[T], langs: list[str] | None,
     return audio[:1]
 
 
+# extras / episodes count for _split_extras: a second copy of every episode, plus a few bonuses
+EXTRAS_RATIO = (0.8, 1.5)
+
+
 def _split_extras[T](titles: list[T], langs_of: Callable[[T], frozenset[str]]
                      ) -> tuple[list[T], list[T]]:
     """Split a series' titles into episodes and extras by their audio languages.
@@ -400,8 +404,10 @@ def _split_extras[T](titles: list[T], langs_of: Callable[[T], frozenset[str]]
     Some discs carry a second copy of every episode with fewer dubs (Rick and Morty S1,
     German edition: 11 episodes in ita+eng, then 11 eng-only copies and a bonus). The
     group whose languages include every other group's, and has more of them, is the
-    episodes; the rest are extras. Only when both sides have at least 2 titles, so a
-    single episode missing a dub stays an episode. Otherwise: all episodes.
+    episodes; the rest are extras. Only when the extras look like such a second set:
+    about as many titles as the episodes (EXTRAS_RATIO), and at least 2 on each side.
+    A series whose last episodes were never dubbed (7 dubbed, 3 not), or where a few
+    episodes carry one more dub, keeps all its episodes. Otherwise: all episodes.
     """
     groups: dict[frozenset[str], list[T]] = {}
     for t in titles:
@@ -413,7 +419,9 @@ def _split_extras[T](titles: list[T], langs_of: Callable[[T], frozenset[str]]
         return titles, []
     episodes = groups[richest]
     extras = [t for t in titles if langs_of(t) != richest]
-    if len(episodes) < 2 or len(extras) < 2:
+    low, high = EXTRAS_RATIO
+    if len(episodes) < 2 or len(extras) < 2 or \
+            not low * len(episodes) <= len(extras) <= high * len(episodes):
         return titles, []
     return episodes, extras
 
@@ -474,8 +482,8 @@ class BlurayDiscSource(DiscSource):
             def first_clip(t: bluray.Title) -> str:
                 try:
                     items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{t.playlist}.mpls"))
-                    langs[t.playlist] = frozenset(a.lang for a in items[0].audio) if items \
-                        else frozenset()
+                    # every play item: an intro clip may carry other audio than the episode
+                    langs[t.playlist] = frozenset(a.lang for it in items for a in it.audio)
                     return items[0].clip if items else t.playlist
                 except Exception:  # noqa: BLE001 — malformed MPLS: treat as unique
                     return t.playlist
@@ -500,6 +508,8 @@ class BlurayDiscSource(DiscSource):
                 longest, shortest = by_dur[0].duration, by_dur[-1].duration
                 # All titles long enough and similar enough in duration → episodes
                 if shortest > 300 and longest / shortest < 1.5:
+                    # an unreadable MPLS gives no languages (an extra): __init__ re-reads it
+                    # and raises anyway
                     episodes, extras = _split_extras(
                         unique, lambda t: langs.get(t.playlist, frozenset()))
                     found: list[Source] = [cls(path, audio_langs, _title=t, _episode=i,
