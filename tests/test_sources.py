@@ -257,6 +257,18 @@ def test_bluray_all_on_dedup_and_audio_fallback(
     assert "Rick and Morty Staffel1 - 4: no ita audio track, using eng" in caplog.text
 
 
+def test_bluray_partial_injection_closes_own_disc(monkeypatch: pytest.MonkeyPatch,
+                                                  tmp_path: Path) -> None:
+    """A disc passed without info/env is not used: the source opens its own and must close
+    it, leaving the passed one alone."""
+    own, passed = FakeBluray(), FakeBluray()
+    iso = tmp_path / "Tron.iso"
+    iso.write_text("")
+    monkeypatch.setattr(sources, "_open_disc", opener(own))
+    BlurayDiscSource(str(iso), _disc=passed)  # type: ignore[arg-type]
+    assert own.closed and not passed.closed
+
+
 def test_bluray_all_on_opens_disc_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """#24: a multi-episode disc must open once (one bd_open + AACS handshake), not
     once per episode: all_on() keeps its disc open and hands it down to every episode."""
