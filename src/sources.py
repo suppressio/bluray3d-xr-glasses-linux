@@ -426,6 +426,26 @@ def _split_extras[T](titles: list[T], langs_of: Callable[[T], frozenset[str]]
     return episodes, extras
 
 
+def _play_all_order(titles: list[bluray.Title], items_by_playlist: dict[str, list[PlayItem]],
+                    episodes: list[bluray.Title], sigs: dict[str, str]
+                    ) -> list[bluray.Title] | None:
+    """The play-all playlist among `titles`, if any: one whose PlayItems visit the
+    opening clip of every title in `episodes` (`sigs`: playlist -> opening clip)
+    exactly once, in sequence (docs/bluray-mpls-internals.md, Q4). That sequence is
+    the authoritative episode order, more reliable than sorting by playlist number
+    (which may reflect authoring order, not air order). None when no such title is
+    found: the caller keeps the current playlist-number order.
+    """
+    by_sig = {sigs[t.playlist]: t for t in episodes}
+    wanted = set(by_sig)
+    for t in titles:
+        clips = [it.clip for it in items_by_playlist.get(t.playlist, [])]
+        matches = [c for c in clips if c in wanted]
+        if len(matches) == len(wanted) and set(matches) == wanted:
+            return [by_sig[c] for c in matches]
+    return None
+
+
 class DiscSource(Source):
     """A disc (Blu-ray or DVD): its audio tracks are PIDs / stream ids of one stream."""
 
@@ -477,11 +497,14 @@ class BlurayDiscSource(DiscSource):
             # Read the first clip of each playlist to deduplicate alternate-audio/subtitle
             # variants: same opening clip = same episode (variants may append short clips
             # for language cards or warnings; keep the lowest playlist number per episode).
+            # The full PlayItem list is kept too, to find a play-all playlist afterwards.
             langs: dict[str, frozenset[str]] = {}
+            items_by_playlist: dict[str, list[PlayItem]] = {}
 
             def first_clip(t: bluray.Title) -> str:
                 try:
                     items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{t.playlist}.mpls"))
+                    items_by_playlist[t.playlist] = items
                     # every play item: an intro clip may carry other audio than the episode
                     langs[t.playlist] = frozenset(a.lang for it in items for a in it.audio)
                     return items[0].clip if items else t.playlist
@@ -512,6 +535,9 @@ class BlurayDiscSource(DiscSource):
                     # and raises anyway
                     episodes, extras = _split_extras(
                         unique, lambda t: langs.get(t.playlist, frozenset()))
+                    play_all_order = _play_all_order(titles, items_by_playlist, episodes, sigs)
+                    if play_all_order is not None:
+                        episodes = play_all_order
                     found: list[Source] = [cls(path, audio_langs, _title=t, _episode=i,
                                                _disc=disc, _info=info, _env=env)
                                            for i, t in enumerate(episodes, 1)]
