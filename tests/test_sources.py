@@ -266,6 +266,80 @@ def test_bluray_all_on_dedup_and_audio_fallback(
         assert [s.subfolder for s in again] == ["", "", "Extra", "Extra"]
 
 
+def _ep(clip: str) -> Item:
+    return Item(clip, 0, 45_000 * 1200, audio=[Stream(0x1100, "eng", 0x81)])
+
+
+def _card(clip: str) -> Item:
+    return Item(clip, 0, 45_000 * 5)
+
+
+def test_bluray_all_on_no_play_all_keeps_playlist_order(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#17: with no play-all playlist on the disc, episodes keep today's order:
+    sorted by playlist number."""
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({"00001": [_ep("00020")], "00002": [_ep("00010")]})
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [s.playlist for s in found] == ["00001", "00002"]
+
+
+def test_bluray_all_on_uses_play_all_order(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#17: a play-all playlist (PlayItems visiting each episode's opening clip in
+    sequence) gives the authoritative episode order, even when playlist numbers run
+    the other way; the play-all itself is not exposed as an episode."""
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        "00001": [_ep("00020")],              # playlist number says "episode 1"...
+        "00002": [_ep("00010")],              # ... but its clip is episode 2's
+        "00003": [_ep("00010"), _ep("00020")],  # play-all: clip 00010, then clip 00020
+    })
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+
+    assert [s.playlist for s in found] == ["00002", "00001"]
+    assert [s.name for s in found] == \
+        ["Rick and Morty Staffel1 - 1", "Rick and Morty Staffel1 - 2"]
+
+
+def test_bluray_all_on_play_all_order_with_variants(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#17: the play-all order and the alternate-audio/subtitle dedup compose: variant
+    playlists (same opening clip, a short clip appended) are still deduplicated, and the
+    surviving episodes are still reordered by the play-all."""
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        "00001": [_ep("00020")],
+        "00002": [_ep("00010")],
+        "00011": [_ep("00020"), _card("00099")],   # variant of the "00020" episode
+        "00012": [_ep("00010"), _card("00099")],   # variant of the "00010" episode
+        "00020": [_ep("00010"), _ep("00020")],      # play-all: clip 00010, then clip 00020
+    })
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+
+    assert [s.playlist for s in found] == ["00002", "00001"]
+    assert [s.name for s in found] == \
+        ["Rick and Morty Staffel1 - 1", "Rick and Morty Staffel1 - 2"]
+
+
 NO_EXTRAS: list[str] = []
 
 
