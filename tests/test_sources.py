@@ -314,6 +314,29 @@ def test_bluray_all_on_uses_play_all_order(
         ["Rick and Morty Staffel1 - 1", "Rick and Morty Staffel1 - 2"]
 
 
+def test_bluray_all_on_play_all_with_lowest_number(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#17: a play-all with the lowest playlist number shares its opening clip with an
+    episode; it must not win the deduplication in that episode's place (its double
+    length would then fail the similar-duration test and collapse the disc into one
+    title)."""
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        "00000": [_ep("00010"), _ep("00020")],  # play-all: clip 00010, then clip 00020
+        "00001": [_ep("00020")],
+        "00002": [_ep("00010")],
+    })
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+
+    assert [s.playlist for s in found] == ["00002", "00001"]
+
+
 def test_bluray_all_on_play_all_order_with_variants(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """#17: the play-all order and the alternate-audio/subtitle dedup compose: variant
