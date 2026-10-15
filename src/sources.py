@@ -376,32 +376,38 @@ _SEASON_PATTERNS = [re.compile(rf"\b{word}\s*0*(\d{{1,2}})\b", re.IGNORECASE) fo
 # a disc that names itself "Disc 2", "Vol. 1", "Teil 2"... is only part of a season:
 # its first episode number cannot be known offline (#27)
 _DISC_PART_PATTERN = re.compile(
-    r"\b(disc|disk|dischi|vol|volume|teil|part|parte)\.?\s*0*(\d{1,2})\b", re.IGNORECASE)
+    r"\b(disc|disk|disco|dischi|disque|vol|volume|teil|part|parte)\.?\s*0*(\d{1,2})\b",
+    re.IGNORECASE)
 
 
-def _parse_season(name: str) -> tuple[int, str] | None:
-    """Season number and show name from a disc name/label, e.g. "Rick_and_Morty_
-    Staffel1" -> (1, "Rick and Morty"). None if no season is recognised, or if the
-    name marks this disc as only part of a season (a split season cannot be
-    numbered offline: the first episode's number would not be known)."""
-    norm = name.replace("_", " ")
-    if _DISC_PART_PATTERN.search(norm):
+def _parse_season(*names: str) -> tuple[int, str] | None:
+    """Season number and show name from a disc's names, most preferred first (the
+    disc's own name, then its volume label), e.g. "Rick_and_Morty_Staffel1" ->
+    (1, "Rick and Morty"). The season may come from any of them; the show name is
+    the preferred name, without the season when that is where it was found. None if
+    no season is recognised, or if any name marks this disc as only part of a season
+    (a split season cannot be numbered offline: the first episode's number would not
+    be known)."""
+    norms = [n.replace("_", " ") for n in names if n]
+    if any(_DISC_PART_PATTERN.search(n) for n in norms):
         return None
-    for pattern in _SEASON_PATTERNS:
-        m = pattern.search(norm)
-        if m:
-            show = re.sub(r"\s+", " ", norm[:m.start()] + " " + norm[m.end():]).strip(" -")
-            return int(m.group(1)), show
+    for i, norm in enumerate(norms):
+        for pattern in _SEASON_PATTERNS:
+            m = pattern.search(norm)
+            if m:
+                show = norm[:m.start()] + " " + norm[m.end():] if i == 0 else norms[0]
+                return int(m.group(1)), re.sub(r"\s+", " ", show).strip(" -")
     return None
 
 
-def _episode_name(name: str, raw_name: str, episode: int, extra: bool) -> tuple[str, str]:
+def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool
+                  ) -> tuple[str, str]:
     """An episode's file name and subfolder: extras (#39) are numbered apart and go
     in Extra/; an episode gets S<season>E<episode> first when the season is known
     and reliable (#27), today's "<name> - <episode>" otherwise."""
     if extra:
         return f"{name} - Extra {episode}", "Extra"
-    season_show = _parse_season(raw_name)
+    season_show = _parse_season(*raw_names)
     if season_show is not None:
         season, show = season_show
         return f"S{season:02d}E{episode:02d} - {_safe_name(show)}", ""
@@ -661,10 +667,11 @@ class BlurayDiscSource(DiscSource):
         if self.two_d:
             self.category, self.name_suffix, self.frame_size = "Blu-ray", "", "1920x1080"
             self.quality_key = "2d"
-        raw_name = info.name or info.volume_id.replace("_", " ").title()
-        self.name = _safe_name(raw_name)
+        label = info.volume_id.replace("_", " ").title()
+        self.name = _safe_name(info.name or label)
         if _episode:  # extras (#39) are numbered apart and go in Extra/
-            self.name, self.subfolder = _episode_name(self.name, raw_name, _episode, _extra)
+            self.name, self.subfolder = _episode_name(self.name, [info.name, label],
+                                                      _episode, _extra)
         self.duration = sum(it.duration for it in items)
         self.starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
         st = Path(path).stat()
