@@ -60,10 +60,23 @@ def test_safe_name(name: str, expected: str) -> None:
     ("Dix Pour Cent Saison 1", (1, "Dix Pour Cent")),
     ("Show Season 1 Disc 2", None),           # split over discs: unreliable
     ("Show Vol. 2 Season 1", None),
+    ("Show Stagione 1 Disco 2", None),
+    ("Dix Pour Cent Saison 1 Disque 2", None),
     ("Firefly", None),                         # no season recognised
 ])
 def test_parse_season(name: str, expected: tuple[int, str] | None) -> None:
     assert _parse_season(name) == expected
+
+
+@pytest.mark.parametrize(("names", "expected"), [
+    (("Show", "SHOW_S1"), (1, "Show")),                     # season from the label
+    (("Show Season 2", "SHOW_S1"), (2, "Show")),            # the disc's name wins
+    (("Show Season 1", "SHOW_S1_DISC_2"), None),            # part marker in the label
+    (("", "SHOW_S1"), (1, "SHOW")),                         # no name: the label alone
+])
+def test_parse_season_name_and_label(names: tuple[str, str],
+                                     expected: tuple[int, str] | None) -> None:
+    assert _parse_season(*names) == expected
 
 
 A = [AudioStream(1, "truehd", "eng"), AudioStream(2, "dts-hd ma", "eng"),
@@ -284,28 +297,33 @@ def test_bluray_all_on_dedup_and_audio_fallback(
         assert [s.subfolder for s in again] == ["", "", "Extra", "Extra"]
 
 
-def _two_episode_disc(name: str) -> MultiEpisodeBluray:
+def _two_episode_disc(name: str, label: str) -> MultiEpisodeBluray:
     def ep(clip: str) -> Item:
         return Item(clip, 0, 45_000 * 1200, audio=[Stream(0x1100, "eng", 0x81)])
 
-    return MultiEpisodeBluray({"00001": [ep("00010")], "00002": [ep("00020")]}, name=name)
+    return MultiEpisodeBluray({"00001": [ep("00010")], "00002": [ep("00020")]},
+                              name=name, volume_id=label)
 
 
-@pytest.mark.parametrize(("name", "expected"), [
+@pytest.mark.parametrize(("name", "label", "expected"), [
     # #27: a recognised, reliable season -> S<season>E<episode> first in the name
-    ("Rick_and_Morty_Staffel1 - Blu-ray",
+    ("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1",
      ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]),
     # no season recognised: today's naming
-    ("Firefly - Blu-ray", ["Firefly - 1", "Firefly - 2"]),
+    ("Firefly - Blu-ray", "FIREFLY", ["Firefly - 1", "Firefly - 2"]),
     # a season split over discs: the first episode number is not known, no S/E
-    ("Rick and Morty Staffel 1 Disc 2 - Blu-ray",
+    ("Rick and Morty Staffel 1 Disc 2 - Blu-ray", "RICK_AND_MORTY_S1_D2",
      ["Rick and Morty Staffel 1 Disc 2 - 1", "Rick and Morty Staffel 1 Disc 2 - 2"]),
+    # the season only in the label: the show keeps the disc's own name
+    ("Rick and Morty", "RICK_AND_MORTY_S1", ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]),
+    # "Disc 2" only in the label still marks a split season
+    ("Show Season 1", "SHOW_S1_DISC_2", ["Show Season 1 - 1", "Show Season 1 - 2"]),
 ])
 def test_bluray_episode_naming(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-                               name: str, expected: list[str]) -> None:
+                               name: str, label: str, expected: list[str]) -> None:
     iso = tmp_path / "disc.iso"
     iso.write_text("")
-    disc = _two_episode_disc(name)
+    disc = _two_episode_disc(name, label)
 
     def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
         return disc, disc.info(), {}
