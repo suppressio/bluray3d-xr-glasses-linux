@@ -72,7 +72,7 @@ With VLC on a weak Wi-Fi, raising its network cache helps ([Network and quality]
 | **Mad Max: Fury Road** | Blu-ray 3D | Three audio languages and subtitles; watched in 3D on the PICO 4. |
 | **Ready Player One** | Blu-ray 2D | Subtitles from the disc; also played in VLC on a PICO. |
 | **Cowboy Bebop** (disc 1) | Blu-ray 2D | 5 episodes in one 120-minute "play all" title: plays as one file. |
-| **Rick and Morty**, season 1 (German edition) | Blu-ray 2D | 11 episodes in Italian and English, plus an English-only copy of each and a bonus: the episodes come out as "- 1" to "- 11", the other 12 titles in `Extra/`. The episode list is read with a single disc open (2 s instead of 50). |
+| **Rick and Morty**, season 1 (German edition) | Blu-ray 2D | 11 episodes in Italian and English, plus an English-only copy of each and a bonus: the episodes come out as "S01E01 - Rick and Morty" to "S01E11 - Rick and Morty" (the season from the disc's own "Staffel 1"), the other 12 titles in `Extra/`. The episode list is read with a single disc open (2 s instead of 50). |
 | **Back to the Future** | DVD (PAL) | Played on the glasses like a local file, subtitles OK. |
 | **Utopia**, series 1 disc 1 | DVD (PAL) | A UK series disc with a copy protection of dozens of fake titles, and a damaged spot: the episodes come out right, the damaged spot is skipped. |
 
