@@ -369,6 +369,45 @@ def _safe_name(name: str) -> str:
     return re.sub(r"\s+", " ", name).strip(" .-") or "Blu-ray"
 
 
+# season markers in the disc name/label, one word per language (#27); the bare
+# "S1"/"S01" form last, so "Staffel 1" etc. are tried first
+_SEASON_PATTERNS = [re.compile(rf"\b{word}\s*0*(\d{{1,2}})\b", re.IGNORECASE) for word in
+                    ("staffel", "stagione", "saison", "season", "s")]
+# a disc that names itself "Disc 2", "Vol. 1", "Teil 2"... is only part of a season:
+# its first episode number cannot be known offline (#27)
+_DISC_PART_PATTERN = re.compile(
+    r"\b(disc|disk|dischi|vol|volume|teil|part|parte)\.?\s*0*(\d{1,2})\b", re.IGNORECASE)
+
+
+def _parse_season(name: str) -> tuple[int, str] | None:
+    """Season number and show name from a disc name/label, e.g. "Rick_and_Morty_
+    Staffel1" -> (1, "Rick and Morty"). None if no season is recognised, or if the
+    name marks this disc as only part of a season (a split season cannot be
+    numbered offline: the first episode's number would not be known)."""
+    norm = name.replace("_", " ")
+    if _DISC_PART_PATTERN.search(norm):
+        return None
+    for pattern in _SEASON_PATTERNS:
+        m = pattern.search(norm)
+        if m:
+            show = re.sub(r"\s+", " ", norm[:m.start()] + " " + norm[m.end():]).strip(" -")
+            return int(m.group(1)), show
+    return None
+
+
+def _episode_name(name: str, raw_name: str, episode: int, extra: bool) -> tuple[str, str]:
+    """An episode's file name and subfolder: extras (#39) are numbered apart and go
+    in Extra/; an episode gets S<season>E<episode> first when the season is known
+    and reliable (#27), today's "<name> - <episode>" otherwise."""
+    if extra:
+        return f"{name} - Extra {episode}", "Extra"
+    season_show = _parse_season(raw_name)
+    if season_show is not None:
+        season, show = season_show
+        return f"S{season:02d}E{episode:02d} - {_safe_name(show)}", ""
+    return f"{name} - {episode}", ""
+
+
 AUDIO_PREFERENCE = ["dts-hd ma", "dts-hd", "dts", "ac3", "eac3", "lpcm", "truehd"]
 
 
@@ -622,10 +661,10 @@ class BlurayDiscSource(DiscSource):
         if self.two_d:
             self.category, self.name_suffix, self.frame_size = "Blu-ray", "", "1920x1080"
             self.quality_key = "2d"
-        self.name = _safe_name(info.name or info.volume_id.replace("_", " ").title())
+        raw_name = info.name or info.volume_id.replace("_", " ").title()
+        self.name = _safe_name(raw_name)
         if _episode:  # extras (#39) are numbered apart and go in Extra/
-            self.name = f"{self.name} - {'Extra ' if _extra else ''}{_episode}"
-            self.subfolder = "Extra" if _extra else ""
+            self.name, self.subfolder = _episode_name(self.name, raw_name, _episode, _extra)
         self.duration = sum(it.duration for it in items)
         self.starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
         st = Path(path).stat()

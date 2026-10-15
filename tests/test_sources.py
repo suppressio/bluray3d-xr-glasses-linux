@@ -21,6 +21,7 @@ from sources import (
     MkvSource,
     SubTrack,
     _first_per_lang,
+    _parse_season,
     _pick_audio,
     _safe_name,
     discover,
@@ -48,6 +49,21 @@ def private_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 ])
 def test_safe_name(name: str, expected: str) -> None:
     assert _safe_name(name) == expected
+
+
+@pytest.mark.parametrize(("name", "expected"), [
+    ("Rick_and_Morty_Staffel1", (1, "Rick and Morty")),
+    ("Rick and Morty - Staffel 01", (1, "Rick and Morty")),
+    ("RICK_AND_MORTY_S1", (1, "RICK AND MORTY")),
+    ("Westworld Season 2", (2, "Westworld")),
+    ("Il Trono Di Spade Stagione 3", (3, "Il Trono Di Spade")),
+    ("Dix Pour Cent Saison 1", (1, "Dix Pour Cent")),
+    ("Show Season 1 Disc 2", None),           # split over discs: unreliable
+    ("Show Vol. 2 Season 1", None),
+    ("Firefly", None),                         # no season recognised
+])
+def test_parse_season(name: str, expected: tuple[int, str] | None) -> None:
+    assert _parse_season(name) == expected
 
 
 A = [AudioStream(1, "truehd", "eng"), AudioStream(2, "dts-hd ma", "eng"),
@@ -255,9 +271,11 @@ def test_bluray_all_on_dedup_and_audio_fallback(
     assert caplog.text.count("no ita audio track, using eng") == 2
     assert "Rick and Morty Staffel1 - Extra 1: no ita audio track, using eng" in caplog.text
     assert "Rick and Morty Staffel1 - Extra 2: no ita audio track, using eng" in caplog.text
-    # #39: the eng-only titles are the disc's extras, numbered apart in Extra/
+    # #27: the season from the disc name ("Staffel1"), episodes in play-all order;
+    # #39: the eng-only titles are the disc's extras, numbered apart in Extra/, and
+    # keep today's naming (no episode number applies to them)
     assert [(s.name, s.subfolder) for s in found] == [
-        ("Rick and Morty Staffel1 - 1", ""), ("Rick and Morty Staffel1 - 2", ""),
+        ("S01E01 - Rick and Morty", ""), ("S01E02 - Rick and Morty", ""),
         ("Rick and Morty Staffel1 - Extra 1", "Extra"),
         ("Rick and Morty Staffel1 - Extra 2", "Extra")]
     # the same split whatever language is asked for (#39: eng would number them 3, 4)
@@ -311,7 +329,7 @@ def test_bluray_all_on_uses_play_all_order(
 
     assert [s.playlist for s in found] == ["00002", "00001"]
     assert [s.name for s in found] == \
-        ["Rick and Morty Staffel1 - 1", "Rick and Morty Staffel1 - 2"]
+        ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
 
 
 def test_bluray_all_on_play_all_with_lowest_number(
@@ -360,7 +378,38 @@ def test_bluray_all_on_play_all_order_with_variants(
 
     assert [s.playlist for s in found] == ["00002", "00001"]
     assert [s.name for s in found] == \
-        ["Rick and Morty Staffel1 - 1", "Rick and Morty Staffel1 - 2"]
+        ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
+
+
+def _two_episode_disc(name: str) -> MultiEpisodeBluray:
+    def ep(clip: str) -> Item:
+        return Item(clip, 0, 45_000 * 1200, audio=[Stream(0x1100, "eng", 0x81)])
+
+    return MultiEpisodeBluray({"00001": [ep("00010")], "00002": [ep("00020")]}, name=name)
+
+
+@pytest.mark.parametrize(("name", "expected"), [
+    # #27: a recognised, reliable season -> S<season>E<episode> first in the name
+    ("Rick_and_Morty_Staffel1 - Blu-ray",
+     ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]),
+    # no season recognised: today's naming
+    ("Firefly - Blu-ray", ["Firefly - 1", "Firefly - 2"]),
+    # a season split over discs: the first episode number is not known, no S/E
+    ("Rick and Morty Staffel 1 Disc 2 - Blu-ray",
+     ["Rick and Morty Staffel 1 Disc 2 - 1", "Rick and Morty Staffel 1 Disc 2 - 2"]),
+])
+def test_bluray_episode_naming(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                               name: str, expected: list[str]) -> None:
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+    disc = _two_episode_disc(name)
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [s.name for s in found] == expected
 
 
 NO_EXTRAS: list[str] = []

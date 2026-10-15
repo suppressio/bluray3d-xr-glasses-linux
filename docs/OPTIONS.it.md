@@ -47,6 +47,14 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
 
 Le cartelle vengono lette all'avvio: per vedere un file nuovo riavvia il programma. I lettori invece sono controllati di continuo.
 
+## Serie TV
+
+Un Blu-ray con più episodi (un titolo per episodio, nell'ordine del "play all": vedi [bluray-mpls-internals.md](bluray-mpls-internals.md)) ha ogni episodio nominato `S<stagione>E<episodio> - <Serie>.ts`, per esempio `S01E05 - Rick and Morty.ts`; la parte stagione/episodio viene sempre subito dopo il prefisso di lingua/sottotitoli (`ITA - `, `subITA - `...), perché i lettori tagliano i nomi lunghi nell'elenco dei file.
+
+La stagione si legge dal nome del disco o dall'etichetta del volume (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), senza alcuna ricerca in rete. Il numero del primo episodio non è scritto sul disco, quindi viene solo ipotizzato (1, 2, 3...) quando il nome del disco non lascia intendere che contenga solo una parte della stagione (`Disc 2`, `Vol. 2`...); una stagione divisa su più dischi, o un disco senza una stagione riconosciuta, mantiene invece la nomenclatura di oggi (`<Serie> - <episodio>`).
+
+I contenuti extra di un disco (making-of, scene eliminate...) vanno in una sottocartella `Extra/`, numerati separatamente dagli episodi.
+
 ## DLNA/UPnP invece di Samba
 
 Per default i file sono montati solo per Samba, la cartella `[Disks]` (`--share samba`). `--share dlna` annuncia gli stessi file via DLNA/UPnP invece che via SMB, per i player che esplorano un media server invece di aprire una cartella di rete (smart TV, Kodi, Moon VR…); in questa modalità non servono né FUSE né Samba. `--share both` fa entrambe le cose insieme, per esempio per servire una TV via DLNA e un telefono via SMB dallo stesso programma.
