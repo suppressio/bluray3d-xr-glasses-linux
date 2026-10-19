@@ -28,7 +28,8 @@ from typing import Any
 
 import pytest
 
-from bd3d_fs import CDS_DISC_OK, VirtualFile, drive_status
+from bd3d_fs import CDS_DISC_OK, drive_status
+from library import VirtualFile
 from pipeline import pick_encoder, quality_for
 from sources import BlurayDiscSource, MkvSource, Source, open_disc
 

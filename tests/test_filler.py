@@ -7,9 +7,10 @@ from typing import Any
 import pytest
 
 import bd3d_fs
-from bd3d_fs import Library, VirtualFile, is_side_by_side
+import library
+from library import Library, VirtualFile, is_side_by_side
 from pipeline import Quality
-from test_bd3d_fs import FakeSource
+from test_library import FakeSource
 from tree import Tree
 
 
@@ -50,7 +51,7 @@ def test_is_side_by_side(monkeypatch: pytest.MonkeyPatch) -> None:
         w, h = sizes[args[-1]]
         return {"streams": [{"width": w, "height": h}]}
 
-    monkeypatch.setattr(bd3d_fs, "ffprobe_json", probe)
+    monkeypatch.setattr(library, "ffprobe_json", probe)
     is_side_by_side.cache_clear()
     assert is_side_by_side("sbs.mp4")
     assert not is_side_by_side("flat.mp4")
