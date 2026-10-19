@@ -630,8 +630,11 @@ class BlurayDiscSource(DiscSource):
                     episodes, extras = _split_extras(
                         unique, lambda t: langs.get(t.playlist, frozenset()))
                     # #67: on a 3D disc, a 3D play-all of every part is a movie split in
-                    # parts (Tron: Legacy 3D), not a series: that play-all is the movie
+                    # parts (Tron: Legacy 3D), not a series: that play-all is the movie.
+                    # As long as the parts together: a montage of excerpts is not it.
+                    parts = sum(t.duration for t in episodes)
                     movie = next((p for p in play_alls if info.has_3d
+                                  and p.duration >= 0.95 * parts
                                   and _play_all_order([p], items_by_playlist, episodes, sigs)
                                   and all(it.dep_clip for it in items_by_playlist[p.playlist])),
                                  None)

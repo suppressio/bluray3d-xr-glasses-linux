@@ -607,13 +607,20 @@ def test_bluray_all_on_3d_movie(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     assert [(s.two_d, s.name, s.subfolder) for s in found] == [(False, "Movie 3D", "")]
 
 
+@pytest.mark.parametrize("extra", [
+    {},
+    # a 3D montage of 5 minutes from each episode: not a play-all of the whole parts
+    {"00003": [Item("00010", 0, 45_000 * 300), Item("00020", 0, 45_000 * 300)]},
+])
 def test_bluray_all_on_3d_series_without_play_all(
-        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """#67: the 3D movie rule needs a play-all; without one, 3D episodes stay episodes."""
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra: dict[str, list[Item]]) -> None:
+    """#67: the 3D movie rule needs a play-all of the whole parts; without one, 3D
+    episodes stay episodes."""
     iso = tmp_path / "Series.iso"
     iso.write_text("")
-    disc = MultiEpisodeBluray({"00001": [_ep("00010")], "00002": [_ep("00020")]},
-                              dep_clips={"00001": ["00011"], "00002": ["00021"]})
+    disc = MultiEpisodeBluray({"00001": [_ep("00010")], "00002": [_ep("00020")]} | extra,
+                              dep_clips={"00001": ["00011"], "00002": ["00021"],
+                                         "00003": ["00011", "00021"]})
 
     def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
         return disc, disc.info(), {}
