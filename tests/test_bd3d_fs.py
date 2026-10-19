@@ -40,8 +40,10 @@ QUALITY = Quality("normal", 1, BPS * 8)
 KEYFRAME_EVERY = 50                        # packets (0.1 s)
 
 PRODUCER = """
-import sys, time
-time.sleep({delay})
+import os, sys, time
+ready_path = {ready_path!r}
+while ready_path and not os.path.exists(ready_path):
+    time.sleep(0.01)
 i, tag, out = {first}, {tag!r}, sys.stdout.buffer
 while True:
     chunk = bytearray()
@@ -56,9 +58,9 @@ while True:
 """
 
 
-def producer(start: float, tag: bytes, delay: float = 0.0) -> str:
+def producer(start: float, tag: bytes, ready_path: str | None = None) -> str:
     first = int(start * BPS) // TS_PACKET
-    code = PRODUCER.format(delay=delay, first=first, tag=tag, every=KEYFRAME_EVERY)
+    code = PRODUCER.format(ready_path=ready_path, first=first, tag=tag, every=KEYFRAME_EVERY)
     return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
 
 
@@ -66,9 +68,9 @@ class FakeSource(Source):
     """A movie with a keyframe every second."""
 
     def __init__(self, path: str, duration: float = 600.0, max_pipelines: int = 1,
-                 langs: list[str] | None = None, delay: float = 0.0) -> None:
+                 langs: list[str] | None = None, ready_path: str | None = None) -> None:
         self.path, self.name, self.duration = path, "Movie", duration
-        self.max_pipelines, self.delay = max_pipelines, delay
+        self.max_pipelines, self.ready_path = max_pipelines, ready_path
         self.audio_langs = langs or ["ita"]
         self.audio_desc, self.sidecars, self.mtime_ns = "fake", [], 0
         self.subs = []
@@ -91,7 +93,7 @@ class FakeSource(Source):
 
 
 def fake_decode(source: Source, start: float, output_args: str) -> str:
-    return producer(start, b"M", source.delay if isinstance(source, FakeSource) else 0.0)
+    return producer(start, b"M", source.ready_path if isinstance(source, FakeSource) else None)
 
 
 def fake_filler(vf: VirtualFile, video_input: str, t0: float, duration: float | None = None,
@@ -254,19 +256,30 @@ def test_loading_animation_after_a_jump(tmp_path: Path, monkeypatch: pytest.Monk
     # the movie gets ready while the animation plays: it must be allowed to run
     # ahead of the player at least as far as the animation lasts
     monkeypatch.setattr(bd3d_fs, "AHEAD_MAX", 8 * 1024 * 1024)
-    source = FakeSource(str(tmp_path / "disc"), delay=1.5)
+    source = FakeSource(str(tmp_path / "disc"))
     vf = vfile(tmp_path, source, loader="spinner.mp4")
     vf.read(0, 4096)                                     # first open: no animation
     assert vf.gens[0].loader is None
+    # the movie's pipeline for the jump below waits for this file instead of a real
+    # decoder's start-up time: the test controls exactly when it is "ready", not the
+    # wall clock
+    ready_path = tmp_path / "movie_ready"
+    source.ready_path = str(ready_path)
     offset = 200 * BPS
+    chunk = 32768
+    ready_after = int(1.5 * BPS) // chunk + 1             # over 1.5s of animation first
     seen: list[tuple[int, bytes]] = []
+    n = 0
     while offset < 200 * BPS + 6 * BPS:
-        data = vf.read(offset, 32768)
+        if n == ready_after:
+            ready_path.touch()                            # let the movie take over now
+        data = vf.read(offset, chunk)
         got = packets(data, offset)
         first = (offset + TS_PACKET - 1) // TS_PACKET
         assert [i for i, _ in got] == list(range(first, first + len(got)))   # no gap
         seen += got
-        offset += 32768
+        offset += chunk
+        n += 1
     tags = [tag for _, tag in seen]
     switch = tags.index(b"M")
     assert switch > 0 and set(tags[:switch]) == {b"L"} and set(tags[switch:]) == {b"M"}
