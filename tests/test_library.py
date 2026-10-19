@@ -88,7 +88,10 @@ class FakeSource(Source):
 
 
 def fake_decode(source: Source, start: float, output_args: str) -> str:
-    return producer(start, b"M", source.ready_path if isinstance(source, FakeSource) else None)
+    # the muxer's clock, and so the bytes, start at -output_ts_offset
+    m = re.search(r"-output_ts_offset (\S+)", output_args)
+    t0 = float(m.group(1)) if m else start
+    return producer(t0, b"M", source.ready_path if isinstance(source, FakeSource) else None)
 
 
 def fake_filler(vf: VirtualFile, video_input: str, t0: float, duration: float | None = None,
@@ -132,6 +135,27 @@ def assert_movie(data: bytes, offset: int, tag: bytes = b"M") -> None:
     assert got, "no whole packet"
     first = (offset + TS_PACKET - 1) // TS_PACKET
     assert got == [(first + n, tag) for n in range(len(got))]
+
+
+class LateKeyframeSource(FakeSource):
+    """A disc whose first keyframe is not at 0: 0.081s on Il Prigioniero (#73)."""
+
+    @override
+    def keyframe_at_or_before(self, seconds: float) -> float:
+        return max(float(int(max(0.0, seconds))), 0.081)
+
+
+def test_first_keyframe_after_the_start(tmp_path: Path) -> None:
+    # the pipeline for a read at 0 must start at byte 0: before #73 it started at
+    # the keyframe's offset, never covered 0, and every read there restarted it
+    vf = vfile(tmp_path, LateKeyframeSource(str(tmp_path / "disc")))
+    assert_movie(vf.read(0, 64 * 1024), 0)
+    first = vf.gens[0]
+    assert first.base == 0
+    assert_movie(vf.read(0, 4096), 0)
+    assert_movie(vf.read(64 * 1024, 4096), 64 * 1024)
+    assert vf.gens == [first]
+    assert vf.head is not None
 
 
 def test_null_padding() -> None:
