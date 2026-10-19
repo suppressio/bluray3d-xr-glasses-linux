@@ -133,8 +133,13 @@ class Generator:
                  with_loader: bool = False) -> None:
         source = vf.source
         start = source.keyframe_at_or_before(seconds)
+        # the stream's clock and bytes start at t0: the keyframe, or the requested
+        # time when the disc's first keyframe comes after it (0.081s on Il
+        # Prigioniero, #73). The pipeline must cover the offset it was started for,
+        # or every read there would start another one
+        t0 = min(start, seconds)
         # base aligned to TS packets, so bytes match the global grid
-        self.base = int(start * vf.bytes_per_sec) // TS_PACKET * TS_PACKET
+        self.base = int(t0 * vf.bytes_per_sec) // TS_PACKET * TS_PACKET
         self.buf = bytearray()
         self.buf_start = self.base     # virtual-file offset of buf[0]
         self.reader_pos = self.base
@@ -155,14 +160,14 @@ class Generator:
         if loader and vf.loader:
             # same start, so the same timestamps and bytes <-> time mapping as the movie
             # frequent keyframes: the player can start it anywhere
-            cmd = vf.filler_command(f"-stream_loop -1 -i {shlex.quote(vf.loader)}", start,
+            cmd = vf.filler_command(f"-stream_loop -1 -i {shlex.quote(vf.loader)}", t0,
                                     extra="-g 6 ", sbs=is_side_by_side(vf.loader))
             self.ahead_max = LOADER_AHEAD * vf.bytes_per_sec
         else:
             cmd = decode_command(
                 source, start,
                 f"{vf.encode_args} {COMMON_ARGS}"
-                f"-output_ts_offset {start:.3f} -f mpegts -muxrate {vf.muxrate} -",
+                f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {vf.muxrate} -",
             )
             log.info("%s: pipeline from %.1fs (requested %.1fs, offset %d)",
                      vf.path, start, seconds, self.base)
