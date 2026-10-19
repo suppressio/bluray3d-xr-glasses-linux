@@ -53,6 +53,8 @@ Un Blu-ray con più episodi (un titolo per episodio, nell'ordine del "play all":
 
 La stagione si legge dal nome del disco o dall'etichetta del volume (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), senza alcuna ricerca in rete. Il numero del primo episodio non è scritto sul disco, quindi viene solo ipotizzato (1, 2, 3...) quando né il nome del disco né l'etichetta lasciano intendere che contenga solo una parte della stagione (`Disco 2`, `Disc 2`, `Vol. 2`...); una stagione divisa su più dischi, o un disco senza una stagione riconosciuta, mantiene invece la nomenclatura di oggi (`<Serie> - <episodio>`).
 
+Un disco 3D non è mai una serie quando un titolo "play all" in 3D copre tutte le parti: è un film diviso in parti (Tron: Legacy 3D ha anche le due metà come titoli a sé), e si carica come un solo film.
+
 I contenuti extra di un disco (making-of, scene eliminate...) vanno in una sottocartella `Extra/`, numerati separatamente dagli episodi.
 
 ## DLNA/UPnP invece di Samba

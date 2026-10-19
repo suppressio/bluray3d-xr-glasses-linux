@@ -629,6 +629,13 @@ class BlurayDiscSource(DiscSource):
                 if shortest > 300 and longest / shortest < 1.5:
                     episodes, extras = _split_extras(
                         unique, lambda t: langs.get(t.playlist, frozenset()))
+                    # #67: on a 3D disc, a 3D play-all of every part is a movie split in
+                    # parts (Tron: Legacy 3D), not a series: load the disc as one movie
+                    if info.has_3d and any(
+                            _play_all_order([p], items_by_playlist, episodes, sigs) is not None
+                            and all(it.dep_clip for it in items_by_playlist[p.playlist])
+                            for p in play_alls):
+                        return [cls(path, audio_langs, _disc=disc, _info=info, _env=env)]
                     play_all_order = _play_all_order(play_alls, items_by_playlist, episodes, sigs)
                     if play_all_order is not None:
                         episodes = play_all_order

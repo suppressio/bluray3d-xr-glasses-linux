@@ -3,7 +3,7 @@ import os
 import shlex
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
@@ -245,14 +245,16 @@ def test_bluray_no_title(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
 @dataclass
 class MultiEpisodeBluray:
-    """A disc whose titles are given directly as {playlist: items}, for all_on()."""
+    """A disc whose titles are given directly as {playlist: items}, for all_on();
+    3D when `dep_clips` gives the MVC dependent view clips of some playlists."""
     playlists: dict[str, list[Item]]
     name: str = "Rick and Morty Staffel1 - Blu-ray"
     volume_id: str = "RICK_AND_MORTY_S1"
     closed: bool = False
+    dep_clips: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
 
     def info(self) -> DiscInfo:
-        return DiscInfo(self.name, self.volume_id, False, True, 0, "AACS")
+        return DiscInfo(self.name, self.volume_id, bool(self.dep_clips), True, 0, "AACS")
 
     def titles(self) -> list[Title]:
         return [Title(pl, sum((it.out_time - it.in_time) / 45_000 for it in items))
@@ -261,8 +263,10 @@ class MultiEpisodeBluray:
     def read_file(self, path: str) -> bytes:
         name = path.rsplit("/", 1)[1][:5]
         if path.endswith(".mpls"):
-            return mpls(self.playlists[name])
-        return clpi(3_000_000, EPS, extents=list(range(0, 3_000_000, 50_000)))
+            return mpls(self.playlists[name], self.dep_clips.get(name))
+        dep = any(name in clips for clips in self.dep_clips.values())
+        return clpi(3_000_000, EPS, extents=list(range(0, 3_000_000, 50_000)),
+                    pid=0x1012 if dep else 0x1011)
 
     def close(self) -> None:
         self.closed = True
@@ -556,6 +560,60 @@ def test_bluray_all_on_play_all_order_with_variants(
     assert [s.playlist for s in found] == ["00002", "00001"]
     assert [s.name for s in found] == \
         ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
+
+
+def _movie(clip: str, minutes: int, langs: tuple[str, ...] = ("eng",)) -> Item:
+    return Item(clip, 0, 45_000 * 60 * minutes,
+                audio=[Stream(0x1100 + n, lang, 0x81) for n, lang in enumerate(langs)])
+
+
+@pytest.mark.parametrize(("playlists", "dep_clips", "expected"), [
+    # #67, Tron: Legacy 3D: the movie (00070) and its two halves, each one in 3D
+    ({"00070": [_movie("00131", 65), _movie("00133", 60)],
+      "00082": [_movie("00131", 65)], "00083": [_movie("00133", 60)]},
+     {"00070": ["00132", "00134"], "00082": ["00132"], "00083": ["00134"]},
+     [("00070", 7500)]),
+    # Star Trek Into Darkness 3D: one relevant title, a short 2D trailer
+    ({"00800": [_movie("00800", 132)], "00801": [_movie("00900", 2)]},
+     {"00800": ["00801"]}, [("00800", 7920)]),
+    # Mad Max: Fury Road 3D: two playlists of the same clip, other audio languages
+    ({"00098": [_movie("00098", 120, ("eng", "jpn"))],
+      "00103": [_movie("00098", 120, ("eng", "ita", "spa"))]},
+     {"00098": ["00109"], "00103": ["00109"]}, [("00098", 7200)]),
+])
+def test_bluray_all_on_3d_movie(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                playlists: dict[str, list[Item]],
+                                dep_clips: dict[str, list[str]],
+                                expected: list[tuple[str, int]]) -> None:
+    """#67: a 3D disc whose 3D play-all covers every part is one movie, in 3D."""
+    iso = tmp_path / "Movie.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray(playlists, name="Movie 3D", volume_id="MOVIE_3D",
+                              dep_clips=dep_clips)
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [(s.playlist, s.duration) for s in found] == expected
+    assert [(s.two_d, s.name, s.subfolder) for s in found] == [(False, "Movie 3D", "")]
+
+
+def test_bluray_all_on_3d_series_without_play_all(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#67: the 3D movie rule needs a play-all; without one, 3D episodes stay episodes."""
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({"00001": [_ep("00010")], "00002": [_ep("00020")]},
+                              dep_clips={"00001": ["00011"], "00002": ["00021"]})
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [(s.playlist, s.two_d) for s in found] == [("00001", False), ("00002", False)]
 
 
 def _two_episode_disc(name: str, label: str) -> MultiEpisodeBluray:
