@@ -207,6 +207,31 @@ def test_bluray_2d(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     assert "--audio-out" not in cmd
 
 
+@pytest.mark.parametrize("three_d", [False, True])
+def test_bluray_longest_playlist_malformed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                           caplog: pytest.LogCaptureFixture,
+                                           three_d: bool) -> None:
+    """#65: the longest playlist (00080) is malformed: the movie is the next readable
+    title, 00070 (in 3D when the disc has it), instead of the disc failing."""
+    read_file = FakeBluray.read_file
+    broken = {"BDMV/PLAYLIST/00080.mpls"}
+
+    def read(self: FakeBluray, path: str) -> bytes:
+        return b"not MPLS" if path in broken else read_file(self, path)
+
+    monkeypatch.setattr(FakeBluray, "read_file", read)
+    caplog.set_level(logging.WARNING, logger="bd3d_fs")
+    disc = FakeBluray(three_d=three_d)
+    s = bluray(monkeypatch, tmp_path, disc)
+    assert (s.playlist, s.two_d) == ("00070", not three_d)
+    assert f"{tmp_path / 'Tron.iso'}: playlist 00080 skipped: not an MPLS file" in caplog.text
+    assert disc.closed
+
+    broken.add("BDMV/PLAYLIST/00070.mpls")              # nothing readable left
+    with pytest.raises(OSError, match="no readable title"):
+        bluray(monkeypatch, tmp_path, disc)
+
+
 def test_bluray_no_title(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     disc = FakeBluray()
     def no_titles(self: FakeBluray) -> list[Title]:
