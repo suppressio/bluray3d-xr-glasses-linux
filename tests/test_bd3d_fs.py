@@ -6,6 +6,7 @@ import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import trio
@@ -106,14 +107,57 @@ def test_http_port_accepts_a_real_port() -> None:
     assert bd3d_fs.build_parser().parse_args(["--http-port", "8200", "x.mkv"]).http_port == 8200
 
 
-def test_dlna_only_does_not_need_fuse(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dlna_only_does_not_need_fuse() -> None:
     # without pyfuse3 the program still imports (--share dlna runs) ...
     src = Path(bd3d_fs.__file__).parent
     code = "import sys; sys.modules['pyfuse3'] = None; import bd3d_fs; print('ok')"
     done = subprocess.run([sys.executable, "-c", code], cwd=src, capture_output=True,
                           text=True, check=False)
     assert done.stdout.strip() == "ok", done.stderr
-    # ... and asking for FUSE explains what to install instead of a traceback
-    monkeypatch.setitem(sys.modules, "fuse_fs", None)
-    with pytest.raises(SystemExit, match="install python3-pyfuse3 and fuse3, or use --share dlna"):
-        bd3d_fs.require_fuse("samba")
+
+
+@pytest.mark.parametrize("share", ["samba", "both", "dlna"])
+@pytest.mark.parametrize("missing", [None, "samba", "fuse"])
+def test_share_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                            share: str, missing: str | None) -> None:
+    fuse = Mock()
+    which = Mock(return_value=None if missing == "samba" else "/usr/sbin/smbd")
+    import_module = Mock(wraps=bd3d_fs.importlib.import_module)
+    run = Mock(side_effect=KeyboardInterrupt)
+    drive = tmp_path / "sr0"
+    drive.touch()
+    monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--share", share, "--log", "none",
+                                      "--loader", "none", str(drive)])
+    monkeypatch.setattr(bd3d_fs.stat, "S_ISBLK", Mock(return_value=True))
+    monkeypatch.setattr(bd3d_fs, "pick_encoder", Mock(return_value="x264"))
+    monkeypatch.setattr(bd3d_fs.shutil, "which", which)
+    monkeypatch.setattr(bd3d_fs.importlib, "import_module", import_module)
+    monkeypatch.setattr(bd3d_fs.trio, "run", run)
+    monkeypatch.setattr(bd3d_fs, "Dlna", Mock())
+    monkeypatch.setitem(sys.modules, "fuse_fs", None if missing == "fuse" else fuse)
+
+    if share != "dlna" and missing is not None:
+        with pytest.raises(SystemExit) as error:
+            bd3d_fs.main()
+        message = str(error.value)
+        assert f"--share {share}" in message
+        assert f"scripts/install.sh --share {share}" in message
+        if missing == "samba":
+            assert "smbd is not on PATH" in message
+            assert "sudo apt install samba" in message
+        else:
+            assert "FUSE, which is not installed" in message
+            assert "install python3-pyfuse3 and fuse3" in message
+        fuse.mount.assert_not_called()
+        run.assert_not_called()
+    else:
+        bd3d_fs.main()
+        run.assert_called_once()
+        if share == "dlna":
+            which.assert_not_called()
+            import_module.assert_not_called()
+            fuse.mount.assert_not_called()
+        else:
+            which.assert_called_once_with("smbd")
+            fuse.mount.assert_called_once()
+            fuse.unmount.assert_called_once()
