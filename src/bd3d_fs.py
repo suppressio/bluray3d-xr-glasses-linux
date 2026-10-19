@@ -28,6 +28,7 @@ import importlib
 import logging
 import logging.handlers
 import os
+import shutil
 import signal
 import stat
 import subprocess
@@ -211,7 +212,15 @@ def require_fuse(share: str) -> None:
         importlib.import_module("fuse_fs")
     except ImportError as e:
         raise SystemExit(f"--share {share} mounts the files with FUSE, which is not installed "
-                         f"({e}): install python3-pyfuse3 and fuse3, or use --share dlna") from e
+                         f"({e}): run scripts/install.sh --share {share}, "
+                         "install python3-pyfuse3 and fuse3, or use --share dlna") from e
+
+
+def require_samba(share: str) -> None:
+    if shutil.which("smbd") is None:
+        raise SystemExit(f"--share {share} needs the Samba server, but smbd is not on PATH: "
+                         f"run scripts/install.sh --share {share}, "
+                         "or sudo apt install samba for the .deb; or use --share dlna")
 
 
 def tcp_port(value: str) -> int:
@@ -325,6 +334,7 @@ def main() -> None:
 
     if use_fuse:
         require_fuse(share)
+        require_samba(share)
         import fuse_fs  # noqa: PLC0415
         fuse_fs.mount(tree, mount)
     dlna: Dlna | None = None
