@@ -53,6 +53,8 @@ A Blu-ray that holds several episodes (one title per episode, in play-all order:
 
 The season is read from the disc's own name or volume label (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), with no network lookup. The first episode's number is not on the disc, so it is only assumed (1, 2, 3...) when neither the disc's name nor its label gives a sign that it holds just part of a season (`Disc 2`, `Vol. 2`...); a season split over several discs, or a disc with no recognised season, keeps today's naming (`<Show> - <episode>`) instead.
 
+A 3D disc is never a series when a 3D "play all" title covers every part: that is a movie split into parts (Tron: Legacy 3D has both halves as titles of their own), and it is loaded as one movie.
+
 A disc's bonus content (making-of, deleted scenes...) goes in an `Extra/` subfolder, numbered apart from the episodes.
 
 ## DLNA/UPnP instead of Samba
