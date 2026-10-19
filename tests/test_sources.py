@@ -387,7 +387,9 @@ def test_bluray_all_on_variants_of_one_episode(
 
 @pytest.mark.parametrize("duration", [1200, 200])
 def test_bluray_all_on_malformed_mpls(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-                                      duration: int) -> None:
+                                      caplog: pytest.LogCaptureFixture, duration: int) -> None:
+    """#63: a malformed playlist is skipped (logged), long or short, and the disc loads
+    with the other titles; the short one no longer turns a series into a movie."""
     iso = tmp_path / "Movie.iso"
     iso.write_text("")
     disc = MultiEpisodeBluray({
@@ -409,18 +411,12 @@ def test_bluray_all_on_malformed_mpls(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
     monkeypatch.setattr(MultiEpisodeBluray, "read_file", read)
     monkeypatch.setattr(sources, "_open_disc", open_disc)
-    if duration == 1200:
-        # The unique malformed title survives detection and fails when constructed.
-        with pytest.raises(ValueError, match=r"^not an MPLS file$"):
-            BlurayDiscSource.all_on(str(iso))
-        assert malformed_reads == 2
-    else:
-        # A short malformed title makes this a movie; only the longest title is reread.
-        found = BlurayDiscSource.all_on(str(iso))
-        assert len(found) == 1
-        assert isinstance(found[0], BlurayDiscSource)
-        assert (found[0].playlist, found[0].name) == ("00001", "Rick and Morty Staffel1")
-        assert malformed_reads == 1
+    caplog.set_level(logging.WARNING, logger="bd3d_fs")
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [(s.playlist, s.name) for s in found] == [
+        ("00001", "S01E01 - Rick and Morty"), ("00002", "S01E02 - Rick and Morty")]
+    assert f"{iso}: playlist 00003 skipped: not an MPLS file" in caplog.text
+    assert malformed_reads == 1
     assert disc.closed
 
 

@@ -562,6 +562,7 @@ class BlurayDiscSource(DiscSource):
             # The full PlayItem list is kept too, to find a play-all playlist afterwards.
             langs: dict[str, frozenset[str]] = {}
             items_by_playlist: dict[str, list[PlayItem]] = {}
+            malformed: set[str] = set()
 
             def first_clip(t: bluray.Title) -> str:
                 try:
@@ -570,9 +571,14 @@ class BlurayDiscSource(DiscSource):
                     # every play item: an intro clip may carry other audio than the episode
                     langs[t.playlist] = frozenset(a.lang for it in items for a in it.audio)
                     return items[0].clip if items else t.playlist
-                except Exception:  # noqa: BLE001 — malformed MPLS: treat as unique
+                except Exception as e:  # noqa: BLE001 — malformed MPLS: skip the playlist
+                    log.warning("%s: playlist %s skipped: %s", path, t.playlist, e)
+                    malformed.add(t.playlist)
                     return t.playlist
             sigs = {t.playlist: first_clip(t) for t in titles}
+            # #63: a broken playlist (often an extra) must not take the whole disc down,
+            # nor weigh in the play-all, dedup and episode checks below
+            titles = [t for t in titles if t.playlist not in malformed]
 
             if len(titles) < 2:
                 return [cls(path, audio_langs, _disc=disc, _info=info, _env=env)]
@@ -597,8 +603,6 @@ class BlurayDiscSource(DiscSource):
                 longest, shortest = by_dur[0].duration, by_dur[-1].duration
                 # All titles long enough and similar enough in duration → episodes
                 if shortest > 300 and longest / shortest < 1.5:
-                    # an unreadable MPLS gives no languages (an extra): __init__ re-reads it
-                    # and raises anyway
                     episodes, extras = _split_extras(
                         unique, lambda t: langs.get(t.playlist, frozenset()))
                     play_all_order = _play_all_order(play_alls, items_by_playlist, episodes, sigs)
