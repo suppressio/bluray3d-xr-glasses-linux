@@ -35,7 +35,8 @@ How to run the program from a clone, where things are in the code, what the test
 
 | File | What it does |
 |---|---|
-| `src/bd3d_fs.py` | The command line and the library of virtual files. It holds the virtual files, the drive watcher and the pipelines (start, jump, pause, stop), and paints the loading picture. |
+| `src/bd3d_fs.py` | The program: the command line, the program's log file, the drive watcher, and wiring `library.py` to a front end (`fuse_fs.py`, `http_server.py`/`dlna.py`). |
+| `src/library.py` | The library of virtual files: `VirtualFile` (the constant-bitrate `.ts`), `Generator` (a running pipeline: start, jump, pause, stop, the loading picture), `SidecarFile` (external subtitles, passthrough) and `Library`/`Shelf` (turns a disc's sources into files of the `Tree`). Synchronous and thread-safe; imports neither `bd3d_fs.py` nor a front end, pyfuse3 or trio. |
 | `src/sources.py` | What a movie is made of: `BlurayDiscSource`, `DvdSource`, `MkvSource`. Each one says how to read its video from a given time (`video_command`), and gives its audio, subtitles and keyframes. |
 | `src/pipeline.py` | The decode chain: reader → decoder → FFmpeg encoder at constant bitrate. Also the encoder choice (NVENC or x264) and the quality. |
 | `src/bluray.py` | A small ctypes binding to libbluray: it opens a disc, ISO or folder, and reads its files decrypted. |
@@ -55,7 +56,7 @@ How to run the program from a clone, where things are in the code, what the test
 | `tools/bdprobe.c` | The first probe of the project (roadmap phase 0): it opens a disc with libbluray and dumps the start of the 3D stream. |
 | `typings/pyfuse3/` | Type stubs for pyfuse3: its versions 3.3, 3.4 and 3.5 declare their types differently. |
 
-The path of a piece of the file, from the player to the disc: the player reads bytes from a file in `/srv/bd3d` → `bd3d_fs.py` turns the byte into a time (the bitrate is constant) → if no pipeline is at that time, it starts one: the source's reader (`disc_reader.py`, `dvd_reader.py` or FFmpeg for MKV), then the decoder (edge264 for 3D, FFmpeg otherwise), then FFmpeg encoding the `.ts` → the bytes go back to the player. `--share dlna` takes the same tree and the same `VirtualFile.read()` (`FileEntry` in `tree.py`), through `http_server.py`'s Range handling instead of a FUSE read; `dlna.py` only adds the UPnP description and discovery on top.
+The path of a piece of the file, from the player to the disc: the player reads bytes from a file in `/srv/bd3d` → `fuse_fs.py` hands the read to `VirtualFile.read()` (`library.py`), which turns the byte into a time (the bitrate is constant) → if no pipeline is at that time, it starts one: the source's reader (`disc_reader.py`, `dvd_reader.py` or FFmpeg for MKV), then the decoder (edge264 for 3D, FFmpeg otherwise), then FFmpeg encoding the `.ts` → the bytes go back to the player. `--share dlna` takes the same tree and the same `VirtualFile.read()` (`FileEntry` in `tree.py`), through `http_server.py`'s Range handling instead of a FUSE read; `dlna.py` only adds the UPnP description and discovery on top.
 
 The code, its comments and the log messages are in English. The documentation is in two languages: every `.md` file has an `.it.md` twin, to be changed together.
 
@@ -106,7 +107,7 @@ Which tests matter for which change:
 | any file | `scripts/check.sh` |
 | `bdmv.py`, `disc_reader.py`, `ssif_demux.py`, `bluray.py` | with a Blu-ray in the drive (3D if you can): `--integration` |
 | `dvd.py`, `dvd_reader.py` | with a DVD in the drive: `--integration` |
-| `bd3d_fs.py` (jumps, pipelines) | the tests, then a real session on the glasses or VLC, with jumps back and forth |
+| `library.py` (jumps, pipelines), `fuse_fs.py` | the tests, then a real session on the glasses or VLC, with jumps back and forth |
 | `tree.py`, `http_server.py`, `didl.py`, `ssdp.py`, `dlna.py` | the tests, then `--share dlna` with a real DLNA renderer on the LAN (discovery, browsing, playback and seeking): SSDP's multicast socket and a renderer's own behavior cannot be tested without one |
 | `scripts/install.sh`, `update.sh` | a clean Debian 13 and Ubuntu 24.04 container |
 

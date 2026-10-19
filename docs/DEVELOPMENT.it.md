@@ -35,7 +35,8 @@ Come avviare il programma da un clone, dove stanno le cose nel codice, cosa cont
 
 | File | Cosa fa |
 |---|---|
-| `src/bd3d_fs.py` | La riga di comando e la libreria dei file virtuali. Contiene i file virtuali, il controllo del lettore e le pipeline (avvio, salto, pausa, stop), e disegna l'immagine di caricamento. |
+| `src/bd3d_fs.py` | Il programma: la riga di comando, il file di log del programma, il controllo del lettore, e il collegamento di `library.py` a un front end (`fuse_fs.py`, `http_server.py`/`dlna.py`). |
+| `src/library.py` | La libreria dei file virtuali: `VirtualFile` (il `.ts` a bitrate costante), `Generator` (una pipeline in corso: avvio, salto, pausa, stop, l'immagine di caricamento), `SidecarFile` (sottotitoli esterni, passthrough) e `Library`/`Shelf` (trasforma le sorgenti di un disco in file dell'albero). Sincrona e thread-safe; non importa né `bd3d_fs.py` né un front end, pyfuse3 o trio. |
 | `src/sources.py` | Di cosa è fatto un film: `BlurayDiscSource`, `DvdSource`, `MkvSource`. Ognuno dice come leggere il suo video da un certo istante (`video_command`) e dà audio, sottotitoli e fotogrammi chiave. |
 | `src/pipeline.py` | La catena di decodifica: lettore → decoder → FFmpeg che codifica a bitrate costante. Anche la scelta dell'encoder (NVENC o x264) e la qualità. |
 | `src/bluray.py` | Un piccolo collegamento ctypes a libbluray: apre un disco, una ISO o una cartella, e ne legge i file decifrati. |
@@ -55,7 +56,7 @@ Come avviare il programma da un clone, dove stanno le cose nel codice, cosa cont
 | `tools/bdprobe.c` | La prima sonda del progetto (fase 0 della roadmap): apre un disco con libbluray e salva l'inizio del flusso 3D. |
 | `typings/pyfuse3/` | Le dichiarazioni dei tipi di pyfuse3: le sue versioni 3.3, 3.4 e 3.5 dichiarano i tipi in modo diverso. |
 
-Il percorso di un pezzo di file, dal player al disco: il player legge dei byte da un file in `/srv/bd3d` → `bd3d_fs.py` trasforma il byte in un istante (il bitrate è costante) → se nessuna pipeline è a quell'istante, ne avvia una: il lettore della sorgente (`disc_reader.py`, `dvd_reader.py` o FFmpeg per gli MKV), poi il decoder (edge264 per il 3D, altrimenti FFmpeg), poi FFmpeg che codifica il `.ts` → i byte tornano al player. `--share dlna` usa lo stesso albero e la stessa `VirtualFile.read()` (`FileEntry` in `tree.py`), passando per la gestione del Range di `http_server.py` invece di una lettura FUSE; `dlna.py` aggiunge solo la descrizione UPnP e la scoperta.
+Il percorso di un pezzo di file, dal player al disco: il player legge dei byte da un file in `/srv/bd3d` → `fuse_fs.py` passa la lettura a `VirtualFile.read()` (`library.py`), che trasforma il byte in un istante (il bitrate è costante) → se nessuna pipeline è a quell'istante, ne avvia una: il lettore della sorgente (`disc_reader.py`, `dvd_reader.py` o FFmpeg per gli MKV), poi il decoder (edge264 per il 3D, altrimenti FFmpeg), poi FFmpeg che codifica il `.ts` → i byte tornano al player. `--share dlna` usa lo stesso albero e la stessa `VirtualFile.read()` (`FileEntry` in `tree.py`), passando per la gestione del Range di `http_server.py` invece di una lettura FUSE; `dlna.py` aggiunge solo la descrizione UPnP e la scoperta.
 
 Il codice, i commenti e i messaggi del log sono in inglese. La documentazione è in due lingue: ogni file `.md` ha il suo gemello `.it.md`, da cambiare insieme.
 
@@ -106,7 +107,7 @@ Quali test contano per quale modifica:
 | qualsiasi file | `scripts/check.sh` |
 | `bdmv.py`, `disc_reader.py`, `ssif_demux.py`, `bluray.py` | con un Blu-ray nel lettore (3D se puoi): `--integration` |
 | `dvd.py`, `dvd_reader.py` | con un DVD nel lettore: `--integration` |
-| `bd3d_fs.py` (salti, pipeline) | i test, poi una visione vera sugli occhiali o con VLC, con salti avanti e indietro |
+| `library.py` (salti, pipeline), `fuse_fs.py` | i test, poi una visione vera sugli occhiali o con VLC, con salti avanti e indietro |
 | `tree.py`, `http_server.py`, `didl.py`, `ssdp.py`, `dlna.py` | i test, poi `--share dlna` con un renderer DLNA vero in rete locale (scoperta, navigazione, riproduzione e salti): il socket multicast di SSDP e il comportamento di un renderer vero non si possono testare senza uno |
 | `scripts/install.sh`, `update.sh` | un container pulito Debian 13 e Ubuntu 24.04 |
 
