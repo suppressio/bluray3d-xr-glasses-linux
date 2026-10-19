@@ -6,7 +6,7 @@ second copy of the serving logic).
 The design that makes seeking work: every virtual file has a constant
 bitrate, so a byte offset is also a point in time. An HTTP Range request
 therefore maps 1:1 onto FileEntry.read(offset, size), exactly like a FUSE
-read (bd3d_fs.py) — the player's jump restarts the pipeline from there, the
+read (fuse_fs.py) — the player's jump restarts the pipeline from there, the
 same way in both.
 """
 import html
