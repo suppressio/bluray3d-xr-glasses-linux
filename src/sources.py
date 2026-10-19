@@ -508,6 +508,30 @@ def _play_all_order(titles: list[bluray.Title], items_by_playlist: dict[str, lis
     return None
 
 
+def _movie_title(path: str, disc: bluray.Disc, info: bluray.DiscInfo
+                 ) -> tuple[bluray.Title, list[PlayItem], bool]:
+    """The movie on a Blu-ray: (title, its play items, 2D?). The longest title whose
+    clips all have an MVC dependent view when the disc is 3D, else the longest one."""
+    titles = sorted(disc.titles(), key=lambda t: -t.duration)
+    if not titles:
+        raise OSError(f"{path}: no title found")
+    longest: tuple[bluray.Title, list[PlayItem]] | None = None
+    for title in titles:
+        try:
+            items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
+        except Exception as e:  # noqa: BLE001 — #65: malformed MPLS, as in all_on()
+            log.warning("%s: playlist %s skipped: %s", path, title.playlist, e)
+            continue
+        if info.has_3d and items and all(it.dep_clip for it in items):
+            return title, items, False
+        longest = longest or (title, items)
+        if not info.has_3d:
+            break
+    if longest is None:
+        raise OSError(f"{path}: no readable title")
+    return *longest, True
+
+
 class DiscSource(Source):
     """A disc (Blu-ray or DVD): its audio tracks are PIDs / stream ids of one stream."""
 
@@ -640,22 +664,7 @@ class BlurayDiscSource(DiscSource):
                 self.two_d = not info.has_3d or not (items and all(it.dep_clip for it in items))
                 title = _title
             else:
-                titles = sorted(disc.titles(), key=lambda t: -t.duration)
-                if not titles:
-                    raise OSError(f"{path}: no title found")
-                chosen = None
-                if info.has_3d:
-                    for title in titles:
-                        items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
-                        if items and all(it.dep_clip for it in items):
-                            chosen = (title, items)
-                            break
-                self.two_d = chosen is None
-                if chosen is None:
-                    title = titles[0]
-                    items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
-                else:
-                    title, items = chosen
+                title, items, self.two_d = _movie_title(path, disc, info)
             self.playlist: str = title.playlist
             self.items: list[PlayItem] = items
             self.clips: dict[str, tuple[Clip, Clip | None]] = {}
