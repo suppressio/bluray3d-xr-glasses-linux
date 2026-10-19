@@ -217,8 +217,10 @@ def require_fuse(share: str) -> None:
 
 
 def require_samba(share: str) -> None:
-    if shutil.which("smbd") is None:
-        raise SystemExit(f"--share {share} needs the Samba server, but smbd is not on PATH: "
+    # smbd lives in /usr/sbin, which Debian leaves out of a normal user's PATH
+    path = os.pathsep.join([os.environ.get("PATH", os.defpath), "/usr/sbin", "/sbin"])
+    if shutil.which("smbd", path=path) is None:
+        raise SystemExit(f"--share {share} needs the Samba server, but smbd is not installed: "
                          f"run scripts/install.sh --share {share}, "
                          "or sudo apt install samba for the .deb; or use --share dlna")
 

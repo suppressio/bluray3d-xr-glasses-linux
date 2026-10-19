@@ -2,6 +2,7 @@
 own log file, its version string, and the drive watcher that adds/removes a
 disc's files on insertion/eject."""
 import logging
+import os
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -116,6 +117,17 @@ def test_dlna_only_does_not_need_fuse() -> None:
     assert done.stdout.strip() == "ok", done.stderr
 
 
+def test_require_samba_looks_in_sbin(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Debian: smbd is in /usr/sbin, and a normal user's PATH has no sbin
+    which = Mock(return_value="/usr/sbin/smbd")
+    monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin:/bin")
+    monkeypatch.setattr(bd3d_fs.shutil, "which", which)
+    bd3d_fs.require_samba("samba")
+    path = which.call_args.kwargs["path"].split(os.pathsep)
+    assert path[:3] == ["/usr/local/bin", "/usr/bin", "/bin"]
+    assert {"/usr/sbin", "/sbin"} <= set(path)
+
+
 @pytest.mark.parametrize("share", ["samba", "both", "dlna"])
 @pytest.mark.parametrize("missing", [None, "samba", "fuse"])
 def test_share_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
@@ -143,7 +155,7 @@ def test_share_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
         assert f"--share {share}" in message
         assert f"scripts/install.sh --share {share}" in message
         if missing == "samba":
-            assert "smbd is not on PATH" in message
+            assert "smbd is not installed" in message
             assert "sudo apt install samba" in message
         else:
             assert "FUSE, which is not installed" in message
@@ -158,6 +170,7 @@ def test_share_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
             import_module.assert_not_called()
             fuse.mount.assert_not_called()
         else:
-            which.assert_called_once_with("smbd")
+            which.assert_called_once()
+            assert which.call_args.args == ("smbd",)
             fuse.mount.assert_called_once()
             fuse.unmount.assert_called_once()
