@@ -1,4 +1,4 @@
-"""tree.py — the virtual tree of folders and files: what Library (bd3d_fs.py)
+"""tree.py — the virtual tree of folders and files: what Library (library.py)
 builds from the sources, and what every front end serves. Independent of how
 it is served: Bd3dFS (src/fuse_fs.py) wraps it for FUSE/Samba, http_server.py
 and dlna.py serve it straight from here over HTTP/DLNA. Entries can be added

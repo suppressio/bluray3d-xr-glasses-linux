@@ -3,7 +3,7 @@ import os
 import shlex
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
@@ -21,6 +21,7 @@ from sources import (
     MkvSource,
     SubTrack,
     _first_per_lang,
+    _parse_season,
     _pick_audio,
     _safe_name,
     discover,
@@ -48,6 +49,34 @@ def private_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 ])
 def test_safe_name(name: str, expected: str) -> None:
     assert _safe_name(name) == expected
+
+
+@pytest.mark.parametrize(("name", "expected"), [
+    ("Rick_and_Morty_Staffel1", (1, "Rick and Morty")),
+    ("Rick and Morty - Staffel 01", (1, "Rick and Morty")),
+    ("RICK_AND_MORTY_S1", (1, "RICK AND MORTY")),
+    ("Westworld Season 2", (2, "Westworld")),
+    ("Il Trono Di Spade Stagione 3", (3, "Il Trono Di Spade")),
+    ("Dix Pour Cent Saison 1", (1, "Dix Pour Cent")),
+    ("Show Season 1 Disc 2", None),           # split over discs: unreliable
+    ("Show Vol. 2 Season 1", None),
+    ("Show Stagione 1 Disco 2", None),
+    ("Dix Pour Cent Saison 1 Disque 2", None),
+    ("Firefly", None),                         # no season recognised
+])
+def test_parse_season(name: str, expected: tuple[int, str] | None) -> None:
+    assert _parse_season(name) == expected
+
+
+@pytest.mark.parametrize(("names", "expected"), [
+    (("Show", "SHOW_S1"), (1, "Show")),                     # season from the label
+    (("Show Season 2", "SHOW_S1"), (2, "Show")),            # the disc's name wins
+    (("Show Season 1", "SHOW_S1_DISC_2"), None),            # part marker in the label
+    (("", "SHOW_S1"), (1, "SHOW")),                         # no name: the label alone
+])
+def test_parse_season_name_and_label(names: tuple[str, str],
+                                     expected: tuple[int, str] | None) -> None:
+    assert _parse_season(*names) == expected
 
 
 A = [AudioStream(1, "truehd", "eng"), AudioStream(2, "dts-hd ma", "eng"),
@@ -178,6 +207,31 @@ def test_bluray_2d(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     assert "--audio-out" not in cmd
 
 
+@pytest.mark.parametrize("three_d", [False, True])
+def test_bluray_longest_playlist_malformed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                           caplog: pytest.LogCaptureFixture,
+                                           three_d: bool) -> None:
+    """#65: the longest playlist (00080) is malformed: the movie is the next readable
+    title, 00070 (in 3D when the disc has it), instead of the disc failing."""
+    read_file = FakeBluray.read_file
+    broken = {"BDMV/PLAYLIST/00080.mpls"}
+
+    def read(self: FakeBluray, path: str) -> bytes:
+        return b"not MPLS" if path in broken else read_file(self, path)
+
+    monkeypatch.setattr(FakeBluray, "read_file", read)
+    caplog.set_level(logging.WARNING, logger="bd3d_fs")
+    disc = FakeBluray(three_d=three_d)
+    s = bluray(monkeypatch, tmp_path, disc)
+    assert (s.playlist, s.two_d) == ("00070", not three_d)
+    assert f"{tmp_path / 'Tron.iso'}: playlist 00080 skipped: not an MPLS file" in caplog.text
+    assert disc.closed
+
+    broken.add("BDMV/PLAYLIST/00070.mpls")              # nothing readable left
+    with pytest.raises(OSError, match="no readable title"):
+        bluray(monkeypatch, tmp_path, disc)
+
+
 def test_bluray_no_title(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     disc = FakeBluray()
     def no_titles(self: FakeBluray) -> list[Title]:
@@ -191,14 +245,16 @@ def test_bluray_no_title(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
 @dataclass
 class MultiEpisodeBluray:
-    """A disc whose titles are given directly as {playlist: items}, for all_on()."""
+    """A disc whose titles are given directly as {playlist: items}, for all_on();
+    3D when `dep_clips` gives the MVC dependent view clips of some playlists."""
     playlists: dict[str, list[Item]]
     name: str = "Rick and Morty Staffel1 - Blu-ray"
     volume_id: str = "RICK_AND_MORTY_S1"
     closed: bool = False
+    dep_clips: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
 
     def info(self) -> DiscInfo:
-        return DiscInfo(self.name, self.volume_id, False, True, 0, "AACS")
+        return DiscInfo(self.name, self.volume_id, bool(self.dep_clips), True, 0, "AACS")
 
     def titles(self) -> list[Title]:
         return [Title(pl, sum((it.out_time - it.in_time) / 45_000 for it in items))
@@ -207,8 +263,10 @@ class MultiEpisodeBluray:
     def read_file(self, path: str) -> bytes:
         name = path.rsplit("/", 1)[1][:5]
         if path.endswith(".mpls"):
-            return mpls(self.playlists[name])
-        return clpi(3_000_000, EPS, extents=list(range(0, 3_000_000, 50_000)))
+            return mpls(self.playlists[name], self.dep_clips.get(name))
+        dep = any(name in clips for clips in self.dep_clips.values())
+        return clpi(3_000_000, EPS, extents=list(range(0, 3_000_000, 50_000)),
+                    pid=0x1012 if dep else 0x1011)
 
     def close(self) -> None:
         self.closed = True
@@ -255,15 +313,357 @@ def test_bluray_all_on_dedup_and_audio_fallback(
     assert caplog.text.count("no ita audio track, using eng") == 2
     assert "Rick and Morty Staffel1 - Extra 1: no ita audio track, using eng" in caplog.text
     assert "Rick and Morty Staffel1 - Extra 2: no ita audio track, using eng" in caplog.text
-    # #39: the eng-only titles are the disc's extras, numbered apart in Extra/
+    # #27: the season from the disc name ("Staffel1"), episodes in play-all order;
+    # #39: the eng-only titles are the disc's extras, numbered apart in Extra/, and
+    # keep today's naming (no episode number applies to them)
     assert [(s.name, s.subfolder) for s in found] == [
-        ("Rick and Morty Staffel1 - 1", ""), ("Rick and Morty Staffel1 - 2", ""),
+        ("S01E01 - Rick and Morty", ""), ("S01E02 - Rick and Morty", ""),
         ("Rick and Morty Staffel1 - Extra 1", "Extra"),
         ("Rick and Morty Staffel1 - Extra 2", "Extra")]
     # the same split whatever language is asked for (#39: eng would number them 3, 4)
     for langs in (["eng"], None):
         again = BlurayDiscSource.all_on(str(iso), langs)
         assert [s.subfolder for s in again] == ["", "", "Extra", "Extra"]
+
+
+def _ep(clip: str) -> Item:
+    return Item(clip, 0, 45_000 * 1200, audio=[Stream(0x1100, "eng", 0x81)])
+
+
+def _card(clip: str) -> Item:
+    return Item(clip, 0, 45_000 * 5)
+
+
+def test_bluray_all_on_single_title(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    iso = tmp_path / "Movie.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({"00001": [_ep("00010")]})
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = BlurayDiscSource.all_on(str(iso))
+    assert len(found) == 1
+    assert isinstance(found[0], BlurayDiscSource)
+    assert (found[0].playlist, found[0].name, found[0].subfolder) == \
+        ("00001", "Rick and Morty Staffel1", "")
+    assert disc.closed
+
+
+@pytest.mark.parametrize(("duration", "count"), [(200, 1), (300, 1), (301, 4)])
+def test_bluray_all_on_short_titles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                    duration: int, count: int) -> None:
+    iso = tmp_path / "Movie.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        f"{i:05}": [Item(f"{i * 10:05}", 0, 45_000 * duration,
+                         audio=[Stream(0x1100, "eng", 0x81)])]
+        for i in range(1, 5)
+    })
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = BlurayDiscSource.all_on(str(iso))
+    assert len(found) == count
+    assert [s.name for s in found] == (["Rick and Morty Staffel1"] if count == 1 else
+                                      [f"S01E{i:02} - Rick and Morty" for i in range(1, 5)])
+
+
+@pytest.mark.parametrize(("longest", "count"), [(1500, 1), (1490, 2)])
+def test_bluray_all_on_duration_ratio(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                      longest: int, count: int) -> None:
+    iso = tmp_path / "Movie.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        "00001": [Item("00010", 0, 45_000 * 1000, audio=[Stream(0x1100, "eng", 0x81)])],
+        "00002": [Item("00020", 0, 45_000 * longest, audio=[Stream(0x1100, "eng", 0x81)])],
+    })
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert len(found) == count
+    assert [(s.playlist, s.name) for s in found] == (
+        [("00002", "Rick and Morty Staffel1")] if count == 1 else
+        [("00001", "S01E01 - Rick and Morty"), ("00002", "S01E02 - Rick and Morty")])
+
+
+def test_bluray_all_on_variants_of_one_episode(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    iso = tmp_path / "Movie.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        "00001": [_ep("00010")],
+        "00002": [_ep("00010"), _card("00099")],
+        "00003": [_ep("00010"), _card("00098")],
+    })
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = BlurayDiscSource.all_on(str(iso))
+    assert len(found) == 1
+    assert isinstance(found[0], BlurayDiscSource)
+    # Movie selection uses the longest original playlist, rather than the dedup winner.
+    assert (found[0].playlist, found[0].name) == ("00002", "Rick and Morty Staffel1")
+
+
+@pytest.mark.parametrize("duration", [1200, 200])
+def test_bluray_all_on_malformed_mpls(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                      caplog: pytest.LogCaptureFixture, duration: int) -> None:
+    """#63: a malformed playlist is skipped (logged), long or short, and the disc loads
+    with the other titles; the short one no longer turns a series into a movie."""
+    iso = tmp_path / "Movie.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        "00001": [_ep("00010")], "00002": [_ep("00020")],
+        "00003": [Item("00030", 0, 45_000 * duration)],
+    })
+    read_file = MultiEpisodeBluray.read_file
+    malformed_reads = 0
+
+    def read(self: MultiEpisodeBluray, path: str) -> bytes:
+        nonlocal malformed_reads
+        if path == "BDMV/PLAYLIST/00003.mpls":
+            malformed_reads += 1
+            return b"not MPLS"
+        return read_file(self, path)
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(MultiEpisodeBluray, "read_file", read)
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    caplog.set_level(logging.WARNING, logger="bd3d_fs")
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [(s.playlist, s.name) for s in found] == [
+        ("00001", "S01E01 - Rick and Morty"), ("00002", "S01E02 - Rick and Morty")]
+    assert f"{iso}: playlist 00003 skipped: not an MPLS file" in caplog.text
+    assert malformed_reads == 1
+    assert disc.closed
+
+
+def test_bluray_all_on_only_play_all_playlists(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        "00001": [_ep("00010"), _ep("00030"), _ep("00020")],
+        "00002": [_ep("00020"), _ep("00010"), _ep("00030")],
+        "00003": [_ep("00030"), _ep("00020"), _ep("00010")],
+    })
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    # All titles are candidates again, ordered by the lowest-numbered play-all.
+    assert [(s.playlist, s.name, s.duration) for s in found] == [
+        ("00001", "S01E01 - Rick and Morty", 3600),
+        ("00003", "S01E02 - Rick and Morty", 3600),
+        ("00002", "S01E03 - Rick and Morty", 3600),
+    ]
+    assert disc.closed
+
+
+def test_bluray_all_on_no_play_all_keeps_playlist_order(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#17: with no play-all playlist on the disc, episodes keep today's order:
+    sorted by playlist number."""
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({"00001": [_ep("00020")], "00002": [_ep("00010")]})
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [s.playlist for s in found] == ["00001", "00002"]
+
+
+def test_bluray_all_on_uses_play_all_order(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#17: a play-all playlist (PlayItems visiting each episode's opening clip in
+    sequence) gives the authoritative episode order, even when playlist numbers run
+    the other way; the play-all itself is not exposed as an episode."""
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        "00001": [_ep("00020")],              # playlist number says "episode 1"...
+        "00002": [_ep("00010")],              # ... but its clip is episode 2's
+        "00003": [_ep("00010"), _ep("00020")],  # play-all: clip 00010, then clip 00020
+    })
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+
+    assert [s.playlist for s in found] == ["00002", "00001"]
+    assert [s.name for s in found] == \
+        ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
+
+
+def test_bluray_all_on_play_all_with_lowest_number(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#17: a play-all with the lowest playlist number shares its opening clip with an
+    episode; it must not win the deduplication in that episode's place (its double
+    length would then fail the similar-duration test and collapse the disc into one
+    title)."""
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        "00000": [_ep("00010"), _ep("00020")],  # play-all: clip 00010, then clip 00020
+        "00001": [_ep("00020")],
+        "00002": [_ep("00010")],
+    })
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+
+    assert [s.playlist for s in found] == ["00002", "00001"]
+
+
+def test_bluray_all_on_play_all_order_with_variants(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#17: the play-all order and the alternate-audio/subtitle dedup compose: variant
+    playlists (same opening clip, a short clip appended) are still deduplicated, and the
+    surviving episodes are still reordered by the play-all."""
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({
+        "00001": [_ep("00020")],
+        "00002": [_ep("00010")],
+        "00011": [_ep("00020"), _card("00099")],   # variant of the "00020" episode
+        "00012": [_ep("00010"), _card("00099")],   # variant of the "00010" episode
+        "00020": [_ep("00010"), _ep("00020")],      # play-all: clip 00010, then clip 00020
+    })
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+
+    assert [s.playlist for s in found] == ["00002", "00001"]
+    assert [s.name for s in found] == \
+        ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
+
+
+def _movie(clip: str, minutes: int, langs: tuple[str, ...] = ("eng",)) -> Item:
+    return Item(clip, 0, 45_000 * 60 * minutes,
+                audio=[Stream(0x1100 + n, lang, 0x81) for n, lang in enumerate(langs)])
+
+
+@pytest.mark.parametrize(("playlists", "dep_clips", "expected"), [
+    # #67, Tron: Legacy 3D: the movie (00070) and its two halves, each one in 3D
+    ({"00070": [_movie("00131", 65), _movie("00133", 60)],
+      "00082": [_movie("00131", 65)], "00083": [_movie("00133", 60)]},
+     {"00070": ["00132", "00134"], "00082": ["00132"], "00083": ["00134"]},
+     [("00070", 7500)]),
+    # the same, plus a longer 3D title that repeats a half: not the movie (review of #67)
+    ({"00070": [_movie("00131", 65), _movie("00133", 60)],
+      "00082": [_movie("00131", 65)], "00083": [_movie("00133", 60)],
+      "00090": [_movie("00131", 65), _movie("00133", 60), _movie("00131", 65)]},
+     {"00070": ["00132", "00134"], "00082": ["00132"], "00083": ["00134"],
+      "00090": ["00132", "00134", "00132"]},
+     [("00070", 7500)]),
+    # Star Trek Into Darkness 3D: one relevant title, a short 2D trailer
+    ({"00800": [_movie("00800", 132)], "00801": [_movie("00900", 2)]},
+     {"00800": ["00801"]}, [("00800", 7920)]),
+    # Mad Max: Fury Road 3D: two playlists of the same clip, other audio languages
+    ({"00098": [_movie("00098", 120, ("eng", "jpn"))],
+      "00103": [_movie("00098", 120, ("eng", "ita", "spa"))]},
+     {"00098": ["00109"], "00103": ["00109"]}, [("00098", 7200)]),
+])
+def test_bluray_all_on_3d_movie(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                playlists: dict[str, list[Item]],
+                                dep_clips: dict[str, list[str]],
+                                expected: list[tuple[str, int]]) -> None:
+    """#67: a 3D disc whose 3D play-all covers every part is one movie, in 3D."""
+    iso = tmp_path / "Movie.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray(playlists, name="Movie 3D", volume_id="MOVIE_3D",
+                              dep_clips=dep_clips)
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [(s.playlist, s.duration) for s in found] == expected
+    assert [(s.two_d, s.name, s.subfolder) for s in found] == [(False, "Movie 3D", "")]
+
+
+@pytest.mark.parametrize("extra", [
+    {},
+    # a 3D montage of 5 minutes from each episode: not a play-all of the whole parts
+    {"00003": [Item("00010", 0, 45_000 * 300), Item("00020", 0, 45_000 * 300)]},
+])
+def test_bluray_all_on_3d_series_without_play_all(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra: dict[str, list[Item]]) -> None:
+    """#67: the 3D movie rule needs a play-all of the whole parts; without one, 3D
+    episodes stay episodes."""
+    iso = tmp_path / "Series.iso"
+    iso.write_text("")
+    disc = MultiEpisodeBluray({"00001": [_ep("00010")], "00002": [_ep("00020")]} | extra,
+                              dep_clips={"00001": ["00011"], "00002": ["00021"],
+                                         "00003": ["00011", "00021"]})
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [(s.playlist, s.two_d) for s in found] == [("00001", False), ("00002", False)]
+
+
+def _two_episode_disc(name: str, label: str) -> MultiEpisodeBluray:
+    def ep(clip: str) -> Item:
+        return Item(clip, 0, 45_000 * 1200, audio=[Stream(0x1100, "eng", 0x81)])
+
+    return MultiEpisodeBluray({"00001": [ep("00010")], "00002": [ep("00020")]},
+                              name=name, volume_id=label)
+
+
+@pytest.mark.parametrize(("name", "label", "expected"), [
+    # #27: a recognised, reliable season -> S<season>E<episode> first in the name
+    ("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1",
+     ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]),
+    # no season recognised: today's naming
+    ("Firefly - Blu-ray", "FIREFLY", ["Firefly - 1", "Firefly - 2"]),
+    # a season split over discs: the first episode number is not known, no S/E
+    ("Rick and Morty Staffel 1 Disc 2 - Blu-ray", "RICK_AND_MORTY_S1_D2",
+     ["Rick and Morty Staffel 1 Disc 2 - 1", "Rick and Morty Staffel 1 Disc 2 - 2"]),
+    # the season only in the label: the show keeps the disc's own name
+    ("Rick and Morty", "RICK_AND_MORTY_S1", ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]),
+    # "Disc 2" only in the label still marks a split season
+    ("Show Season 1", "SHOW_S1_DISC_2", ["Show Season 1 - 1", "Show Season 1 - 2"]),
+])
+def test_bluray_episode_naming(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                               name: str, label: str, expected: list[str]) -> None:
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+    disc = _two_episode_disc(name, label)
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [s.name for s in found] == expected
 
 
 NO_EXTRAS: list[str] = []

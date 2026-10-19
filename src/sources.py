@@ -369,6 +369,51 @@ def _safe_name(name: str) -> str:
     return re.sub(r"\s+", " ", name).strip(" .-") or "Blu-ray"
 
 
+# season markers in the disc name/label, one word per language (#27); the bare
+# "S1"/"S01" form last, so "Staffel 1" etc. are tried first
+_SEASON_PATTERNS = [re.compile(rf"\b{word}\s*0*(\d{{1,2}})\b", re.IGNORECASE) for word in
+                    ("staffel", "stagione", "saison", "season", "s")]
+# a disc that names itself "Disc 2", "Vol. 1", "Teil 2"... is only part of a season:
+# its first episode number cannot be known offline (#27)
+_DISC_PART_PATTERN = re.compile(
+    r"\b(disc|disk|disco|dischi|disque|vol|volume|teil|part|parte)\.?\s*0*(\d{1,2})\b",
+    re.IGNORECASE)
+
+
+def _parse_season(*names: str) -> tuple[int, str] | None:
+    """Season number and show name from a disc's names, most preferred first (the
+    disc's own name, then its volume label), e.g. "Rick_and_Morty_Staffel1" ->
+    (1, "Rick and Morty"). The season may come from any of them; the show name is
+    the preferred name, without the season when that is where it was found. None if
+    no season is recognised, or if any name marks this disc as only part of a season
+    (a split season cannot be numbered offline: the first episode's number would not
+    be known)."""
+    norms = [n.replace("_", " ") for n in names if n]
+    if any(_DISC_PART_PATTERN.search(n) for n in norms):
+        return None
+    for i, norm in enumerate(norms):
+        for pattern in _SEASON_PATTERNS:
+            m = pattern.search(norm)
+            if m:
+                show = norm[:m.start()] + " " + norm[m.end():] if i == 0 else norms[0]
+                return int(m.group(1)), re.sub(r"\s+", " ", show).strip(" -")
+    return None
+
+
+def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool
+                  ) -> tuple[str, str]:
+    """An episode's file name and subfolder: extras (#39) are numbered apart and go
+    in Extra/; an episode gets S<season>E<episode> first when the season is known
+    and reliable (#27), today's "<name> - <episode>" otherwise."""
+    if extra:
+        return f"{name} - Extra {episode}", "Extra"
+    season_show = _parse_season(*raw_names)
+    if season_show is not None:
+        season, show = season_show
+        return f"S{season:02d}E{episode:02d} - {_safe_name(show)}", ""
+    return f"{name} - {episode}", ""
+
+
 AUDIO_PREFERENCE = ["dts-hd ma", "dts-hd", "dts", "ac3", "eac3", "lpcm", "truehd"]
 
 
@@ -426,6 +471,67 @@ def _split_extras[T](titles: list[T], langs_of: Callable[[T], frozenset[str]]
     return episodes, extras
 
 
+def _play_alls(titles: list[bluray.Title], items_by_playlist: dict[str, list[PlayItem]],
+               sigs: dict[str, str]) -> set[str]:
+    """Playlists that chain the opening clips of at least two other titles: "play all"
+    playlists. They start with the same clip as an episode, so they must be set aside
+    before deduplicating by opening clip: with a lower playlist number one would
+    otherwise be kept in place of that episode, and its double length would make the
+    disc fail the similar-duration test.
+    """
+    found: set[str] = set()
+    for t in titles:
+        others = {sigs[o.playlist] for o in titles if o.playlist != t.playlist}
+        clips = {it.clip for it in items_by_playlist.get(t.playlist, [])}
+        if len(clips & others) >= 2:
+            found.add(t.playlist)
+    return found
+
+
+def _play_all_order(titles: list[bluray.Title], items_by_playlist: dict[str, list[PlayItem]],
+                    episodes: list[bluray.Title], sigs: dict[str, str]
+                    ) -> list[bluray.Title] | None:
+    """The play-all playlist among `titles`, if any: one whose PlayItems visit the
+    opening clip of every title in `episodes` (`sigs`: playlist -> opening clip)
+    exactly once, in sequence (docs/bluray-mpls-internals.md, Q4). That sequence is
+    the authoritative episode order, more reliable than sorting by playlist number
+    (which may reflect authoring order, not air order). None when no such title is
+    found: the caller keeps the current playlist-number order.
+    """
+    by_sig = {sigs[t.playlist]: t for t in episodes}
+    wanted = set(by_sig)
+    for t in titles:
+        clips = [it.clip for it in items_by_playlist.get(t.playlist, [])]
+        matches = [c for c in clips if c in wanted]
+        if len(matches) == len(wanted) and set(matches) == wanted:
+            return [by_sig[c] for c in matches]
+    return None
+
+
+def _movie_title(path: str, disc: bluray.Disc, info: bluray.DiscInfo
+                 ) -> tuple[bluray.Title, list[PlayItem], bool]:
+    """The movie on a Blu-ray: (title, its play items, 2D?). The longest title whose
+    clips all have an MVC dependent view when the disc is 3D, else the longest one."""
+    titles = sorted(disc.titles(), key=lambda t: -t.duration)
+    if not titles:
+        raise OSError(f"{path}: no title found")
+    longest: tuple[bluray.Title, list[PlayItem]] | None = None
+    for title in titles:
+        try:
+            items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
+        except Exception as e:  # noqa: BLE001 — #65: malformed MPLS, as in all_on()
+            log.warning("%s: playlist %s skipped: %s", path, title.playlist, e)
+            continue
+        if info.has_3d and items and all(it.dep_clip for it in items):
+            return title, items, False
+        longest = longest or (title, items)
+        if not info.has_3d:
+            break
+    if longest is None:
+        raise OSError(f"{path}: no readable title")
+    return *longest, True
+
+
 class DiscSource(Source):
     """A disc (Blu-ray or DVD): its audio tracks are PIDs / stream ids of one stream."""
 
@@ -477,27 +583,40 @@ class BlurayDiscSource(DiscSource):
             # Read the first clip of each playlist to deduplicate alternate-audio/subtitle
             # variants: same opening clip = same episode (variants may append short clips
             # for language cards or warnings; keep the lowest playlist number per episode).
+            # The full PlayItem list is kept too, to find a play-all playlist afterwards.
             langs: dict[str, frozenset[str]] = {}
+            items_by_playlist: dict[str, list[PlayItem]] = {}
+            malformed: set[str] = set()
 
             def first_clip(t: bluray.Title) -> str:
                 try:
                     items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{t.playlist}.mpls"))
+                    items_by_playlist[t.playlist] = items
                     # every play item: an intro clip may carry other audio than the episode
                     langs[t.playlist] = frozenset(a.lang for it in items for a in it.audio)
                     return items[0].clip if items else t.playlist
-                except Exception:  # noqa: BLE001 — malformed MPLS: treat as unique
+                except Exception as e:  # noqa: BLE001 — malformed MPLS: skip the playlist
+                    log.warning("%s: playlist %s skipped: %s", path, t.playlist, e)
+                    malformed.add(t.playlist)
                     return t.playlist
             sigs = {t.playlist: first_clip(t) for t in titles}
+            # #63: a broken playlist (often an extra) must not take the whole disc down,
+            # nor weigh in the play-all, dedup and episode checks below
+            titles = [t for t in titles if t.playlist not in malformed]
 
             if len(titles) < 2:
                 return [cls(path, audio_langs, _disc=disc, _info=info, _env=env)]
 
+            # "Play all" playlists are set aside first: they only give the episode order.
+            play_all_ids = _play_alls(titles, items_by_playlist, sigs)
+            play_alls = [t for t in titles if t.playlist in play_all_ids]
+            candidates = [t for t in titles if t.playlist not in play_all_ids] or titles
+
             # Deduplicate: keep only the first title (lowest playlist number) per opening
-            # clip. This removes alternate-audio/subtitle variants AND "play all" playlists,
-            # which always start with the same clip as the first episode.
+            # clip. This removes alternate-audio/subtitle variants.
             seen_sigs: set[str] = set()
             unique: list[bluray.Title] = []
-            for t in titles:
+            for t in candidates:
                 sig = sigs[t.playlist]
                 if sig not in seen_sigs:
                     seen_sigs.add(sig)
@@ -508,10 +627,23 @@ class BlurayDiscSource(DiscSource):
                 longest, shortest = by_dur[0].duration, by_dur[-1].duration
                 # All titles long enough and similar enough in duration → episodes
                 if shortest > 300 and longest / shortest < 1.5:
-                    # an unreadable MPLS gives no languages (an extra): __init__ re-reads it
-                    # and raises anyway
                     episodes, extras = _split_extras(
                         unique, lambda t: langs.get(t.playlist, frozenset()))
+                    # #67: on a 3D disc, a 3D play-all of every part is a movie split in
+                    # parts (Tron: Legacy 3D), not a series: that play-all is the movie.
+                    # As long as the parts together: a montage of excerpts is not it.
+                    parts = sum(t.duration for t in episodes)
+                    movie = next((p for p in play_alls if info.has_3d
+                                  and p.duration >= 0.95 * parts
+                                  and _play_all_order([p], items_by_playlist, episodes, sigs)
+                                  and all(it.dep_clip for it in items_by_playlist[p.playlist])),
+                                 None)
+                    if movie is not None:
+                        return [cls(path, audio_langs, _title=movie,
+                                    _disc=disc, _info=info, _env=env)]
+                    play_all_order = _play_all_order(play_alls, items_by_playlist, episodes, sigs)
+                    if play_all_order is not None:
+                        episodes = play_all_order
                     found: list[Source] = [cls(path, audio_langs, _title=t, _episode=i,
                                                _disc=disc, _info=info, _env=env)
                                            for i, t in enumerate(episodes, 1)]
@@ -544,22 +676,7 @@ class BlurayDiscSource(DiscSource):
                 self.two_d = not info.has_3d or not (items and all(it.dep_clip for it in items))
                 title = _title
             else:
-                titles = sorted(disc.titles(), key=lambda t: -t.duration)
-                if not titles:
-                    raise OSError(f"{path}: no title found")
-                chosen = None
-                if info.has_3d:
-                    for title in titles:
-                        items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
-                        if items and all(it.dep_clip for it in items):
-                            chosen = (title, items)
-                            break
-                self.two_d = chosen is None
-                if chosen is None:
-                    title = titles[0]
-                    items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{title.playlist}.mpls"))
-                else:
-                    title, items = chosen
+                title, items, self.two_d = _movie_title(path, disc, info)
             self.playlist: str = title.playlist
             self.items: list[PlayItem] = items
             self.clips: dict[str, tuple[Clip, Clip | None]] = {}
@@ -575,10 +692,11 @@ class BlurayDiscSource(DiscSource):
         if self.two_d:
             self.category, self.name_suffix, self.frame_size = "Blu-ray", "", "1920x1080"
             self.quality_key = "2d"
-        self.name = _safe_name(info.name or info.volume_id.replace("_", " ").title())
+        label = info.volume_id.replace("_", " ").title()
+        self.name = _safe_name(info.name or label)
         if _episode:  # extras (#39) are numbered apart and go in Extra/
-            self.name = f"{self.name} - {'Extra ' if _extra else ''}{_episode}"
-            self.subfolder = "Extra" if _extra else ""
+            self.name, self.subfolder = _episode_name(self.name, [info.name, label],
+                                                      _episode, _extra)
         self.duration = sum(it.duration for it in items)
         self.starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
         st = Path(path).stat()

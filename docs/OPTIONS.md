@@ -47,6 +47,16 @@ bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
 
 Folders are scanned at startup: restart the program to see a new file. Drives are watched continuously.
 
+## TV series
+
+A Blu-ray that holds several episodes (one title per episode, in play-all order: see [bluray-mpls-internals.md](bluray-mpls-internals.md)) gets each one named `S<season>E<episode> - <Show>.ts`, e.g. `S01E05 - Rick and Morty.ts`; the season/episode part always comes right after the language/subtitle prefix (`ITA - `, `subITA - `...), since players cut long names in their file list.
+
+The season is read from the disc's own name or volume label (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), with no network lookup. The first episode's number is not on the disc, so it is only assumed (1, 2, 3...) when neither the disc's name nor its label gives a sign that it holds just part of a season (`Disc 2`, `Vol. 2`...); a season split over several discs, or a disc with no recognised season, keeps today's naming (`<Show> - <episode>`) instead.
+
+A 3D disc is never a series when a 3D "play all" title covers every part: that is a movie split into parts (Tron: Legacy 3D has both halves as titles of their own), and it is loaded as one movie.
+
+A disc's bonus content (making-of, deleted scenes...) goes in an `Extra/` subfolder, numbered apart from the episodes.
+
 ## DLNA/UPnP instead of Samba
 
 By default the files are only mounted for Samba, the `[Disks]` share (`--share samba`). `--share dlna` announces the same files over DLNA/UPnP instead, for players that browse a media server rather than opening a network share (smart TVs, Kodi, Moon VR...); neither FUSE nor Samba is needed in this mode. `--share both` does both at once, e.g. to serve a TV over DLNA and a phone over SMB from the same program.
