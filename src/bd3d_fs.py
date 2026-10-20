@@ -152,7 +152,8 @@ async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None
             # read error, a structure the parsers do not expect) must not stop the
             # program; a few more attempts, then it waits for the disc to be ejected
             except Exception as e:  # noqa: BLE001
-                log.info("%s: %s", device, e)
+                # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
+                log.info("%s: %s", device, str(e).removeprefix(f"{device}: "))
                 state, retry_at = "failed", trio.current_time() + RETRY_AFTER
                 if attempts >= OPEN_ATTEMPTS:
                     log.info("%s: giving up: eject and reinsert the disc to try again", device)
