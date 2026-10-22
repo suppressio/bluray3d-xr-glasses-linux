@@ -796,6 +796,7 @@ def test_open_disc_bdplus_only_through_libbdplus(
             handled = {"libbdplus": not mmbd, "libmmbd": mmbd, "none": False}[bdplus_by]
             super().__init__(decrypted=handled, protection="AACS + BD+")
 
+    monkeypatch.delenv("LIBBDPLUS_PATH", raising=False)
     monkeypatch.setattr(bluray_module, "Disc", Disc)
     monkeypatch.setattr(sources, "_decrypt_backends",
                         lambda: [{}, {"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"}])
