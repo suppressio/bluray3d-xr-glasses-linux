@@ -783,6 +783,31 @@ def test_open_disc_tries_every_backend(monkeypatch: pytest.MonkeyPatch) -> None:
         sources._open_disc("/dev/sr0")
 
 
+@pytest.mark.parametrize(("bdplus_by", "opens"), [
+    ("libbdplus", True),     # libaacs + libbdplus handle BD+: seeks stay clean
+    ("libmmbd", False),      # libmmbd handles BD+ but breaks it after a seek
+    ("none", False),
+])
+def test_open_disc_bdplus_only_through_libbdplus(
+        monkeypatch: pytest.MonkeyPatch, bdplus_by: str, opens: bool) -> None:
+    class Disc(FakeBluray):
+        def __init__(self, path: str) -> None:
+            mmbd = os.environ.get("LIBBDPLUS_PATH") == "libmmbd"
+            handled = {"libbdplus": not mmbd, "libmmbd": mmbd, "none": False}[bdplus_by]
+            super().__init__(decrypted=handled, protection="AACS + BD+")
+
+    monkeypatch.setattr(bluray_module, "Disc", Disc)
+    monkeypatch.setattr(sources, "_decrypt_backends",
+                        lambda: [{}, {"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"}])
+    if opens:
+        _, _, env = sources._open_disc("/dev/sr0")
+        assert env == {}
+    else:
+        with pytest.raises(OSError, match="BD\\+ disc: not supported") as err:
+            sources._open_disc("/dev/sr0")
+        assert "KEYDB" not in str(err.value)
+
+
 @pytest.mark.parametrize(("aacs_error", "expected", "unexpected"), [
     # AACS errors -1 (AACS files unreadable), -6 (drive/MMC open failed) and
     # -7 (drive/MMC command failed): drive or media problems, not a missing key

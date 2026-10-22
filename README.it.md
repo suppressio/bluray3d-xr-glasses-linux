@@ -57,7 +57,9 @@ Tutte le procedure descritte sono un compromesso ragionato tra il "manuale" e il
 #### Decifratura: le chiavi le porti tu
 I Blu-ray commerciali sono cifrati (AACS, alcuni anche BD+). Il progetto **non fornisce e non scarica chiavi**; usa quello che hai, in quest'ordine:
 1. **libaacs + `KEYDB.cfg`**: tutto open source. Metti un database di chiavi in `~/.config/aacs/KEYDB.cfg` (con Docker: nella cartella indicata come `AACS_DIR`).
-2. **MakeMKV**, se installato e registrato: la sua libreria `libmmbd` decifra al posto di libaacs (anche il BD+).
+2. **MakeMKV**, se installato e registrato: la sua libreria `libmmbd` decifra l'AACS al posto di libaacs.
+
+**I dischi con BD+ non sono supportati** (una minoranza, usciti fino al 2017 circa): MakeMKV li apre, ma dopo ogni salto nel film l'immagine si rovina, quindi il programma li salta e lo scrive nel log. Il supporto tramite libbdplus, open source, è allo studio ([#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87)).
 3. Gli **ISO / le cartelle BDMV non cifrati** non richiedono chiavi.
 
 I DVD (CSS) vengono decifrati da **libdvdcss**, che installi tu: su Debian/Ubuntu `sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg` (Debian: sezione `contrib`). Non è nell'immagine Docker; in `docker-compose.yml` c'è una riga commentata per usare quella del sistema.
@@ -236,7 +238,7 @@ Come il programma legge, decodifica e serve un disco: [docs/ARCHITECTURE.it.md](
 ## Limiti
 
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
-- Provato su pochi dischi ([docs/TESTED.it.md](docs/TESTED.it.md#dischi)), tutti solo AACS: i dischi con BD+ (tramite MakeMKV) e i DVD NTSC non sono provati.
+- Provato su pochi dischi ([docs/TESTED.it.md](docs/TESTED.it.md#dischi)), tutti solo AACS. I dischi con BD+ non sono supportati; i DVD NTSC non sono provati.
 - I sottotitoli del disco sono disegnati nell'immagine (una versione per lingua), non si scelgono dal player; la profondità 3D è fissa, non presa dal disco. L'audio è convertito in AAC stereo.
 
 ## E Windows?

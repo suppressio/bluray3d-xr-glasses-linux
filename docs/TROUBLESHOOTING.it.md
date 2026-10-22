@@ -5,6 +5,7 @@
 Torna al [README](../README.it.md).
 
 - **Il film non compare e il log dice `cannot decrypt`**: nessuna chiave funzionante per quel disco. Aggiorna il `KEYDB.cfg`, oppure installa e registra MakeMKV (strada nativa).
+- **Un Blu-ray non compare, il log dice `BD+ disc: not supported`**: il disco ha la protezione BD+, che questo progetto non supporta ancora ([#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87)). MakeMKV lo aprirebbe, ma le sue correzioni sbagliano dopo un salto nel film, quindi per il BD+ non viene usato.
 - **Un DVD non compare, il log dice `encrypted (CSS) and libdvdcss is missing`**: installa libdvdcss (vedi [Decifratura](../README.it.md#decifratura-le-chiavi-le-porti-tu)).
 - **Chiudendo il programma mentre guardi, l'immagine resta ferma una ventina di secondi**: è il player che aspetta prima di arrendersi, perché il file è sparito (il programma si ferma in un secondo). Ferma prima il video sugli occhiali, poi il programma.
 - **La riproduzione si ferma ogni pochi secondi**: il log dice se è la rete troppo lenta per quel file (allora aprilo da `Light/`) o il disco che non tiene il passo (un graffio o un'impronta: puliscilo); altro in [Rete e qualità](OPTIONS.it.md#rete-e-qualità).
