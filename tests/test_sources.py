@@ -737,11 +737,11 @@ def test_decrypt_backends(monkeypatch: pytest.MonkeyPatch) -> None:
     def mmbd(name: str) -> str | None:
         return "libmmbd.so.0"
 
-    def missing(path: str) -> bool:
+    def missing(self: Path) -> bool:
         return False
 
     monkeypatch.setattr(osplatform.ctypes.util, "find_library", nothing)
-    monkeypatch.setattr(osplatform.os.path, "exists", missing)
+    monkeypatch.setattr(osplatform.Path, "exists", missing)
     assert sources._decrypt_backends() == [{}]
     monkeypatch.setattr(osplatform.ctypes.util, "find_library", mmbd)
     assert sources._decrypt_backends()[1] == {"LIBAACS_PATH": "libmmbd",
