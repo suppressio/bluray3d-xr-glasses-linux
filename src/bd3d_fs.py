@@ -23,7 +23,6 @@ for --share samba/both (fuse_fs.py)
 from __future__ import annotations
 
 import argparse
-import fcntl
 import importlib
 import logging
 import logging.handlers
@@ -39,6 +38,7 @@ import trio
 from dlna import Dlna
 from langs import lang_list
 from library import LIGHT_DIR, MULTI_AUDIO_DIR, Library, Shelf
+from osplatform import DriveStatus, default_program_log, default_temp_dir, drive_status
 from pipeline import ENCODERS, pick_encoder
 from sources import Source, discover, open_disc
 from tree import FileEntry, Tree
@@ -86,11 +86,6 @@ def program_version(folder: Path = HERE) -> str:
     return described.stdout.strip() or "unknown"
 
 
-def default_program_log() -> Path:
-    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(state) / "bluray3d-xr" / "bluray3d-xr.log"
-
-
 def log_to_file(path: str) -> None:
     """Also write the program's log to a file, with the date, rotated at
     PROGRAM_LOG_MAX: it outlives the terminal, and goes with problem reports."""
@@ -107,26 +102,9 @@ def log_to_file(path: str) -> None:
     logging.getLogger().addHandler(handler)
 
 
-CDROM_DRIVE_STATUS = 0x5326
-CDS_NO_DISC, CDS_TRAY_OPEN, CDS_DISC_OK = 1, 2, 4
 GONE_AFTER = 2                       # "no disc" answers in a row before we believe it
 OPEN_ATTEMPTS = 3                    # a drive can fail a read now and then: retry the disc
 RETRY_AFTER = 30                     # seconds between attempts
-
-
-def drive_status(device: str) -> int:
-    """Ask the drive whether a disc is in, without reading it. A busy drive can
-    answer "not ready" or fail the call: that is not an eject (0 = no idea)."""
-    try:
-        fd = os.open(device, os.O_RDONLY | os.O_NONBLOCK)
-    except OSError:
-        return 0
-    try:
-        return fcntl.ioctl(fd, CDROM_DRIVE_STATUS, 0)
-    except OSError:
-        return 0
-    finally:
-        os.close(fd)
 
 
 async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None) -> None:
@@ -137,10 +115,10 @@ async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None
     retry_at = 0.0
     while True:
         status = await trio.to_thread.run_sync(drive_status, device)
-        gone = gone + 1 if status in (CDS_NO_DISC, CDS_TRAY_OPEN) else 0
+        gone = gone + 1 if status == DriveStatus.EMPTY else 0
         retry = (state == "failed" and attempts < OPEN_ATTEMPTS
                  and trio.current_time() >= retry_at)
-        if status == CDS_DISC_OK and (state == "empty" or retry):
+        if status == DriveStatus.DISC and (state == "empty" or retry):
             attempts += 1
             log.info("%s: %s", device, "disc inserted, opening it" if state == "empty"
                      else f"opening it again (attempt {attempts} of {OPEN_ATTEMPTS})")
@@ -161,8 +139,8 @@ async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None
             log.info("%s: disc ejected", device)
             await trio.to_thread.run_sync(library.remove, entries)
             entries, state, attempts = [], "empty", 0
-        elif status not in (CDS_DISC_OK, CDS_NO_DISC, CDS_TRAY_OPEN):
-            log.debug("%s: drive status %d, ignored", device, status)
+        elif status == DriveStatus.UNKNOWN:
+            log.debug("%s: drive status %s, ignored", device, status)
         await trio.sleep(3)
 
 
@@ -286,7 +264,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="port of the DLNA/HTTP server (--share dlna/both, default 8200)")
     # a log of our own pipeline at a documented place; the kernel's protected
     # symlinks keep other users from redirecting it
-    parser.add_argument("--log-file", default="/tmp/bd3d-pipeline.log",  # noqa: S108
+    parser.add_argument("--log-file", default=os.path.join(default_temp_dir(),
+                                                            "bd3d-pipeline.log"),
                         help="output of the pipelines (FFmpeg, decoders), one section each")
     parser.add_argument("--log", default=str(default_program_log()),
                         help="the program's log is also saved here (default "

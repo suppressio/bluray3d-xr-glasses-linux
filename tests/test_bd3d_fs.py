@@ -14,6 +14,7 @@ import trio
 import trio.testing
 
 import bd3d_fs
+from osplatform import DriveStatus
 from sources import Source
 from test_library import DiscSource
 from tree import FileEntry
@@ -49,7 +50,8 @@ def test_log_to_file(tmp_path: Path) -> None:
 
 
 def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    ok, no_disc, tray, busy = 4, 1, 2, 3
+    ok, no_disc, tray, busy = (DriveStatus.DISC, DriveStatus.EMPTY, DriveStatus.EMPTY,
+                                DriveStatus.UNKNOWN)
     # 1st disc: 3 failed attempts (retried every RETRY_AFTER = 3 polls), then left alone
     statuses = iter([ok, ok, busy, ok, no_disc, ok, ok, ok, ok, busy, no_disc, tray, tray,
                      ok, ok, no_disc, no_disc, ok, ok, ok, ok, ok])
@@ -58,7 +60,7 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     class NoMoreStatusError(Exception):
         pass
 
-    def status(device: str) -> int:
+    def status(device: str) -> DriveStatus:
         try:
             return next(statuses)
         except StopIteration:
@@ -103,12 +105,12 @@ def test_watch_drive_logs_the_device_once(monkeypatch: pytest.MonkeyPatch,
                                           caplog: pytest.LogCaptureFixture,
                                           prefixed: bool) -> None:
     device = "/dev/sr0"
-    statuses = iter([4])                                      # disc ok, then no more polls
+    statuses = iter([DriveStatus.DISC])                       # disc ok, then no more polls
 
     class NoMoreStatusError(Exception):
         pass
 
-    def status(dev: str) -> int:
+    def status(dev: str) -> DriveStatus:
         try:
             return next(statuses)
         except StopIteration:
