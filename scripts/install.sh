@@ -9,7 +9,7 @@
 #   both: installs everything.
 #
 # What it changes on the system (undo with scripts/uninstall.sh):
-#   - apt packages: ffmpeg libbluray libaacs libbdplus libdvdread
+#   - apt packages: ffmpeg python3-trio libbluray libaacs libbdplus libdvdread
 #                   (+ build tools for edge264), and with --share samba/both:
 #                   python3-pyfuse3 fuse3 samba
 #   - /opt/bluray3d-xr            edge264 decoder + the program
@@ -32,7 +32,8 @@ ME=$(id -un)
 SHARE=samba
 while [ $# -gt 0 ]; do
     case "$1" in
-        --share) SHARE="$2"; shift 2 ;;
+        --share) [ $# -ge 2 ] || { echo "Usage: $0 [--share samba|dlna|both]"; exit 1; }
+                 SHARE="$2"; shift 2 ;;
         --share=*) SHARE="${1#--share=}"; shift ;;
         *) echo "Usage: $0 [--share samba|dlna|both]"; exit 1 ;;
     esac
@@ -54,7 +55,7 @@ libbluray=libbluray2
 apt-cache show libbluray4 >/dev/null 2>&1 && libbluray=libbluray4
 libdvdread=libdvdread8
 apt-cache show libdvdread8t64 >/dev/null 2>&1 && libdvdread=libdvdread8t64
-packages=(ffmpeg python3 "$libbluray" libaacs0 libbdplus0 "$libdvdread" git build-essential ca-certificates)
+packages=(ffmpeg python3 python3-trio "$libbluray" libaacs0 libbdplus0 "$libdvdread" git build-essential ca-certificates)
 case "$SHARE" in samba|both) packages+=(python3-pyfuse3 fuse3 samba) ;; esac
 sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
@@ -84,6 +85,8 @@ sudo install -D -m 644 -t "$PREFIX/loaders" "$REPO_DIR"/loaders/*.mp4
 # the release (git tag) installed, e.g. v1.0.0; shown by bluray3d-xr --version
 version=$(git -C "$REPO_DIR" describe --tags --always 2>/dev/null || echo unknown)
 echo "$version" | sudo tee "$PREFIX/app/version" >/dev/null
+# the --share kind chosen, so that update.sh re-runs this script with the same one
+echo "$SHARE" | sudo tee "$PREFIX/app/share" >/dev/null
 sudo tee /usr/local/bin/bluray3d-xr >/dev/null <<WRAP
 #!/bin/sh
 PATH="$PREFIX/bin:\$PATH" exec python3 "$PREFIX/app/bd3d_fs.py" "\$@"

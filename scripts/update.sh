@@ -20,7 +20,9 @@ new=$(git -C "$REPO_DIR" describe --tags --always)
 pinned=$(sed -n 's/^EDGE264_COMMIT=//p' "$REPO_DIR/scripts/install.sh")
 if [ ! -x "$PREFIX/bin/edge264_test" ] || [ "$(cat "$PREFIX/bin/edge264.commit" 2>/dev/null)" != "$pinned" ]; then
     echo "edge264 or the installation itself needs setting up: running install.sh"
-    exec "$REPO_DIR/scripts/install.sh"
+    # keep the --share kind of the existing install (none recorded: install.sh's default)
+    share=$(cat "$PREFIX/app/share" 2>/dev/null || true)
+    exec "$REPO_DIR/scripts/install.sh" ${share:+--share "$share"}
 fi
 
 if [ "$old" = "$new" ]; then
