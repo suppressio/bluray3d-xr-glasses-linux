@@ -58,9 +58,9 @@ All the procedures described here are a balanced compromise between "manual" and
 Commercial Blu-rays are encrypted (AACS, some also BD+). The project **does not provide or download any key**; it uses what you have, in this order:
 1. **libaacs + `KEYDB.cfg`**: fully open source. Put a key database in `~/.config/aacs/KEYDB.cfg` (for Docker: the folder you set as `AACS_DIR`).
 2. **MakeMKV**, if installed and registered: its `libmmbd` library decrypts AACS in place of libaacs.
-
-**BD+ discs are not supported** (a minority, released up to about 2017): MakeMKV opens them, but after every jump in the movie the picture breaks up, so the program skips them and says so in the log. Support through the open-source libbdplus is being studied ([#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87)).
 3. Unencrypted **ISO / BDMV folders** need no keys.
+
+**BD+ discs** (a minority, released up to about 2017) are **not supported through MakeMKV**: it opens them, but after every jump in the movie the picture breaks up, so the program skips them and says so in the log. Through the open-source libbdplus they are untested ([#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87)).
 
 DVDs (CSS) are decrypted by **libdvdcss**, which you install yourself: on Debian/Ubuntu `sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg` (Debian: `contrib` section). It is not in the Docker image; `docker-compose.yml` has a commented line to use the host's.
 
