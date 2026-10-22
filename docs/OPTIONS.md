@@ -69,6 +69,7 @@ bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
 - On the player, look for "bluray3d-xr" among the DLNA/media servers it finds on the network (no IP address to type): browse into `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, the same folders as the SMB share.
 - Seeking works the same way as over SMB: a byte of the file is still a precise second of the movie, so a jump restarts the pipeline from there regardless of whether the player reads it over SMB or HTTP.
 - Docker, DLNA only: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — no Samba, no FUSE, no port 445; it uses the host network, since SSDP discovery is multicast (`HTTP_PORT` in `.env` sets the port). DLNA together with Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, also on the host network, so Samba uses the host's port 445 directly (`SMB_PORT` does not apply).
+- Native install: `scripts/install.sh --share dlna` skips the Samba/pyfuse3/fuse3 packages, the FUSE mount and `smb.conf` entirely. `scripts/install.sh --share both` installs everything; running it again with `both` after a `dlna` install adds the Samba/FUSE pieces it had skipped.
 
 ## Audio languages
 

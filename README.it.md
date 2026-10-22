@@ -165,6 +165,8 @@ Si ferma con `Ctrl+C`. Aggiornare e disinstallare: [più sotto](#aggiornare-e-di
 
 Se usi una copia del progetto invece del pacchetto della release, avvia [`scripts/install.sh`](scripts/install.sh) come utente normale. Installa i pacchetti, compila edge264, installa il comando e aggiunge a Samba la condivisione `[Disks]` in sola lettura e ad accesso ospite. Lo script supporta Debian/Ubuntu; resta disponibile per le installazioni da una copia del progetto.
 
+`scripts/install.sh --share dlna` salta del tutto Samba/FUSE e configura invece [DLNA/UPnP](docs/OPTIONS.it.md#dlnaupnp-invece-di-samba); `--share both` installa entrambi (default: `samba`).
+
 ### Aggiornare e disinstallare
 
 **Aggiornare**, quando esce una versione nuova (vedi [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases)); `bluray3d-xr --version` dice quale hai:
