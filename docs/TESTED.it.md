@@ -73,16 +73,17 @@ Con VLC su un Wi-Fi debole aiuta alzare la sua cache di rete ([Rete e qualità](
 | **Ready Player One** | Blu-ray 2D | Sottotitoli dal disco; riprodotto anche in VLC su un PICO. |
 | **Cowboy Bebop** (disco 1) | Blu-ray 2D | 5 episodi in un unico titolo "riproduci tutto" da 120 minuti: esce come un solo file. |
 | **Rick and Morty**, stagione 1 (edizione tedesca) | Blu-ray 2D | 11 episodi in italiano e inglese, più una copia di ognuno solo in inglese e un extra: gli episodi escono come "S01E01 - Rick and Morty"…"S01E11 - Rick and Morty" (la stagione letta dal "Staffel 1" del disco), gli altri 12 titoli in `Extra/`. L'elenco degli episodi si legge aprendo il disco una volta sola (2 s invece di 50). |
+| **Predator 2** | Blu-ray 2D | **Non supportato: BD+.** MakeMKV (libmmbd) lo decifra pulito dall'inizio, ma dopo un salto l'immagine si rovina (circa 1000 errori di decodifica al minuto), quindi il programma lo salta. Vedi [#2](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/2) e [#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87). |
 | **Ritorno al futuro** | DVD (PAL) | Sugli occhiali come un file locale, sottotitoli OK. |
 | **Utopia**, stagione 1 disco 1 | DVD (PAL) | Un disco di una serie inglese con una protezione a decine di titoli finti, e un punto rovinato: gli episodi escono giusti, il punto rovinato viene saltato. |
 
-D'ora in poi si aggiungono solo i dischi con qualcosa di particolare: un problema, una struttura insolita, una protezione. Non ancora provati: dischi con **BD+** (dovrebbero aprirsi tramite MakeMKV), dischi con più angolazioni, DVD **NTSC**.
+D'ora in poi si aggiungono solo i dischi con qualcosa di particolare: un problema, una struttura insolita, una protezione. Non ancora provati: dischi con più angolazioni, DVD **NTSC**.
 
 ---
 
 ## Sul PC
 
 - **Linux**: Debian testing (installazione nativa); lo script di installazione verificato anche in container puliti di Debian 13 e Ubuntu 24.04 (FFmpeg 7.1 e 6.1), e l'immagine Docker.
-- **Decifratura**: libaacs con un `KEYDB.cfg`, e MakeMKV 2.0.0 (libmmbd); cartelle BDMV decifrate.
+- **Decifratura**: libaacs con un `KEYDB.cfg`, e MakeMKV 2.0.0 (libmmbd, solo AACS); cartelle BDMV decifrate.
 - **Codifica**: NVIDIA NVENC e x264 sulla CPU.
 - **Lettore**: un lettore Blu-ray SATA interno; espulsione e inserimento mentre il programma gira.
