@@ -345,7 +345,8 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
         try:
             disc = bluray.Disc(path)
             info = disc.info()
-            bdplus_by_mmbd = "BD+" in info.protection and env.get("LIBBDPLUS_PATH") == "libmmbd"
+            bdplus_by_mmbd = ("BD+" in info.protection
+                              and os.environ.get("LIBBDPLUS_PATH") == "libmmbd")
             if info.decrypted and not bdplus_by_mmbd:
                 log.info("%s: %s", path, _decrypted_with(info, env))
                 return disc, info, env
@@ -361,8 +362,9 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
         raise OSError(f"cannot read the disc (AACS error {last.aacs_error}): "
                       "drive or media problem, not a missing key")
     if last is not None and "BD+" in last.protection:
-        raise OSError("BD+ disc: not supported (libbdplus cannot open it, and MakeMKV's "
-                      "libmmbd corrupts the picture after a seek)")
+        raise OSError("BD+ disc: not supported (not decrypted by libaacs + libbdplus; "
+                      "MakeMKV's libmmbd is not used for BD+: it corrupts the picture "
+                      "after a seek)")
     raise OSError(f"cannot decrypt (AACS error {last.aacs_error if last else 'unknown'}). "
                   f"Provide a KEYDB.cfg for libaacs or install MakeMKV (libmmbd).")
 

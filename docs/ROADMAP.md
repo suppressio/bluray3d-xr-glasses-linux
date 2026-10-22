@@ -48,7 +48,7 @@ Three backends, tried in this order (the project **never ships or downloads keys
    keys; some drives also need a host certificate). Used when a KEYDB is found.
 2. **libmmbd** (from MakeMKV) — drop-in replacement for libaacs/libbdplus that
    uses MakeMKV's keys (`LIBAACS_PATH=libmmbd LIBBDPLUS_PATH=libmmbd`). Opens
-   almost everything, BD+ included, but it is proprietary: it runs `makemkvcon`
+   almost everything, BD+ included (but for BD+ only on a read from the start: after a seek the picture breaks up, so BD+ through libmmbd is refused, see #2), but it is proprietary: it runs `makemkvcon`
    internally, so MakeMKV must be installed, working, and registered (free beta
    key, renewed periodically).
 3. **Already-decrypted ISO / BDMV folder** — no keys at runtime (the disc was
