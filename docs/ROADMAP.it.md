@@ -51,10 +51,11 @@ progetto **non distribuisce e non scarica mai chiavi**):
    certificato "host"). Si usa quando viene trovato un KEYDB.
 2. **libmmbd** (di MakeMKV): sostituisce libaacs/libbdplus usando le chiavi di
    MakeMKV (`LIBAACS_PATH=libmmbd LIBBDPLUS_PATH=libmmbd`). Apre quasi tutto,
-   BD+ compreso (ma il BD+ solo leggendo dall'inizio: dopo un salto l'immagine si
-   rovina, quindi il BD+ tramite libmmbd viene rifiutato, vedi #2), ma è proprietario: al suo interno lancia `makemkvcon`, quindi
-   MakeMKV deve essere installato, funzionante e registrato (chiave beta
-   gratuita, da rinnovare periodicamente).
+   ma è proprietario: al suo interno lancia `makemkvcon`, quindi MakeMKV deve
+   essere installato, funzionante e registrato (chiave beta gratuita, da
+   rinnovare periodicamente). Il BD+ solo leggendo dall'inizio (dopo un salto
+   l'immagine si rovina), quindi il BD+ tramite libmmbd viene rifiutato
+   ([#2](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/2)).
 3. **ISO o cartella BDMV già decifrati**: nessuna chiave mentre guardi (il
    disco è stato decifrato una volta, con qualsiasi strumento). È una copia
    completa (circa 45 GB), quindi di nuovo un passaggio intermedio, ma senza
