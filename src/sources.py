@@ -18,7 +18,6 @@ Implemented:
 """
 import atexit
 import copy
-import ctypes.util
 import functools
 import itertools
 import json
@@ -43,6 +42,7 @@ import bluray
 import dvd
 from bdmv import Clip, PlayItem, m2ts_seek, parse_clpi, parse_mpls, ssif_seek
 from langs import lang as to_lang
+from osplatform import has_library
 
 log = logging.getLogger("bd3d_fs")
 
@@ -310,7 +310,7 @@ def _decrypt_backends() -> list[dict[str, str]]:
     """Environments to try for libbluray, in order: libaacs (+ KEYDB.cfg), then
     MakeMKV's libmmbd when installed. Keys are never shipped with this project."""
     envs: list[dict[str, str]] = [{}]
-    if ctypes.util.find_library("mmbd") or os.path.exists("/usr/lib/libmmbd.so.0"):
+    if has_library("mmbd"):
         envs.append({"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"})
     return envs
 

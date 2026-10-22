@@ -31,6 +31,7 @@ from types import TracebackType
 from typing import Protocol, Self
 
 from langs import lang as to_lang
+from osplatform import load_library
 
 SECTOR = 2048
 READ_ATTEMPTS = 4
@@ -41,13 +42,7 @@ AUDIO_FORMATS = {0: "ac3", 2: "mp2", 3: "mp2", 4: "lpcm", 6: "dts"}
 
 
 def _load() -> ctypes.CDLL:
-    for name in (ctypes.util.find_library("dvdread"), "libdvdread.so.8", "libdvdread.so.4"):
-        if name:
-            try:
-                return ctypes.CDLL(name)
-            except OSError:
-                pass
-    raise OSError("libdvdread not found (Debian/Ubuntu: apt install libdvdread8 libdvdcss2)")
+    return load_library("dvdread", "Debian/Ubuntu: apt install libdvdread8 libdvdcss2")
 
 
 @functools.cache

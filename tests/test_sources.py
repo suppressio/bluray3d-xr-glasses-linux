@@ -10,6 +10,7 @@ import pytest
 
 import bluray as bluray_module
 import dvd
+import osplatform
 import sources
 from bdmv import AudioStream
 from bluray import DiscInfo, Title
@@ -739,10 +740,10 @@ def test_decrypt_backends(monkeypatch: pytest.MonkeyPatch) -> None:
     def missing(path: str) -> bool:
         return False
 
-    monkeypatch.setattr(sources.ctypes.util, "find_library", nothing)
-    monkeypatch.setattr(sources.os.path, "exists", missing)
+    monkeypatch.setattr(osplatform.ctypes.util, "find_library", nothing)
+    monkeypatch.setattr(osplatform.os.path, "exists", missing)
     assert sources._decrypt_backends() == [{}]
-    monkeypatch.setattr(sources.ctypes.util, "find_library", mmbd)
+    monkeypatch.setattr(osplatform.ctypes.util, "find_library", mmbd)
     assert sources._decrypt_backends()[1] == {"LIBAACS_PATH": "libmmbd",
                                               "LIBBDPLUS_PATH": "libmmbd"}
 
