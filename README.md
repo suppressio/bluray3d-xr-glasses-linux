@@ -57,8 +57,10 @@ All the procedures described here are a balanced compromise between "manual" and
 #### Decryption: bring your own keys
 Commercial Blu-rays are encrypted (AACS, some also BD+). The project **does not provide or download any key**; it uses what you have, in this order:
 1. **libaacs + `KEYDB.cfg`**: fully open source. Put a key database in `~/.config/aacs/KEYDB.cfg` (for Docker: the folder you set as `AACS_DIR`).
-2. **MakeMKV**, if installed and registered: its `libmmbd` library decrypts in place of libaacs (BD+ too).
+2. **MakeMKV**, if installed and registered: its `libmmbd` library decrypts AACS in place of libaacs.
 3. Unencrypted **ISO / BDMV folders** need no keys.
+
+**BD+ discs** (a minority, released up to about 2017) are **not supported through MakeMKV**: it opens them, but after every jump in the movie the picture breaks up, so the program skips them and says so in the log. Through the open-source libbdplus they are untested ([#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87)).
 
 DVDs (CSS) are decrypted by **libdvdcss**, which you install yourself: on Debian/Ubuntu `sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg` (Debian: `contrib` section). It is not in the Docker image; `docker-compose.yml` has a commented line to use the host's.
 
@@ -165,6 +167,8 @@ Stop it with `Ctrl+C`. Updating and uninstalling: [below](#updating-and-uninstal
 
 If you are using a working clone instead of the release package, run [`scripts/install.sh`](scripts/install.sh) as your normal user. It installs the packages, compiles edge264, installs the command and adds the read-only guest share `[Disks]` to Samba. The script supports Debian/Ubuntu; it remains available for clone-based installs.
 
+`scripts/install.sh --share dlna` skips Samba/FUSE entirely and sets up [DLNA/UPnP](docs/OPTIONS.md#dlnaupnp-instead-of-samba) instead; `--share both` installs both (default: `samba`).
+
 ### Updating and uninstalling
 
 **Updating**, when a new version is out (see [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases)); `bluray3d-xr --version` tells which one you have:
@@ -234,7 +238,7 @@ How the program reads, decodes and serves a disc: [docs/ARCHITECTURE.md](docs/AR
 ## Limits
 
 - The last ~2.7 seconds of every movie (after the end credits) are black: the tail of the file is synthetic.
-- Tested on a handful of discs ([docs/TESTED.md](docs/TESTED.md#discs)), all AACS only: BD+ discs (through MakeMKV) and NTSC DVDs are untested.
+- Tested on a handful of discs ([docs/TESTED.md](docs/TESTED.md#discs)), all AACS only. BD+ discs are not supported; NTSC DVDs are untested.
 - Subtitles from the disc are drawn into the picture (one version per language), not selectable in the player; the 3D depth is fixed, not taken from the disc. Audio is converted to AAC stereo.
 
 ## Windows?

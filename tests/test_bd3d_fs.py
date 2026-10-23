@@ -14,6 +14,7 @@ import trio
 import trio.testing
 
 import bd3d_fs
+from osplatform import DriveStatus
 from sources import Source
 from test_library import DiscSource
 from tree import FileEntry
@@ -49,7 +50,8 @@ def test_log_to_file(tmp_path: Path) -> None:
 
 
 def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    ok, no_disc, tray, busy = 4, 1, 2, 3
+    ok, no_disc, tray, busy = (DriveStatus.DISC, DriveStatus.EMPTY, DriveStatus.EMPTY,
+                                DriveStatus.UNKNOWN)
     # 1st disc: 3 failed attempts (retried every RETRY_AFTER = 3 polls), then left alone
     statuses = iter([ok, ok, busy, ok, no_disc, ok, ok, ok, ok, busy, no_disc, tray, tray,
                      ok, ok, no_disc, no_disc, ok, ok, ok, ok, ok])
@@ -58,7 +60,7 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     class NoMoreStatusError(Exception):
         pass
 
-    def status(device: str) -> int:
+    def status(device: str) -> DriveStatus:
         try:
             return next(statuses)
         except StopIteration:
@@ -96,6 +98,48 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # the 2nd disc opens; the 3rd fails once (a read error) and opens on the retry
     assert events == ["remove 0", "add", "remove 0", "add"]
     assert next(opened, None) is None
+
+
+@pytest.mark.parametrize("prefixed", [False, True])
+def test_watch_drive_logs_the_device_once(monkeypatch: pytest.MonkeyPatch,
+                                          caplog: pytest.LogCaptureFixture,
+                                          prefixed: bool) -> None:
+    device = "/dev/sr0"
+    statuses = iter([DriveStatus.DISC])                       # disc ok, then no more polls
+
+    class NoMoreStatusError(Exception):
+        pass
+
+    def status(dev: str) -> DriveStatus:
+        try:
+            return next(statuses)
+        except StopIteration:
+            raise NoMoreStatusError from None
+
+    def open_disc(dev: str, langs: list[str] | None) -> list[Source]:
+        # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
+        prefix = f"{dev}: " if prefixed else ""
+        raise OSError(prefix + "no title found")
+
+    class Lib:
+        def add(self, source: Source) -> list[FileEntry]:
+            return []
+
+        def remove(self, entries: Sequence[FileEntry]) -> None:
+            pass
+
+    monkeypatch.setattr(bd3d_fs, "drive_status", status)
+    monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
+
+    async def main() -> None:
+        with pytest.raises(NoMoreStatusError):
+            await bd3d_fs.watch_drive(device, Lib(), None)
+
+    with caplog.at_level(logging.INFO, logger=bd3d_fs.log.name):
+        trio.run(main, clock=trio.testing.MockClock(autojump_threshold=0))
+    messages = [r.getMessage() for r in caplog.records]
+    assert f"{device}: no title found" in messages              # the device, exactly once
+    assert f"{device}: {device}: no title found" not in messages
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "65536", "http"])

@@ -10,6 +10,7 @@ import pytest
 
 import bluray as bluray_module
 import dvd
+import osplatform
 import sources
 from bdmv import AudioStream
 from bluray import DiscInfo, Title
@@ -736,13 +737,13 @@ def test_decrypt_backends(monkeypatch: pytest.MonkeyPatch) -> None:
     def mmbd(name: str) -> str | None:
         return "libmmbd.so.0"
 
-    def missing(path: str) -> bool:
+    def missing(self: Path) -> bool:
         return False
 
-    monkeypatch.setattr(sources.ctypes.util, "find_library", nothing)
-    monkeypatch.setattr(sources.os.path, "exists", missing)
+    monkeypatch.setattr(osplatform.ctypes.util, "find_library", nothing)
+    monkeypatch.setattr(osplatform.Path, "exists", missing)
     assert sources._decrypt_backends() == [{}]
-    monkeypatch.setattr(sources.ctypes.util, "find_library", mmbd)
+    monkeypatch.setattr(osplatform.ctypes.util, "find_library", mmbd)
     assert sources._decrypt_backends()[1] == {"LIBAACS_PATH": "libmmbd",
                                               "LIBBDPLUS_PATH": "libmmbd"}
 
@@ -780,6 +781,51 @@ def test_open_disc_tries_every_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sources, "_decrypt_backends", libaacs_only)
     with pytest.raises(OSError, match="cannot decrypt"):
         sources._open_disc("/dev/sr0")
+
+
+@pytest.mark.parametrize(("bdplus_by", "opens"), [
+    ("libbdplus", True),     # libaacs + libbdplus handle BD+: seeks stay clean
+    ("libmmbd", False),      # libmmbd handles BD+ but breaks it after a seek
+    ("none", False),
+])
+def test_open_disc_bdplus_only_through_libbdplus(
+        monkeypatch: pytest.MonkeyPatch, bdplus_by: str, opens: bool) -> None:
+    class Disc(FakeBluray):
+        def __init__(self, path: str) -> None:
+            mmbd = os.environ.get("LIBBDPLUS_PATH") == "libmmbd"
+            handled = {"libbdplus": not mmbd, "libmmbd": mmbd, "none": False}[bdplus_by]
+            super().__init__(decrypted=handled, protection="AACS + BD+")
+
+    monkeypatch.delenv("LIBBDPLUS_PATH", raising=False)
+    monkeypatch.setattr(bluray_module, "Disc", Disc)
+    monkeypatch.setattr(sources, "_decrypt_backends",
+                        lambda: [{}, {"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"}])
+    if opens:
+        _, _, env = sources._open_disc("/dev/sr0")
+        assert env == {}
+    else:
+        with pytest.raises(OSError, match="BD\\+ disc: not supported") as err:
+            sources._open_disc("/dev/sr0")
+        assert "KEYDB" not in str(err.value)
+    assert "LIBBDPLUS_PATH" not in os.environ                # restored
+
+
+@pytest.mark.parametrize("backends", [[{}], [{}, {"LIBAACS_PATH": "libmmbd",
+                                                   "LIBBDPLUS_PATH": "libmmbd"}]])
+def test_open_disc_refuses_bdplus_from_an_exported_libmmbd(
+        monkeypatch: pytest.MonkeyPatch, backends: list[dict[str, str]]) -> None:
+    # LIBBDPLUS_PATH=libmmbd exported by the user: the libaacs backend gets it too
+    class Disc(FakeBluray):
+        def __init__(self, path: str) -> None:
+            super().__init__(decrypted=os.environ.get("LIBBDPLUS_PATH") == "libmmbd",
+                             protection="AACS + BD+")
+
+    monkeypatch.setattr(bluray_module, "Disc", Disc)
+    monkeypatch.setattr(sources, "_decrypt_backends", lambda: backends)
+    monkeypatch.setenv("LIBBDPLUS_PATH", "libmmbd")
+    with pytest.raises(OSError, match="BD\\+ disc: not supported"):
+        sources._open_disc("/dev/sr0")
+    assert os.environ["LIBBDPLUS_PATH"] == "libmmbd"         # restored
 
 
 @pytest.mark.parametrize(("aacs_error", "expected", "unexpected"), [

@@ -8,7 +8,6 @@ libbluray picks the AACS/BD+ backend when the disc is opened:
   - nothing, for unencrypted ISO/BDMV folders
 """
 import ctypes
-import ctypes.util
 import functools
 from ctypes import (
     CFUNCTYPE,
@@ -28,6 +27,8 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import TYPE_CHECKING, Self
 
+from osplatform import load_library
+
 if TYPE_CHECKING:
     from ctypes import _Pointer  # pyright: ignore[reportPrivateUsage]  # only in typeshed's ctypes
 
@@ -35,13 +36,7 @@ AACS_UNIT = 6144   # the decrypting reader returns exactly one aligned unit per 
 
 
 def _load() -> ctypes.CDLL:
-    names = [ctypes.util.find_library("bluray"), "libbluray.so.4", "libbluray.so.2"]
-    for name in filter(None, names):
-        try:
-            return ctypes.CDLL(name)
-        except OSError:
-            pass
-    raise OSError("libbluray not found (Debian/Ubuntu: apt install libbluray2 or libbluray4)")
+    return load_library("bluray", "Debian/Ubuntu: apt install libbluray2 or libbluray4")
 
 
 class _BDFile(Structure):

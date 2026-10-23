@@ -40,6 +40,7 @@ Come avviare il programma da un clone, dove stanno le cose nel codice, cosa cont
 | `src/sources.py` | Di cosa è fatto un film: `BlurayDiscSource`, `DvdSource`, `MkvSource`. Ognuno dice come leggere il suo video da un certo istante (`video_command`) e dà audio, sottotitoli e fotogrammi chiave. |
 | `src/pipeline.py` | La catena di decodifica: lettore → decoder → FFmpeg che codifica a bitrate costante. Anche la scelta dell'encoder (NVENC o x264) e la qualità. |
 | `src/bluray.py` | Un piccolo collegamento ctypes a libbluray: apre un disco, una ISO o una cartella, e ne legge i file decifrati. |
+| `src/osplatform.py` | Le chiamate che cambiano da un sistema operativo all'altro: lo stato del lettore, i lettori da guardare, il caricamento di una libreria condivisa, e la cartella temporanea e il percorso del log predefiniti. Oggi è implementato solo Linux. Si chiama osplatform, non platform, per non nascondere il modulo omonimo della libreria standard. |
 | `src/bdmv.py` | I file di navigazione del Blu-ray: playlist (MPLS), informazioni sulle clip (CLPI), il salto nel `.ssif`. |
 | `src/disc_reader.py` | Legge un titolo Blu-ray da un certo istante. 3D: il video per edge264 su stdout e l'audio in una FIFO. 2D: un solo flusso TS filtrato. Gira come processo a sé. |
 | `src/ssif_demux.py` | Divide il flusso 3D `.ssif` in H.264 più MVC per edge264. |

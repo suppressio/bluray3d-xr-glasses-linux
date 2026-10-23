@@ -18,7 +18,6 @@ Implemented:
 """
 import atexit
 import copy
-import ctypes.util
 import functools
 import itertools
 import json
@@ -43,6 +42,7 @@ import bluray
 import dvd
 from bdmv import Clip, PlayItem, m2ts_seek, parse_clpi, parse_mpls, ssif_seek
 from langs import lang as to_lang
+from osplatform import has_library
 
 log = logging.getLogger("bd3d_fs")
 
@@ -310,7 +310,7 @@ def _decrypt_backends() -> list[dict[str, str]]:
     """Environments to try for libbluray, in order: libaacs (+ KEYDB.cfg), then
     MakeMKV's libmmbd when installed. Keys are never shipped with this project."""
     envs: list[dict[str, str]] = [{}]
-    if ctypes.util.find_library("mmbd") or os.path.exists("/usr/lib/libmmbd.so.0"):
+    if has_library("mmbd"):
         envs.append({"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"})
     return envs
 
@@ -336,7 +336,8 @@ a missing or wrong key: no KEYDB/MakeMKV hint for these."""
 
 
 def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]:
-    """Open a disc/ISO/BDMV with the first decryption backend that works."""
+    """Open a disc/ISO/BDMV with the first decryption backend that works.
+    BD+ only through libbdplus: libmmbd's BD+ fixes go wrong after a seek."""
     last: bluray.DiscInfo | None = None
     for env in _decrypt_backends():
         saved = {k: os.environ.get(k) for k in ("LIBAACS_PATH", "LIBBDPLUS_PATH")}
@@ -344,7 +345,9 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
         try:
             disc = bluray.Disc(path)
             info = disc.info()
-            if info.decrypted:
+            bdplus_by_mmbd = ("BD+" in info.protection
+                              and os.environ.get("LIBBDPLUS_PATH") == "libmmbd")
+            if info.decrypted and not bdplus_by_mmbd:
                 log.info("%s: %s", path, _decrypted_with(info, env))
                 return disc, info, env
             last = info
@@ -358,6 +361,10 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
     if last is not None and last.aacs_error in AACS_READ_ERRORS:
         raise OSError(f"cannot read the disc (AACS error {last.aacs_error}): "
                       "drive or media problem, not a missing key")
+    if last is not None and "BD+" in last.protection:
+        raise OSError("BD+ disc: not supported (not decrypted by libaacs + libbdplus; "
+                      "MakeMKV's libmmbd is not used for BD+: it corrupts the picture "
+                      "after a seek)")
     raise OSError(f"cannot decrypt (AACS error {last.aacs_error if last else 'unknown'}). "
                   f"Provide a KEYDB.cfg for libaacs or install MakeMKV (libmmbd).")
 

@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 # Native install on Debian / Ubuntu. Run it as your normal user: it asks for
-# sudo only where needed. Safe to run again (it skips what is already done).
+# sudo only where needed. Safe to run again (it skips what is already done;
+# e.g. re-running with --share both after --share dlna adds Samba and FUSE).
+#
+# Usage: install.sh [--share samba|dlna|both]   (default: samba)
+#   samba (default): Samba only, as before.
+#   dlna: skips the Samba/pyfuse3/fuse3 packages, the FUSE mount and smb.conf.
+#   both: installs everything.
 #
 # What it changes on the system (undo with scripts/uninstall.sh):
-#   - apt packages: ffmpeg python3-pyfuse3 fuse3 samba libbluray libaacs libbdplus
-#                   libdvdread (+ build tools for edge264)
+#   - apt packages: ffmpeg python3-trio libbluray libaacs libbdplus libdvdread
+#                   (+ build tools for edge264), and with --share samba/both:
+#                   python3-pyfuse3 fuse3 samba
 #   - /opt/bluray3d-xr            edge264 decoder + the program
 #   - /usr/local/bin/bluray3d-xr  command to start it
-#   - /srv/bd3d                   mount point of the virtual files
-#   - /etc/fuse.conf              enables user_allow_other (Samba must read the mount)
-#   - /etc/samba/smb.conf         adds the read-only guest share [Disks]
+#   - /srv/bd3d                   mount point of the virtual files (--share samba/both)
+#   - /etc/fuse.conf              enables user_allow_other (--share samba/both)
+#   - /etc/samba/smb.conf         adds the read-only guest share [Disks] (--share samba/both)
 set -euo pipefail
 
 PREFIX=/opt/bluray3d-xr
@@ -21,6 +28,20 @@ MARK_BEGIN="# >>> bluray3d-xr >>>"
 MARK_END="# <<< bluray3d-xr <<<"
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
 ME=$(id -un)
+
+SHARE=samba
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --share) [ $# -ge 2 ] || { echo "Usage: $0 [--share samba|dlna|both]"; exit 1; }
+                 SHARE="$2"; shift 2 ;;
+        --share=*) SHARE="${1#--share=}"; shift ;;
+        *) echo "Usage: $0 [--share samba|dlna|both]"; exit 1 ;;
+    esac
+done
+case "$SHARE" in
+    samba|dlna|both) ;;
+    *) echo "--share must be samba, dlna or both (got: $SHARE)"; exit 1 ;;
+esac
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 
@@ -34,9 +55,9 @@ libbluray=libbluray2
 apt-cache show libbluray4 >/dev/null 2>&1 && libbluray=libbluray4
 libdvdread=libdvdread8
 apt-cache show libdvdread8t64 >/dev/null 2>&1 && libdvdread=libdvdread8t64
-sudo apt-get install -y --no-install-recommends \
-    ffmpeg python3 python3-pyfuse3 fuse3 samba "$libbluray" libaacs0 libbdplus0 "$libdvdread" \
-    git build-essential ca-certificates
+packages=(ffmpeg python3 python3-trio "$libbluray" libaacs0 libbdplus0 "$libdvdread" git build-essential ca-certificates)
+case "$SHARE" in samba|both) packages+=(python3-pyfuse3 fuse3 samba) ;; esac
+sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
 step "2/5 edge264-mvc decoder (MVC 3D)"
 # built once per pinned commit: the one installed is recorded next to it
@@ -64,6 +85,8 @@ sudo install -D -m 644 -t "$PREFIX/loaders" "$REPO_DIR"/loaders/*.mp4
 # the release (git tag) installed, e.g. v1.0.0; shown by bluray3d-xr --version
 version=$(git -C "$REPO_DIR" describe --tags --always 2>/dev/null || echo unknown)
 echo "$version" | sudo tee "$PREFIX/app/version" >/dev/null
+# the --share kind chosen, so that update.sh re-runs this script with the same one
+echo "$SHARE" | sudo tee "$PREFIX/app/share" >/dev/null
 sudo tee /usr/local/bin/bluray3d-xr >/dev/null <<WRAP
 #!/bin/sh
 PATH="$PREFIX/bin:\$PATH" exec python3 "$PREFIX/app/bd3d_fs.py" "\$@"
@@ -71,17 +94,24 @@ WRAP
 sudo chmod 755 /usr/local/bin/bluray3d-xr
 
 step "4/5 FUSE mount point"
-sudo install -d -o "$ME" -g "$(id -gn)" "$MOUNT"
-if ! grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null; then
-    echo user_allow_other | sudo tee -a /etc/fuse.conf >/dev/null
+if [ "$SHARE" = dlna ]; then
+    echo "skipped (--share dlna: no FUSE mount needed)"
+else
+    sudo install -d -o "$ME" -g "$(id -gn)" "$MOUNT"
+    if ! grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null; then
+        echo user_allow_other | sudo tee -a /etc/fuse.conf >/dev/null
+    fi
+    echo "$MOUNT ready, user_allow_other enabled"
 fi
-echo "$MOUNT ready, user_allow_other enabled"
 
 step "5/5 Samba share [Disks]"
-if grep -qF "$MARK_BEGIN" /etc/samba/smb.conf; then
-    echo "share already configured"
+if [ "$SHARE" = dlna ]; then
+    echo "skipped (--share dlna: Samba not needed)"
 else
-    sudo tee -a /etc/samba/smb.conf >/dev/null <<SHARE
+    if grep -qF "$MARK_BEGIN" /etc/samba/smb.conf; then
+        echo "share already configured"
+    else
+        sudo tee -a /etc/samba/smb.conf >/dev/null <<SHARE
 
 $MARK_BEGIN
 [Disks]
@@ -93,29 +123,45 @@ $MARK_BEGIN
    force user = $ME
 $MARK_END
 SHARE
+    fi
+    testparm -s >/dev/null 2>&1 || { echo "smb.conf check failed: run 'testparm' to see why"; exit 1; }
+    sudo systemctl restart smbd 2>/dev/null || sudo service smbd restart
+    echo "Samba share [Disks] active"
 fi
-testparm -s >/dev/null 2>&1 || { echo "smb.conf check failed: run 'testparm' to see why"; exit 1; }
-sudo systemctl restart smbd 2>/dev/null || sudo service smbd restart
-echo "Samba share [Disks] active"
 
 # Firewall: only suggest, never open ports on our own
 if command -v ufw >/dev/null && sudo ufw status | grep -q "Status: active"; then
     lan=$(ip -o -f inet addr show scope global | awk '{print $4; exit}')
     net=$(python3 -c "import ipaddress,sys; print(ipaddress.ip_interface(sys.argv[1]).network)" "$lan")
     printf '\nufw is active. To let devices on your LAN reach the share:\n'
-    printf '    sudo ufw allow from %s to any port 445 proto tcp\n' "$net"
+    case "$SHARE" in samba|both)
+        printf '    sudo ufw allow from %s to any port 445 proto tcp    # SMB\n' "$net" ;;
+    esac
+    case "$SHARE" in dlna|both)
+        printf '    sudo ufw allow from %s to any port 8200 proto tcp   # DLNA/HTTP\n' "$net"
+        printf '    sudo ufw allow from %s to any port 1900 proto udp   # DLNA discovery (SSDP)\n' "$net" ;;
+    esac
 fi
 
+share_flag=""
+[ "$SHARE" = samba ] || share_flag=" --share $SHARE"
 cat <<DONE
 
 Done. Start it with:
-    bluray3d-xr --audio-lang eng --subs eng /dev/sr0       # the disc in the drive
-    bluray3d-xr --audio-lang eng /path/to/your/movies      # ISO, BDMV/VIDEO_TS folders, MKV rips
+    bluray3d-xr$share_flag --audio-lang eng --subs eng /dev/sr0       # the disc in the drive
+    bluray3d-xr$share_flag --audio-lang eng /path/to/your/movies      # ISO, BDMV/VIDEO_TS folders, MKV rips
 Every option: docs/OPTIONS.md
 Commercial Blu-rays need a decryption key database for libaacs in ~/.config/aacs/KEYDB.cfg
 (this project does not provide one), or MakeMKV installed (used via its libmmbd).
 Encrypted DVDs (CSS) need libdvdcss, not installed by this script. On Debian/Ubuntu:
     sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg   (Debian: "contrib")
-Then on the glasses open the network share \\\\$(hostname -I | awk '{print $1}')\\Disks
-Stop it with Ctrl+C.
 DONE
+case "$SHARE" in
+    samba)
+        printf 'Then on the glasses open the network share \\\\%s\\Disks\n' "$(hostname -I | awk '{print $1}')" ;;
+    dlna)
+        printf 'Then on the glasses look for "bluray3d-xr" among the DLNA/media servers it finds on the network\n' ;;
+    both)
+        printf 'Then on the glasses open the network share \\\\%s\\Disks, or look for "bluray3d-xr" among the DLNA/media servers it finds\n' "$(hostname -I | awk '{print $1}')" ;;
+esac
+echo "Stop it with Ctrl+C."

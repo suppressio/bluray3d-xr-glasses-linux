@@ -28,8 +28,8 @@ from typing import Any
 
 import pytest
 
-from bd3d_fs import CDS_DISC_OK, drive_status
 from library import VirtualFile
+from osplatform import DriveStatus, drive_status
 from pipeline import pick_encoder, quality_for
 from sources import BlurayDiscSource, MkvSource, Source, open_disc
 
@@ -54,7 +54,7 @@ def _drive() -> str | None:
             return None
     except OSError:
         return None
-    return drive if drive_status(drive) == CDS_DISC_OK else None
+    return drive if drive_status(drive) == DriveStatus.DISC else None
 
 
 def _sources() -> list[tuple[str, str]]:
