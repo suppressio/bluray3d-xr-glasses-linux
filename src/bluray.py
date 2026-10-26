@@ -3,12 +3,16 @@ bluray.py — minimal ctypes binding to libbluray: open a disc, ISO or BDMV fold
 and read its files, decrypted on the fly when a decryption backend works.
 
 libbluray picks the AACS/BD+ backend when the disc is opened:
-  - libaacs (+ ~/.config/aacs/KEYDB.cfg)    default
+  - libaacs (+ ~/.config/aacs/KEYDB.cfg)    default; BD+ through libbdplus
+                                             (+ ~/.config/bdplus: vm0/, convtab/)
   - libmmbd (MakeMKV)                        LIBAACS_PATH=libmmbd LIBBDPLUS_PATH=libmmbd
   - nothing, for unencrypted ISO/BDMV folders
 """
 import ctypes
 import functools
+import os
+import subprocess
+import sys
 from ctypes import (
     CFUNCTYPE,
     POINTER,
@@ -170,6 +174,11 @@ class Disc:
         self._bd: int | None = _libbluray().bd_open(path.encode(), None)
         if not self._bd:
             raise OSError(f"cannot open Blu-ray: {path}")
+        # libbluray starts libbdplus, which loads the disc's cached conversion
+        # table, only on bd_get_titles()/bd_play(): without this call BD+ clips
+        # are read unfixed (#87)
+        if _libbluray().bd_get_disc_info(self._bd).contents.bdplus_detected:
+            _libbluray().bd_get_titles(self._bd, TITLES_RELEVANT, 0)
 
     def open(self, path: str) -> DiscFile:
         h = _libbluray().bd_open_file_dec(self._bd, path.encode())
@@ -215,3 +224,26 @@ class Disc:
     def __exit__(self, kind: type[BaseException] | None, value: BaseException | None,
                  traceback: TracebackType | None) -> None:
         self.close()
+
+
+BDPLUS_TABLE_FOUND = "Found cached conversion table"
+"""libbdplus' log line when it has a precomputed fix table for the disc."""
+
+
+def bdplus_table_found(path: str) -> bool:
+    """Whether libbdplus has a cached conversion table for the BD+ disc at path.
+    Without one it runs the disc's BD+ program itself, which fails on newer discs
+    and breaks the picture while the disc still reports BD+ as handled. libbdplus
+    says which case it is only in its log (libbluray has no API for it), so the
+    disc is opened once more in a child process and its log read."""
+    env = {k: v for k, v in os.environ.items() if k != "BD_DEBUG_MASK"}
+    try:
+        run = subprocess.run([sys.executable, __file__, path], env=env, capture_output=True,
+                             text=True, errors="replace", timeout=120, check=False)
+    except subprocess.TimeoutExpired:
+        return False
+    return BDPLUS_TABLE_FOUND in run.stderr
+
+
+if __name__ == "__main__":
+    Disc(sys.argv[1]).close()      # for bdplus_table_found(): libbdplus logs to stderr

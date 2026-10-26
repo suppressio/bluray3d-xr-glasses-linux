@@ -60,7 +60,7 @@ I Blu-ray commerciali sono cifrati (AACS, alcuni anche BD+). Il progetto **non f
 2. **MakeMKV**, se installato e registrato: la sua libreria `libmmbd` decifra l'AACS al posto di libaacs.
 3. Gli **ISO / le cartelle BDMV non cifrati** non richiedono chiavi.
 
-**I dischi con BD+** (una minoranza, usciti fino al 2017 circa) **non sono supportati tramite MakeMKV**: li apre, ma dopo ogni salto nel film l'immagine si rovina, quindi il programma li salta e lo scrive nel log. Tramite libbdplus, open source, non sono provati ([#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87)).
+**I dischi con BD+** (una minoranza, usciti fino al 2017 circa) sono decifrati da **libaacs + libbdplus**, open source. libbdplus ha bisogno di due cose che fornisci tu, in `~/.config/bdplus/` (con Docker: nella cartella indicata come `BDPLUS_DIR`): `vm0/`, la sua configurazione, e `convtab/`, le tabelle di conversione precalcolate dei dischi (un archivio della comunità copre praticamente tutti i dischi BD+). Dove trovarle: la [pagina Blu-ray dell'ArchWiki](https://wiki.archlinux.org/title/Blu-ray) e il thread a cui rimanda ([copia archiviata](https://web.archive.org/web/20260910011411/https://forum.doom9.org/showthread.php?t=176924)). Un disco BD+ senza la sua tabella viene saltato, e il log lo dice. MakeMKV per il BD+ non viene usato: questi dischi li apre, ma dopo ogni salto nel film l'immagine si rovina.
 
 I DVD (CSS) vengono decifrati da **libdvdcss**, che installi tu: su Debian/Ubuntu `sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg` (Debian: sezione `contrib`). Non è nell'immagine Docker; in `docker-compose.yml` c'è una riga commentata per usare quella del sistema.
 
@@ -98,6 +98,7 @@ cp .env.example .env
 - [ ] Modifica `.env`:
   - `DRIVE=/dev/sr0` per tenere d'occhio il lettore Blu-ray; in `docker-compose.yml` togli il commento alla riga `- /dev/sr0` sotto `devices`;
   - `AACS_DIR` = la cartella che contiene il tuo `KEYDB.cfg`;
+  - `BDPLUS_DIR` = la cartella con `vm0/` e `convtab/` per i dischi BD+ (vedi [Decifratura](#decifratura-le-chiavi-le-porti-tu); lasciala com'è se non li hai);
   - `MOVIES_DIR` = una cartella con ISO, cartelle BDMV o rip MKV (può essere vuota se usi solo il lettore);
   - `AUDIO_LANG` e `SUBS` = le lingue audio e dei sottotitoli che vuoi, per esempio `ita,eng` (il resto: [docs/OPTIONS.it.md](docs/OPTIONS.it.md)).
 - [ ] Costruisci e avvia. La prima volta ci vuole qualche minuto, perché compila edge264 per la tua CPU:
@@ -238,7 +239,7 @@ Come il programma legge, decodifica e serve un disco: [docs/ARCHITECTURE.it.md](
 ## Limiti
 
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
-- Provato su pochi dischi ([docs/TESTED.it.md](docs/TESTED.it.md#dischi)), tutti solo AACS. I dischi con BD+ non sono supportati; i DVD NTSC non sono provati.
+- Provato su pochi dischi ([docs/TESTED.it.md](docs/TESTED.it.md#dischi)), tutti solo AACS tranne un disco BD+. I DVD NTSC non sono provati.
 - I sottotitoli del disco sono disegnati nell'immagine (una versione per lingua), non si scelgono dal player; la profondità 3D è fissa, non presa dal disco. L'audio è convertito in AAC stereo.
 
 ## E Windows?

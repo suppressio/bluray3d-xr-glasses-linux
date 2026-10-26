@@ -46,6 +46,9 @@ Three backends, tried in this order (the project **never ships or downloads keys
 1. **libaacs + KEYDB.cfg** — fully open source (VideoLAN). The user provides a key
    database in `~/.config/aacs/` and keeps it updated (newer discs revoke old
    keys; some drives also need a host certificate). Used when a KEYDB is found.
+   BD+ through libbdplus, with the user's `~/.config/bdplus/` (VM configuration
+   and the disc's cached conversion table: libbdplus' own run of the BD+
+   program fails on newer discs, so a disc without a table is refused, #87).
 2. **libmmbd** (from MakeMKV) — drop-in replacement for libaacs/libbdplus that
    uses MakeMKV's keys (`LIBAACS_PATH=libmmbd LIBBDPLUS_PATH=libmmbd`). Opens
    almost everything, but it is proprietary: it runs `makemkvcon` internally,
