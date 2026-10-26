@@ -60,7 +60,7 @@ Commercial Blu-rays are encrypted (AACS, some also BD+). The project **does not 
 2. **MakeMKV**, if installed and registered: its `libmmbd` library decrypts AACS in place of libaacs.
 3. Unencrypted **ISO / BDMV folders** need no keys.
 
-**BD+ discs** (a minority, released up to about 2017) are **not supported through MakeMKV**: it opens them, but after every jump in the movie the picture breaks up, so the program skips them and says so in the log. Through the open-source libbdplus they are untested ([#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87)).
+**BD+ discs** (a minority, released up to about 2017) are decrypted by **libaacs + libbdplus**, open source. libbdplus needs two things you provide, in `~/.config/bdplus/` (for Docker: the folder you set as `BDPLUS_DIR`): `vm0/`, its configuration, and `convtab/`, the precomputed conversion tables of the discs (a community archive covers practically every BD+ disc). Where to find them: the [ArchWiki Blu-ray page](https://wiki.archlinux.org/title/Blu-ray) and the thread it links ([archived copy](https://web.archive.org/web/20260910011411/https://forum.doom9.org/showthread.php?t=176924)). A BD+ disc without its table is skipped, and the log says so. MakeMKV is not used for BD+: it opens these discs, but after every jump in the movie the picture breaks up.
 
 DVDs (CSS) are decrypted by **libdvdcss**, which you install yourself: on Debian/Ubuntu `sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg` (Debian: `contrib` section). It is not in the Docker image; `docker-compose.yml` has a commented line to use the host's.
 
@@ -98,6 +98,7 @@ cp .env.example .env
 - [ ] Edit `.env`:
   - `DRIVE=/dev/sr0` to watch the Blu-ray drive, and in `docker-compose.yml` uncomment the `- /dev/sr0` line under `devices`;
   - `AACS_DIR` = the folder containing your `KEYDB.cfg`;
+  - `BDPLUS_DIR` = the folder with `vm0/` and `convtab/` for BD+ discs (see [Decryption](#decryption-bring-your-own-keys); leave it as it is if you have none);
   - `MOVIES_DIR` = a folder with ISO, BDMV folders or MKV rips (can be empty if you only use the drive);
   - `AUDIO_LANG` and `SUBS` = the audio and subtitle languages you want, e.g. `ita,eng` (the rest: [docs/OPTIONS.md](docs/OPTIONS.md)).
 - [ ] Build and start (the first build takes a few minutes: it compiles edge264 for your CPU):
@@ -238,7 +239,7 @@ How the program reads, decodes and serves a disc: [docs/ARCHITECTURE.md](docs/AR
 ## Limits
 
 - The last ~2.7 seconds of every movie (after the end credits) are black: the tail of the file is synthetic.
-- Tested on a handful of discs ([docs/TESTED.md](docs/TESTED.md#discs)), all AACS only. BD+ discs are not supported; NTSC DVDs are untested.
+- Tested on a handful of discs ([docs/TESTED.md](docs/TESTED.md#discs)), AACS only except one BD+ disc. NTSC DVDs are untested.
 - Subtitles from the disc are drawn into the picture (one version per language), not selectable in the player; the 3D depth is fixed, not taken from the disc. Audio is converted to AAC stereo.
 
 ## Windows?
