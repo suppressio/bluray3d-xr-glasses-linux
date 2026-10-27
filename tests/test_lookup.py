@@ -35,7 +35,7 @@ def fake_http(monkeypatch: pytest.MonkeyPatch, thediscdb: dict[str, Any] | None 
     calls: list[str] = []
 
     def urlopen(req: Request | str, timeout: float = 0) -> FakeResponse:
-        calls.append("thediscdb")
+        calls.append(req.get_header("User-agent", "") if isinstance(req, Request) else req)
         if error is not None:
             raise error
         return FakeResponse(thediscdb if thediscdb is not None else {})
@@ -115,3 +115,10 @@ def test_network_error_is_not_cached(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert not list(tmp_path.glob("*.json"))
     fake_http(monkeypatch, thediscdb=DISC)
     assert episode_titles(str(tmp_path), "HASH7", ["00070"]) == ["Pilot"]
+
+
+def test_request_names_this_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The User-Agent says who is asking, so TheDiscDB can tell this traffic apart."""
+    calls = fake_http(monkeypatch, thediscdb=NO_DISC)
+    episode_titles(str(tmp_path), "HASH8", ["00070"])
+    assert calls == [lookup.USER_AGENT]

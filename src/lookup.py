@@ -33,6 +33,8 @@ TIMEOUT = 8.0  # seconds: a small JSON request on the LAN's uplink
 LOOKUP_ERRORS = (OSError, http.client.HTTPException, ValueError, KeyError, TypeError)
 
 THEDISCDB_URL = "https://thediscdb.com/graphql"
+# who is asking, so TheDiscDB can tell this project's traffic apart and reach us
+USER_AGENT = "bluray3d-xr (+https://github.com/suppressio/bluray3d-xr-glasses-linux)"
 # TheDiscDB's schema (thediscdb.com): discs are looked up by their content hash,
 # each title carries the clip it is played from (sourceFile, e.g. "00070.mpls")
 # and, when catalogued, its season/episode/title.
@@ -53,7 +55,7 @@ query DiscByHash($hash: String!) {
 def _post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
     body = json.dumps(payload).encode()
     req = urllib.request.Request(  # noqa: S310 — fixed https URL
-        url, data=body, headers={"Content-Type": "application/json"})
+        url, data=body, headers={"Content-Type": "application/json", "User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # noqa: S310 — fixed https URL
         result: dict[str, Any] = json.load(resp)
     return result
