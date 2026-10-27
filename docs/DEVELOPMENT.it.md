@@ -47,6 +47,7 @@ Come avviare il programma da un clone, dove stanno le cose nel codice, cosa cont
 | `src/dvd.py` | libdvdread tramite ctypes, i file IFO, la scelta del titolo principale o degli episodi, e il salto preciso. |
 | `src/dvd_reader.py` | Legge un titolo DVD da un certo istante come flusso MPEG program per FFmpeg. Gira come processo a sé. |
 | `src/langs.py` | Un solo modo di scrivere ogni lingua (ISO 639-2). |
+| `src/lookup.py` | `--lookup` (#84): i titoli degli episodi da TheDiscDB (con l'impronta del contenuto del disco) e TMDB (ripiego, per durata), con una cache locale. Nessun codice specifico per il Blu-ray: `sources.py` calcola l'impronta e lo chiama. |
 | `src/tree.py` | L'albero di cartelle e file che costruisce Library, indipendente da come viene servito: identificatori propri, non inode di pyfuse3, anche se Bd3dFS li riusa come tali. |
 | `src/fuse_fs.py` | Il front end FUSE (`--share samba`/`both`): Bd3dFS monta l'albero per Samba. È l'unico modulo che importa pyfuse3 e viene caricato solo quando serve FUSE, quindi `--share dlna` gira anche senza. |
 | `src/http_server.py` | Lo stesso albero via HTTP semplice: un Range in byte diventa direttamente una `FileEntry.read()`, come una lettura FUSE. Usato da solo (`--share dlna`/`both`) e come trasporto per gli endpoint di dlna.py. |

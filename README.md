@@ -36,7 +36,7 @@ The PC reads the disc and decodes the MVC **while you watch**, and serves the re
 
 - **Insert the disc, the movie appears.** About 15 seconds after closing the tray the file shows up in the share, named after the disc; eject the disc and it goes away.
 - **3D Blu-rays, 2D Blu-rays and DVDs.** Same flow for all: 3D discs go in the `Blu-ray 3D/` folder, 2D Blu-rays in `Blu-ray/`, DVDs in `DVD/`.
-- **TV series.** A Blu-ray with several episodes names each one `S01E05 - Show.ts`, in play-all order, with the season read from the disc's own name ([details](docs/OPTIONS.md#tv-series)).
+- **TV series.** A Blu-ray with several episodes names each one `S01E05 - Show.ts`, in play-all order, with the season read from the disc's own name ([details](docs/OPTIONS.md#tv-series)); `--lookup` also names each episode with its real title, found online on [TheDiscDB](https://thediscdb.com) or [TMDB](https://www.themoviedb.org) ([details](docs/OPTIONS.md#online-episode-lookup)).
 - **Any device at home.** A TV, tablet or phone with a player that opens network shares plays the Blu-rays and DVDs; the 3D files need a player that shows side-by-side 3D (XR glasses, VR headsets). Several devices can watch at once, even the same disc in two languages.
 - **Nothing is written to disk.** The `.ts` file shows a size of ~22 GB but takes no space: every piece is produced when the player reads it.
 - **Seeking works.** The file has a constant bitrate, so every byte matches a precise second of the movie. When the player jumps, the PC restarts reading the disc from there (a few seconds: the optical drive has to move).

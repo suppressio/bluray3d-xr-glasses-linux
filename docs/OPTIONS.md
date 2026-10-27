@@ -21,6 +21,8 @@ The defaults work: you only need this page to change what the share offers (lang
 | Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
 | [Share over Samba, DLNA, or both](#dlnaupnp-instead-of-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
 | [DLNA/HTTP port](#dlnaupnp-instead-of-samba) | `HTTP_PORT` | `--http-port` | `8200` |
+| [Online episode titles](#online-episode-lookup) | `LOOKUP=on\|off` | `--lookup` | off |
+| [TMDB API key](#online-episode-lookup) (the `--lookup` fallback) | `TMDB_API_KEY` | `--tmdb-key` | — |
 | Mount point | — | `--mount` | `/srv/bd3d` |
 | [Program log file](#logs) | — | `--log path` or `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
 | [Pipeline log](#logs) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
@@ -56,6 +58,20 @@ The season is read from the disc's own name or volume label (`Staffel 1`, `Seaso
 A 3D disc is never a series when a 3D "play all" title covers every part: that is a movie split into parts (Tron: Legacy 3D has both halves as titles of their own), and it is loaded as one movie.
 
 A disc's bonus content (making-of, deleted scenes...) goes in an `Extra/` subfolder, numbered apart from the episodes.
+
+## Online episode lookup
+
+By default an episode's file name only has its season/episode numbers, read offline from the disc (above). `--lookup` (Docker: `LOOKUP=on`) also looks up each episode's real title online, so the name becomes `S01E05 - Rick and Morty - Rixty Minutes.ts`:
+
+```console
+bluray3d-xr --lookup --tmdb-key YOUR_KEY /dev/sr0
+```
+
+- **[TheDiscDB](https://thediscdb.com)** is tried first: it identifies the disc by its content (a fingerprint of its stream files, no title or label involved) and, when the disc is in its community database, maps each playlist straight to its episode title. No API key, no setup.
+- **[TMDB](https://www.themoviedb.org)** is the fallback when TheDiscDB does not know the disc: the season read offline from the disc's name/label gives the show and season, TMDB gives that season's episode list, and each disc episode is matched to one of them by duration — only applied when exactly one episode falls within 90s of it, to avoid a wrong title on an ambiguous match. It needs a free API key: [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api), set with `--tmdb-key` or the `TMDB_API_KEY` environment variable (Docker: `.env`).
+- **Nothing is looked up again**: a disc's result (including "nothing found") is cached in `~/.cache/bluray3d-xr/lookup/` (Docker: the `LOOKUP_CACHE_DIR` volume, so it survives a container rebuild), keyed by its content hash.
+- **Never breaks playback**: no match, an unknown disc, or a network problem all fall back silently to the offline `S01E05 - Show` naming, with one line in the log; `--lookup` touches the network only for series it otherwise cannot name online, and never for a single movie.
+- Blu-ray only, like the season detection above; a DVD's episodes keep their current naming regardless of `--lookup`.
 
 ## DLNA/UPnP instead of Samba
 
