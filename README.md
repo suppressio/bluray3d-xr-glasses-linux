@@ -67,30 +67,73 @@ DVDs (CSS) are decrypted by **libdvdcss**, which you install yourself: on Debian
 > ⚖️ In many countries (Italy and most of the EU included) circumventing copy protection is not allowed, not even for a private copy. Check the law where you live.
 
 #### Software on the PC
-- **Docker** (path A) _or_ a **Debian/Ubuntu** system (path B). Everything else is installed for you:
+- A **Debian/Ubuntu** system (other distributions: [Docker](#docker)). Everything else is installed for you:
   - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc): the only open-source decoder of the MVC dependent view;
   - libbluray, libaacs, libbdplus (Blu-ray), libdvdread (DVD), FFmpeg, Samba (the network share), FUSE + pyfuse3 (the virtual file; Samba and FUSE are not needed with `--share dlna`).
 
 ---
 
-## Step 1 — Install: choose your path
+## Step 1 — Install
 
-| | **A. Docker** | **B. Release package** | **C. Native script** |
-|---|---|---|---|
-| For | anyone who already uses Docker | Debian / Ubuntu | a working clone |
-| Touches the system | no: Samba, FUSE and libraries live in the container | yes: packages, `/opt`, `smb.conf`, `fuse.conf` | yes: packages, `/opt`, `smb.conf`, `fuse.conf` |
-| Decryption | libaacs + your KEYDB (MakeMKV is not in the image) | libaacs + KEYDB, or MakeMKV if installed | libaacs + KEYDB, or MakeMKV if installed |
-| NVIDIA encoding | needs the NVIDIA Container Toolkit | works out of the box | works out of the box |
-| Samba already installed on the PC | conflicts on port 445: stop it first | the share is added next to yours | the share is added next to yours |
+On Debian or Ubuntu, from the release package:
 
-For Docker or a clone-based native install, get the project first:
+- [ ] Download the `.deb` for your system from [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases), then install it:
+```console
+sudo apt install ./bluray3d-xr_<version>_amd64.deb
+```
+apt installs what the program needs (FFmpeg, libbluray, libaacs, libdvdread...); edge264 is inside the package. The keys and libdvdcss are yours: see [Decryption](#decryption-bring-your-own-keys).
+- [ ] Add your user to the package's group so you can read the mounted files; log out and back in for the change to take effect:
+```console
+sudo adduser "$USER" bluray3d-xr
+```
+
+- [ ] Your user must be able to read the drive (on Debian/Ubuntu: the `cdrom` group, usually already set for desktop users).
+- [ ] If `ufw` is active, allow the share through your firewall, e.g.:
+```console
+sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
+```
+- [ ] Start it when you want to watch something:
+```console
+bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
+```
+When a disc goes in, its files appear; every `pipeline from` line is the player starting or jumping:
+```
+11:23:59 bluray3d-xr v1.0.0
+11:24:00 video encoder: nvenc
+11:24:00 watching /dev/sr0: insert a disc
+11:24:00 mounted on /srv/bd3d — Ctrl+C to unmount
+11:24:00 /dev/sr0: disc inserted, opening it
+11:24:00 + Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, forced subtitles ita)
+11:24:00 + Blu-ray 3D/ITAsubITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, subtitles ita)
+11:24:00 + Blu-ray 3D/ENG - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1100 eng dts-hd ma, forced subtitles eng)
+...
+11:30:24 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 0.0s (requested 0.0s, offset 0)
+11:30:35 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 1634.8s (requested 1635.3s, offset 2043548532)
+```
+Stop it with `Ctrl+C`. Updating and uninstalling: [below](#updating-and-uninstalling).
+
+### Other ways to install
+
+#### Native script (from a clone)
+
+For a working clone, or to follow the development version. [`scripts/install.sh`](scripts/install.sh), run as your normal user, installs the packages, compiles edge264, installs the command and adds the read-only guest share `[Disks]` to Samba (Debian/Ubuntu):
+```console
+git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
+cd bluray3d-xr-glasses-linux
+./scripts/install.sh
+```
+
+`scripts/install.sh --share dlna` skips Samba/FUSE entirely and sets up [DLNA/UPnP](docs/OPTIONS.md#dlnaupnp-instead-of-samba) instead; `--share both` installs both (default: `samba`).
+
+#### Docker
+
+For other distributions, or if you prefer not to touch the system: Samba, FUSE and the libraries live in the container. MakeMKV is not in the image (libaacs + your KEYDB only).
+
+- [ ] Get the project:
 ```console
 git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
 cd bluray3d-xr-glasses-linux
 ```
-
-### Path A — Docker
-
 - [ ] Create your settings:
 ```console
 cp .env.example .env
@@ -126,49 +169,7 @@ The log should now say `video encoder: nvenc`.
 > ⚠️ This variant is not tested yet (my PC has no Container Toolkit). NVENC is tested with the native path.
 
 ##### 💩 happens: port 445 already in use
-If the PC already runs Samba, the container cannot take port 445. Players on phones and glasses usually only speak to port 445, so stop the host Samba while you watch (`sudo systemctl stop smbd`) or use path B, which adds a share to your existing Samba.
-
-### Path B — Release package (Debian / Ubuntu)
-
-- [ ] Download the `.deb` for your system from [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases), then install it:
-```console
-sudo apt install ./bluray3d-xr_<version>_amd64.deb
-```
-- [ ] Add your user to the package's group so you can read the mounted files; log out and back in for the change to take effect:
-```console
-sudo adduser "$USER" bluray3d-xr
-```
-
-- [ ] Your user must be able to read the drive (on Debian/Ubuntu: the `cdrom` group, usually already set for desktop users).
-- [ ] If `ufw` is active, allow the share through your firewall, e.g.:
-```console
-sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
-```
-- [ ] Start it when you want to watch something:
-```console
-bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
-```
-When a disc goes in, its files appear; every `pipeline from` line is the player starting or jumping:
-```
-11:23:59 bluray3d-xr v1.0.0
-11:24:00 video encoder: nvenc
-11:24:00 watching /dev/sr0: insert a disc
-11:24:00 mounted on /srv/bd3d — Ctrl+C to unmount
-11:24:00 /dev/sr0: disc inserted, opening it
-11:24:00 + Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, forced subtitles ita)
-11:24:00 + Blu-ray 3D/ITAsubITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, subtitles ita)
-11:24:00 + Blu-ray 3D/ENG - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1100 eng dts-hd ma, forced subtitles eng)
-...
-11:30:24 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 0.0s (requested 0.0s, offset 0)
-11:30:35 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 1634.8s (requested 1635.3s, offset 2043548532)
-```
-Stop it with `Ctrl+C`. Updating and uninstalling: [below](#updating-and-uninstalling).
-
-### Path C — Native script (from a clone)
-
-If you are using a working clone instead of the release package, run [`scripts/install.sh`](scripts/install.sh) as your normal user. It installs the packages, compiles edge264, installs the command and adds the read-only guest share `[Disks]` to Samba. The script supports Debian/Ubuntu; it remains available for clone-based installs.
-
-`scripts/install.sh --share dlna` skips Samba/FUSE entirely and sets up [DLNA/UPnP](docs/OPTIONS.md#dlnaupnp-instead-of-samba) instead; `--share both` installs both (default: `samba`).
+If the PC already runs Samba, the container cannot take port 445. Players on phones and glasses usually only speak to port 445, so stop the host Samba while you watch (`sudo systemctl stop smbd`) or install the release package, which adds a share to your existing Samba.
 
 ### Updating and uninstalling
 

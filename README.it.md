@@ -67,30 +67,73 @@ I DVD (CSS) vengono decifrati da **libdvdcss**, che installi tu: su Debian/Ubunt
 > ⚖️ In molti paesi (Italia e gran parte dell'UE compresi) aggirare una protezione anticopia non è consentito, nemmeno per una copia privata. Verifica le regole del tuo paese.
 
 #### Software sul PC
-- **Docker** (strada A) _oppure_ un sistema **Debian/Ubuntu** (strada B). Tutto il resto lo installa il progetto:
+- Un sistema **Debian/Ubuntu** (altre distribuzioni: [Docker](#docker)). Tutto il resto lo installa il progetto:
   - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc): l'unico decoder open source della vista dipendente MVC;
   - libbluray, libaacs, libbdplus (Blu-ray), libdvdread (DVD), FFmpeg, Samba (la cartella di rete), FUSE + pyfuse3 (il file virtuale; Samba e FUSE non servono con `--share dlna`).
 
 ---
 
-## Passo 1 — Installazione: scegli la strada
+## Passo 1 — Installazione
 
-| | **A. Docker** | **B. Pacchetto della release** | **C. Script nativo** |
-|---|---|---|---|
-| Per chi | usa già Docker | Debian / Ubuntu | ha già una copia del progetto |
-| Tocca il sistema | no: Samba, FUSE e librerie stanno nel container | sì: pacchetti, `/opt`, `smb.conf`, `fuse.conf` | sì: pacchetti, `/opt`, `smb.conf`, `fuse.conf` |
-| Decifratura | libaacs + il tuo KEYDB (MakeMKV non è nell'immagine) | libaacs + KEYDB, oppure MakeMKV se installato | libaacs + KEYDB, oppure MakeMKV se installato |
-| Codifica NVIDIA | serve il NVIDIA Container Toolkit | funziona subito | funziona subito |
-| Samba già installato sul PC | conflitto sulla porta 445: va fermato | la condivisione si aggiunge alle tue | la condivisione si aggiunge alle tue |
+Su Debian o Ubuntu, dal pacchetto della release:
 
-Per Docker o per l'installazione nativa da una copia, scarica prima il progetto:
+- [ ] Scarica il `.deb` per il tuo sistema dalle [release](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases), poi installalo:
+```console
+sudo apt install ./bluray3d-xr_<versione>_amd64.deb
+```
+apt installa quello che serve al programma (FFmpeg, libbluray, libaacs, libdvdread...); edge264 è dentro il pacchetto. Le chiavi e libdvdcss sono tuoi: vedi [Decifratura](#decifratura-le-chiavi-le-porti-tu).
+- [ ] Aggiungi il tuo utente al gruppo del pacchetto per poter leggere i file montati; esci e rientra nella sessione perché la modifica abbia effetto:
+```console
+sudo adduser "$USER" bluray3d-xr
+```
+
+- [ ] Il tuo utente deve poter leggere il lettore (su Debian/Ubuntu: il gruppo `cdrom`, di solito già assegnato agli utenti desktop).
+- [ ] Se `ufw` è attivo, consenti la condivisione nel firewall, per esempio:
+```console
+sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
+```
+- [ ] Avvialo quando vuoi guardare qualcosa:
+```console
+bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
+```
+Quando inserisci un disco compaiono i suoi file; ogni riga `pipeline from` è il player che parte o salta:
+```
+11:23:59 bluray3d-xr v1.0.0
+11:24:00 video encoder: nvenc
+11:24:00 watching /dev/sr0: insert a disc
+11:24:00 mounted on /srv/bd3d — Ctrl+C to unmount
+11:24:00 /dev/sr0: disc inserted, opening it
+11:24:00 + Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, forced subtitles ita)
+11:24:00 + Blu-ray 3D/ITAsubITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, subtitles ita)
+11:24:00 + Blu-ray 3D/ENG - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1100 eng dts-hd ma, forced subtitles eng)
+...
+11:30:24 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 0.0s (requested 0.0s, offset 0)
+11:30:35 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 1634.8s (requested 1635.3s, offset 2043548532)
+```
+Si ferma con `Ctrl+C`. Aggiornare e disinstallare: [più sotto](#aggiornare-e-disinstallare).
+
+### Altri modi di installarlo
+
+#### Script nativo (da una copia del progetto)
+
+Per una copia di lavoro del progetto, o per seguire la versione in sviluppo. [`scripts/install.sh`](scripts/install.sh), avviato come utente normale, installa i pacchetti, compila edge264, installa il comando e aggiunge a Samba la condivisione `[Disks]` in sola lettura e ad accesso ospite (Debian/Ubuntu):
+```console
+git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
+cd bluray3d-xr-glasses-linux
+./scripts/install.sh
+```
+
+`scripts/install.sh --share dlna` salta del tutto Samba/FUSE e configura invece [DLNA/UPnP](docs/OPTIONS.it.md#dlnaupnp-invece-di-samba); `--share both` installa entrambi (default: `samba`).
+
+#### Docker
+
+Per le altre distribuzioni, o se preferisci non toccare il sistema: Samba, FUSE e le librerie stanno nel container. MakeMKV non è nell'immagine (solo libaacs + il tuo KEYDB).
+
+- [ ] Scarica il progetto:
 ```console
 git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
 cd bluray3d-xr-glasses-linux
 ```
-
-### Strada A — Docker
-
 - [ ] Crea le impostazioni:
 ```console
 cp .env.example .env
@@ -126,49 +169,7 @@ Nel log deve comparire `video encoder: nvenc`.
 > ⚠️ Questa variante non l'ho ancora provata (sul mio PC non c'è il Container Toolkit). NVENC è provato con la strada nativa.
 
 ##### 💩 happens: porta 445 già occupata
-Se sul PC gira già Samba, il container non può prendere la porta 445. I player di telefoni e occhiali di solito parlano solo con la 445. Quindi mentre guardi il film ferma il Samba del sistema (`sudo systemctl stop smbd`), oppure usa la strada B, che aggiunge una condivisione al Samba che hai già.
-
-### Strada B — Pacchetto della release (Debian / Ubuntu)
-
-- [ ] Scarica il `.deb` per il tuo sistema dalle [release](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases), poi installalo:
-```console
-sudo apt install ./bluray3d-xr_<versione>_amd64.deb
-```
-- [ ] Aggiungi il tuo utente al gruppo del pacchetto per poter leggere i file montati; esci e rientra nella sessione perché la modifica abbia effetto:
-```console
-sudo adduser "$USER" bluray3d-xr
-```
-
-- [ ] Il tuo utente deve poter leggere il lettore (su Debian/Ubuntu: il gruppo `cdrom`, di solito già assegnato agli utenti desktop).
-- [ ] Se `ufw` è attivo, consenti la condivisione nel firewall, per esempio:
-```console
-sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
-```
-- [ ] Avvialo quando vuoi guardare qualcosa:
-```console
-bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
-```
-Quando inserisci un disco compaiono i suoi file; ogni riga `pipeline from` è il player che parte o salta:
-```
-11:23:59 bluray3d-xr v1.0.0
-11:24:00 video encoder: nvenc
-11:24:00 watching /dev/sr0: insert a disc
-11:24:00 mounted on /srv/bd3d — Ctrl+C to unmount
-11:24:00 /dev/sr0: disc inserted, opening it
-11:24:00 + Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, forced subtitles ita)
-11:24:00 + Blu-ray 3D/ITAsubITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts, subtitles ita)
-11:24:00 + Blu-ray 3D/ENG - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1100 eng dts-hd ma, forced subtitles eng)
-...
-11:30:24 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 0.0s (requested 0.0s, offset 0)
-11:30:35 Blu-ray 3D/Light/ITA - Tron - Legacy 3D - 3D SBS.ts: pipeline from 1634.8s (requested 1635.3s, offset 2043548532)
-```
-Si ferma con `Ctrl+C`. Aggiornare e disinstallare: [più sotto](#aggiornare-e-disinstallare).
-
-### Strada C — Script nativo (da una copia del progetto)
-
-Se usi una copia del progetto invece del pacchetto della release, avvia [`scripts/install.sh`](scripts/install.sh) come utente normale. Installa i pacchetti, compila edge264, installa il comando e aggiunge a Samba la condivisione `[Disks]` in sola lettura e ad accesso ospite. Lo script supporta Debian/Ubuntu; resta disponibile per le installazioni da una copia del progetto.
-
-`scripts/install.sh --share dlna` salta del tutto Samba/FUSE e configura invece [DLNA/UPnP](docs/OPTIONS.it.md#dlnaupnp-invece-di-samba); `--share both` installa entrambi (default: `samba`).
+Se sul PC gira già Samba, il container non può prendere la porta 445. I player di telefoni e occhiali di solito parlano solo con la 445. Quindi mentre guardi il film ferma il Samba del sistema (`sudo systemctl stop smbd`), oppure installa il pacchetto della release, che aggiunge una condivisione al Samba che hai già.
 
 ### Aggiornare e disinstallare
 
