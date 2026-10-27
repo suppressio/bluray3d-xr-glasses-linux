@@ -10,7 +10,7 @@ How to run the program from a clone, where things are in the code, what the test
 
 ## Setting up
 
-1. Run the native install once (**Path C** in the [README](../README.md#path-c--native-script-from-a-clone)), including the Samba share. It installs everything a clone needs as well:
+1. Run the native install once (the [native script](../README.md#native-script-from-a-clone) in the README), including the Samba share. It installs everything a clone needs as well:
    - the system packages (FFmpeg, libbluray, libdvdread, pyfuse3, trio);
    - the edge264 decoder in `/opt/bluray3d-xr/bin`;
    - the mount point `/srv/bd3d`;
