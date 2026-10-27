@@ -1,6 +1,7 @@
 """lookup.py (#84): TheDiscDB and TMDB clients, duration matching and the local
 cache, all against a fake HTTP layer (urllib.request.urlopen) — no real network
 call is made by these tests."""
+import http.client
 import json
 import logging
 from pathlib import Path
@@ -29,16 +30,17 @@ class FakeResponse:
 
 def fake_http(monkeypatch: pytest.MonkeyPatch, thediscdb: dict[str, Any] | None = None,
               tmdb_search: dict[str, Any] | None = None, tmdb_season: dict[str, Any] | None = None,
-              fail: bool = False) -> list[str]:
+              fail: bool = False, error: Exception | None = None) -> list[str]:
     """Stands in for urllib.request.urlopen: routes a GraphQL POST to `thediscdb`,
     a TMDB show search to `tmdb_search`, a TMDB season request to `tmdb_season`.
     Returns the list of URLs/queries seen, for call-count assertions. `fail`:
-    every call raises, as a dropped connection would."""
+    every call raises, as a dropped connection would; `error`: what it raises
+    instead (default OSError)."""
     calls: list[str] = []
 
     def urlopen(req: Request | str, timeout: float = 0) -> FakeResponse:
         if fail:
-            raise OSError("connection refused")
+            raise error or OSError("connection refused")
         if isinstance(req, Request):
             calls.append("thediscdb")
             return FakeResponse(thediscdb if thediscdb is not None else {})
@@ -157,4 +159,33 @@ def test_no_content_hash_skips_cache_and_thediscdb(monkeypatch: pytest.MonkeyPat
     titles = episode_titles(str(tmp_path), None, ["00070"], [2520.0], (1, "Show"), "a-key")
     assert titles == ["Pilot"]
     assert "thediscdb" not in calls
+    assert not list(Path(tmp_path).glob("*.json"))
+
+
+def test_cut_short_response_falls_back_silently(monkeypatch: pytest.MonkeyPatch,
+                                                tmp_path: Path) -> None:
+    """A response cut short raises http.client.IncompleteRead, not an OSError: it
+    must end in the offline naming too, not fail the disc."""
+    fake_http(monkeypatch, fail=True, error=http.client.IncompleteRead(b"{", 10))
+    titles = episode_titles(str(tmp_path), "HASH11", ["00070"], [2520.0],
+                            (1, "Show"), "a-key")
+    assert titles == [None]
+
+
+def test_network_error_is_not_cached(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A lookup left empty by a network error is retried on the next insert,
+    instead of being remembered as "nothing found" for good."""
+    fake_http(monkeypatch, fail=True)
+    episode_titles(str(tmp_path), "HASH12", ["00070"], [2520.0], None, None)
+    assert not list(Path(tmp_path).glob("*.json"))
+    fake_http(monkeypatch, thediscdb=DISC)
+    assert episode_titles(str(tmp_path), "HASH12", ["00070"], [2520.0],
+                          None, None) == ["Pilot"]
+
+
+def test_tmdb_error_after_no_thediscdb_match_is_not_cached(monkeypatch: pytest.MonkeyPatch,
+                                                           tmp_path: Path) -> None:
+    calls = fake_http(monkeypatch, thediscdb=NO_DISC, tmdb_search={"results": "not a list"})
+    episode_titles(str(tmp_path), "HASH13", ["00070"], [2520.0], (1, "Show"), "a-key")
+    assert any("search" in c for c in calls)
     assert not list(Path(tmp_path).glob("*.json"))

@@ -17,8 +17,10 @@ only returns results or None.
 
 Results are cached under `cache_dir`, keyed by the disc's content hash, so the
 same disc is not queried again (not even to repeat a lookup that found
-nothing): see episode_titles().
+nothing), except after a network/data error, retried on the next insert: see
+episode_titles().
 """
+import http.client
 import json
 import logging
 import urllib.parse
@@ -29,6 +31,11 @@ from typing import Any, cast
 log = logging.getLogger("bd3d_fs")
 
 TIMEOUT = 8.0  # seconds: both APIs are small JSON requests on the LAN's uplink
+
+# what a failed request or a malformed answer raises: a dropped connection
+# (OSError), a response cut short (http.client.IncompleteRead), bad JSON
+# (ValueError), an answer missing the expected fields (KeyError, TypeError)
+LOOKUP_ERRORS = (OSError, http.client.HTTPException, ValueError, KeyError, TypeError)
 
 THEDISCDB_URL = "https://thediscdb.com/graphql"
 # TheDiscDB's schema (thediscdb.com): discs are looked up by their content hash,
@@ -71,17 +78,18 @@ def _post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _thediscdb_titles(content_hash: str, playlists: list[str]) -> dict[str, str] | None:
-    """playlist -> episode title for a disc TheDiscDB knows, or None (not
-    catalogued, no title for any of our playlists, or a network/data problem)."""
+    """playlist -> episode title for a disc TheDiscDB knows; empty when it is not
+    catalogued or has no title for any of our playlists; None on a network/data
+    problem, so the caller does not cache it."""
     try:
         data = _post_json(THEDISCDB_URL,
                           {"query": THEDISCDB_QUERY, "variables": {"hash": content_hash}})
         nodes: list[dict[str, Any]] = data["data"]["discs"]["nodes"]
-    except (OSError, ValueError, KeyError, TypeError) as e:
+    except LOOKUP_ERRORS as e:
         log.info("TheDiscDB: lookup failed: %s", e)
         return None
     if not nodes:
-        return None
+        return {}
     wanted = set(playlists)
     titles: dict[str, str] = {}
     disc_titles: list[dict[str, Any]] = nodes[0].get("titles") or []
@@ -91,26 +99,27 @@ def _thediscdb_titles(content_hash: str, playlists: list[str]) -> dict[str, str]
         name: str | None = item.get("title")
         if playlist in wanted and name:
             titles[playlist] = name
-    return titles or None
+    return titles
 
 
 def _tmdb_titles(show: str, season: int, playlists: list[str], durations: list[float],
                  api_key: str) -> dict[str, str] | None:
     """playlist -> episode title matched by duration against `show`'s season
-    `season` on TMDB, or None (show/season not found, no episode has a runtime,
-    or a network/data problem). A playlist is matched only when exactly one of
-    the season's episodes falls within DURATION_TOLERANCE of its duration."""
+    `season` on TMDB; empty when the show/season is not found or no episode has
+    a runtime; None on a network/data problem, so the caller does not cache it.
+    A playlist is matched only when exactly one of the season's episodes falls
+    within DURATION_TOLERANCE of its duration."""
     try:
         search = _get_json(f"{TMDB_BASE}/search/tv", {"api_key": api_key, "query": show})
         results: list[dict[str, Any]] = search.get("results") or []
         if not results:
-            return None
+            return {}
         season_json = _get_json(f"{TMDB_BASE}/tv/{results[0]['id']}/season/{season}",
                                 {"api_key": api_key})
         episodes: list[dict[str, Any]] = season_json.get("episodes") or []
         candidates: list[tuple[float, str]] = [
             (ep["runtime"] * 60, ep.get("name", "")) for ep in episodes if ep.get("runtime")]
-    except (OSError, ValueError, KeyError, TypeError) as e:
+    except LOOKUP_ERRORS as e:
         log.info("TMDB: lookup failed: %s", e)
         return None
     titles: dict[str, str] = {}
@@ -119,7 +128,7 @@ def _tmdb_titles(show: str, season: int, playlists: list[str], durations: list[f
                if abs(duration - runtime) <= DURATION_TOLERANCE]
         if len(near) == 1:
             titles[playlist] = near[0]
-    return titles or None
+    return titles
 
 
 def _cache_path(cache_dir: str, content_hash: str) -> Path:
@@ -151,21 +160,27 @@ def episode_titles(cache_dir: str, content_hash: str | None, playlists: list[str
     TheDiscDB first (needs `content_hash`), then TMDB if that found nothing and
     `season_show` (season, show) is known and `tmdb_key` is set; None where
     neither finds one. A `content_hash` result (including "nothing found") is
-    cached in `cache_dir` so the same disc is not queried again."""
+    cached in `cache_dir` so the same disc is not queried again; not one left
+    empty by a network/data error, which would otherwise stick for good."""
     if content_hash:
         cached = _load_cache(cache_dir, content_hash)
         if cached is not None:
             return [cached.get(p) for p in playlists]
 
-    titles = _thediscdb_titles(content_hash, playlists) if content_hash else None
-    source = "thediscdb"
-    if titles is None and season_show is not None and tmdb_key:
-        season, show = season_show
-        titles = _tmdb_titles(show, season, playlists, durations, tmdb_key)
-        source = "tmdb"
-    if titles is None:
-        titles, source = {}, "none"
-
+    titles: dict[str, str] = {}
+    source, failed = "none", False
     if content_hash:
+        found = _thediscdb_titles(content_hash, playlists)
+        failed = found is None
+        if found:
+            titles, source = found, "thediscdb"
+    if not titles and season_show is not None and tmdb_key:
+        season, show = season_show
+        found = _tmdb_titles(show, season, playlists, durations, tmdb_key)
+        failed = failed or found is None
+        if found:
+            titles, source = found, "tmdb"
+
+    if content_hash and (titles or not failed):
         _save_cache(cache_dir, content_hash, source, titles)
     return [titles.get(p) for p in playlists]
