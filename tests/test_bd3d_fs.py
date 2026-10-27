@@ -71,7 +71,7 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
                                                        DiscSource(str(tmp_path / "d"))])
 
     def open_disc(device: str, langs: list[str] | None, *,
-                  lookup_enabled: bool = False, tmdb_key: str = "") -> list[Source]:
+                  lookup_enabled: bool = False) -> list[Source]:
         item = next(opened)
         if isinstance(item, Exception):
             raise item
@@ -91,7 +91,7 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
     async def main() -> None:
         with pytest.raises(NoMoreStatusError):
-            await bd3d_fs.watch_drive("/dev/sr0", Lib(), None, False, "")
+            await bd3d_fs.watch_drive("/dev/sr0", Lib(), None, False)
 
     trio.run(main, clock=trio.testing.MockClock(autojump_threshold=0))
     # 1st disc: cannot be opened, retried twice, then not again while it stays in;
@@ -118,7 +118,7 @@ def test_watch_drive_logs_the_device_once(monkeypatch: pytest.MonkeyPatch,
             raise NoMoreStatusError from None
 
     def open_disc(dev: str, langs: list[str] | None, *,
-                  lookup_enabled: bool = False, tmdb_key: str = "") -> list[Source]:
+                  lookup_enabled: bool = False) -> list[Source]:
         # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
         prefix = f"{dev}: " if prefixed else ""
         raise OSError(prefix + "no title found")
@@ -135,7 +135,7 @@ def test_watch_drive_logs_the_device_once(monkeypatch: pytest.MonkeyPatch,
 
     async def main() -> None:
         with pytest.raises(NoMoreStatusError):
-            await bd3d_fs.watch_drive(device, Lib(), None, False, "")
+            await bd3d_fs.watch_drive(device, Lib(), None, False)
 
     with caplog.at_level(logging.INFO, logger=bd3d_fs.log.name):
         trio.run(main, clock=trio.testing.MockClock(autojump_threshold=0))
@@ -154,24 +154,12 @@ def test_http_port_accepts_a_real_port() -> None:
     assert bd3d_fs.build_parser().parse_args(["--http-port", "8200", "x.mkv"]).http_port == 8200
 
 
-def test_lookup_off_by_default_no_tmdb_key() -> None:
-    args = bd3d_fs.build_parser().parse_args(["x.mkv"])
-    assert args.lookup is False
-    assert args.tmdb_key == ""
+def test_lookup_off_by_default() -> None:
+    assert bd3d_fs.build_parser().parse_args(["x.mkv"]).lookup is False
 
 
-def test_lookup_flag_and_tmdb_key() -> None:
-    args = bd3d_fs.build_parser().parse_args(["--lookup", "--tmdb-key", "abc123", "x.mkv"])
-    assert args.lookup is True
-    assert args.tmdb_key == "abc123"
-
-
-def test_tmdb_key_defaults_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TMDB_API_KEY", "from-env")
-    assert bd3d_fs.build_parser().parse_args(["x.mkv"]).tmdb_key == "from-env"
-    # the command line still wins over the environment
-    args = bd3d_fs.build_parser().parse_args(["--tmdb-key", "from-cli", "x.mkv"])
-    assert args.tmdb_key == "from-cli"
+def test_lookup_flag() -> None:
+    assert bd3d_fs.build_parser().parse_args(["--lookup", "x.mkv"]).lookup is True
 
 
 def test_dlna_only_does_not_need_fuse() -> None:

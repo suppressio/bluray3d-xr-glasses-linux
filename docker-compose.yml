@@ -32,7 +32,6 @@ services:
       SHARE: "${SHARE:-samba}"
       HTTP_PORT: "${HTTP_PORT:-8200}"
       LOOKUP: "${LOOKUP:-off}"
-      TMDB_API_KEY: "${TMDB_API_KEY:-}"
     # FUSE inside the container needs the device and SYS_ADMIN
     devices:
       - /dev/fuse

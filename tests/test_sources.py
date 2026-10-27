@@ -716,8 +716,8 @@ def test_bluray_lookup_disabled_by_default_touches_no_lookup(
 def test_bluray_lookup_enabled_appends_online_titles(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """--lookup on: the per-episode title lookup.episode_titles() returns is appended
-    to the offline name, and it is called with this disc's playlists, durations,
-    season/show (#27) and the --tmdb-key given."""
+    to the offline name, and it is called with this disc's content hash and
+    playlists."""
     iso = tmp_path / "disc.iso"
     iso.write_text("")
     disc = _two_episode_disc("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1")
@@ -726,24 +726,19 @@ def test_bluray_lookup_enabled_appends_online_titles(
     def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
         return disc, disc.info(), {}
 
-    def fake_episode_titles(cache_dir: str, content_hash: str | None, playlists: list[str],
-                            durations: list[float], season_show: tuple[int, str] | None,
-                            tmdb_key: str | None) -> list[str | None]:
-        seen.update(cache_dir=cache_dir, content_hash=content_hash, playlists=playlists,
-                   durations=durations, season_show=season_show, tmdb_key=tmdb_key)
+    def fake_episode_titles(cache_dir: str, content_hash: str, playlists: list[str]
+                            ) -> list[str | None]:
+        seen.update(cache_dir=cache_dir, content_hash=content_hash, playlists=playlists)
         return ["Pilot", "Lawnmower Dog"]
 
     monkeypatch.setattr(sources, "_open_disc", open_disc)
     monkeypatch.setattr(sources.lookup, "episode_titles", fake_episode_titles)
-    found = [s for s in BlurayDiscSource.all_on(str(iso), lookup_enabled=True, tmdb_key="a-key")
+    found = [s for s in BlurayDiscSource.all_on(str(iso), lookup_enabled=True)
             if isinstance(s, BlurayDiscSource)]
 
     assert [s.name for s in found] == \
         ["S01E01 - Rick and Morty - Pilot", "S01E02 - Rick and Morty - Lawnmower Dog"]
     assert seen["playlists"] == ["00001", "00002"]
-    assert seen["durations"] == [1200.0, 1200.0]
-    assert seen["season_show"] == (1, "Rick and Morty")
-    assert seen["tmdb_key"] == "a-key"
     assert seen["content_hash"]            # computed from the clips just read
 
 
@@ -760,9 +755,8 @@ def test_bluray_lookup_no_titles_found_keeps_offline_naming(
     def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
         return disc, disc.info(), {}
 
-    def no_titles(cache_dir: str, content_hash: str | None, playlists: list[str],
-                 durations: list[float], season_show: tuple[int, str] | None,
-                 tmdb_key: str | None) -> list[str | None]:
+    def no_titles(cache_dir: str, content_hash: str, playlists: list[str]
+                 ) -> list[str | None]:
         return [None, None]
 
     monkeypatch.setattr(sources, "_open_disc", open_disc)
@@ -1178,7 +1172,7 @@ def test_discover_logs_the_failed_candidate(monkeypatch: pytest.MonkeyPatch, tmp
     iso.write_text("")
 
     def fails(path: str, audio_langs: list[str] | None = None, *,
-             lookup_enabled: bool = False, tmdb_key: str = "") -> list[sources.Source]:
+             lookup_enabled: bool = False) -> list[sources.Source]:
         # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
         prefix = f"{path}: " if prefixed else ""
         raise OSError(prefix + "cannot read the disc (AACS error -1): drive or media problem")
