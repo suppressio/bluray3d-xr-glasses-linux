@@ -512,7 +512,7 @@ def _play_all_order(titles: list[bluray.Title], items_by_playlist: dict[str, lis
                     ) -> list[bluray.Title] | None:
     """The play-all playlist among `titles`, if any: one whose PlayItems visit the
     opening clip of every title in `episodes` (`sigs`: playlist -> opening clip)
-    exactly once, in sequence (docs/bluray-mpls-internals.md, Q4). That sequence is
+    exactly once, in sequence (docs/RESEARCH.md, Q4). That sequence is
     the authoritative episode order, more reliable than sorting by playlist number
     (which may reflect authoring order, not air order). None when no such title is
     found: the caller keeps the current playlist-number order.
