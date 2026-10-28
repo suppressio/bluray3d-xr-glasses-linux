@@ -3,10 +3,11 @@ own log file, its version string, and the drive watcher that adds/removes a
 disc's files on insertion/eject."""
 import logging
 import os
+import signal
 import subprocess
 import sys
 import threading
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import cast
 from unittest.mock import Mock
@@ -14,10 +15,11 @@ from unittest.mock import Mock
 import pytest
 
 import bd3d_fs
+from library import Library
 from osplatform import DriveStatus
 from sources import Source
 from test_library import DiscSource
-from tree import FileEntry
+from tree import FileEntry, Tree
 
 
 class FakeStop:
@@ -152,6 +154,61 @@ def test_watch_drive_logs_the_device_once(monkeypatch: pytest.MonkeyPatch,
     messages = [r.getMessage() for r in caplog.records]
     assert f"{device}: no title found" in messages              # the device, exactly once
     assert f"{device}: {device}: no title found" not in messages
+
+
+@pytest.fixture
+def signal_handlers() -> Iterator[None]:
+    """run() installs its own SIGINT/SIGTERM handlers: put pytest's back after."""
+    saved = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
+    yield
+    for s, handler in saved.items():
+        signal.signal(s, handler)
+
+
+@pytest.mark.usefixtures("signal_handlers")
+def test_run_fails_when_a_watcher_dies(monkeypatch: pytest.MonkeyPatch) -> None:
+    # a dead watcher stops the program, instead of leaving it running deaf to its drive
+    def broken(*args: object) -> None:
+        raise OSError("drive gone")
+
+    monkeypatch.setattr(bd3d_fs, "watch_drive", broken)
+    with pytest.raises(OSError, match="drive gone"):
+        bd3d_fs.run(Tree(), cast("Library", Mock()), ["/dev/sr0"], None, use_fuse=False)
+
+
+@pytest.mark.usefixtures("signal_handlers")
+def test_stop_while_a_disc_is_read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # SIGTERM while a disc is read: run() returns without waiting for the read
+    # (bounded by WORKERS_JOIN), and the disc is not added to the library that
+    # main() is tearing down
+    reading, release = threading.Event(), threading.Event()
+    added: list[Source] = []
+
+    def open_disc(device: str, langs: list[str] | None) -> list[Source]:
+        reading.set()
+        release.wait(5)
+        return [DiscSource(str(tmp_path / "d"))]
+
+    class Lib:
+        def add(self, source: Source) -> list[FileEntry]:
+            added.append(source)
+            return []
+
+    def terminate() -> None:
+        reading.wait(5)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    monkeypatch.setattr(bd3d_fs, "drive_status", Mock(return_value=DriveStatus.DISC))
+    monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
+    monkeypatch.setattr(bd3d_fs, "WORKERS_JOIN", 0.1)
+    threading.Thread(target=terminate).start()
+    bd3d_fs.run(Tree(), cast("Library", Lib()), ["/dev/sr0"], None, use_fuse=False)
+    assert not release.is_set()                      # returned while the read went on
+    release.set()
+    for t in threading.enumerate():
+        if t.name == "/dev/sr0":
+            t.join(5)
+    assert added == []
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "65536", "http"])
