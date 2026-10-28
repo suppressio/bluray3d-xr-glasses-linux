@@ -177,38 +177,51 @@ def test_run_fails_when_a_watcher_dies(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.usefixtures("signal_handlers")
-def test_stop_while_a_disc_is_read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # SIGTERM while a disc is read: run() returns without waiting for the read
-    # (bounded by WORKERS_JOIN), and the disc is not added to the library that
-    # main() is tearing down
-    reading, release = threading.Event(), threading.Event()
+@pytest.mark.parametrize("busy_in", ["open_disc", "add"])
+def test_stop_while_a_disc_is_loaded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                     busy_in: str) -> None:
+    # SIGTERM while a disc is loaded. Still being read: run() returns without
+    # waiting for it (bounded by WORKERS_JOIN), and it is not added to the
+    # library main() is tearing down. Already being added: run() waits for it,
+    # so main()'s cleanup sees its files.
+    busy, release = threading.Event(), threading.Event()
     added: list[Source] = []
 
     def open_disc(device: str, langs: list[str] | None) -> list[Source]:
-        reading.set()
-        release.wait(5)
+        if busy_in == "open_disc":
+            busy.set()
+            assert release.wait(5)
         return [DiscSource(str(tmp_path / "d"))]
 
     class Lib:
         def add(self, source: Source) -> list[FileEntry]:
+            if busy_in == "add":
+                busy.set()
+                assert release.wait(5)
             added.append(source)
             return []
 
     def terminate() -> None:
-        reading.wait(5)
+        assert busy.wait(5)
         os.kill(os.getpid(), signal.SIGTERM)
+        if busy_in == "add":
+            threading.Timer(0.5, release.set).start()  # well after WORKERS_JOIN
 
     monkeypatch.setattr(bd3d_fs, "drive_status", Mock(return_value=DriveStatus.DISC))
     monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
     monkeypatch.setattr(bd3d_fs, "WORKERS_JOIN", 0.1)
     threading.Thread(target=terminate).start()
     bd3d_fs.run(Tree(), cast("Library", Lib()), ["/dev/sr0"], None, use_fuse=False)
-    assert not release.is_set()                      # returned while the read went on
-    release.set()
-    for t in threading.enumerate():
-        if t.name == "/dev/sr0":
-            t.join(5)
-    assert added == []
+    watcher = [t for t in threading.enumerate() if t.name == "/dev/sr0"]
+    if busy_in == "add":
+        assert len(added) == 1                       # done before run() returned
+        assert not watcher
+    else:
+        assert len(watcher) == 1                     # still reading: not waited for
+        release.set()
+        watcher[0].join(5)
+        assert not watcher[0].is_alive()
+        assert added == []
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "65536", "http"])

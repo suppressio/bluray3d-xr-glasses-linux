@@ -107,6 +107,9 @@ GONE_AFTER = 2                       # "no disc" answers in a row before we beli
 OPEN_ATTEMPTS = 3                    # a drive can fail a read now and then: retry the disc
 RETRY_AFTER = 30                     # seconds between attempts
 WORKERS_JOIN = 10                    # seconds to wait at exit for a drive still being read
+# held while a watcher adds or removes a disc's files, and by run() before it
+# hands over to main()'s cleanup: the two never overlap
+library_changing = threading.Lock()
 
 
 def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
@@ -127,9 +130,10 @@ def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
                      else f"opening it again (attempt {attempts} of {OPEN_ATTEMPTS})")
             try:
                 found = open_disc(device, audio_langs)
-                if stop.is_set():    # stopping while the disc was read: main() is
-                    return           # tearing the library down, add nothing to it
-                entries = [e for source in found for e in library.add(source)]
+                with library_changing:
+                    if stop.is_set():    # stopped while the disc was read: main() is
+                        return           # tearing the library down, add nothing to it
+                    entries = [e for source in found for e in library.add(source)]
                 state = "loaded"
             # whatever goes wrong with one disc (cannot decrypt, not ready yet, a
             # read error, a structure the parsers do not expect) must not stop the
@@ -142,7 +146,10 @@ def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
                     log.info("%s: giving up: eject and reinsert the disc to try again", device)
         elif gone >= GONE_AFTER and state != "empty":
             log.info("%s: disc ejected", device)
-            library.remove(entries)
+            with library_changing:
+                if stop.is_set():        # main() stops and drops every file itself
+                    return
+                library.remove(entries)
             entries, state, attempts = [], "empty", 0
         elif status == DriveStatus.UNKNOWN:
             log.debug("%s: drive status %s, ignored", device, status)
@@ -200,9 +207,11 @@ def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] 
     finally:
         # main() stops the files and unmounts once this returns: no watcher may
         # still be changing the library then (also when FUSE was unmounted from
-        # outside, which sets no stop). A drive stuck in a read is not waited
-        # for: watch_drive() adds nothing once stop is set.
+        # outside, which sets no stop). One adding or removing files is waited
+        # for, after that they all see stop; one stuck reading a disc is not.
         stop.set()
+        with library_changing:
+            pass
         for t in threads:
             t.join(WORKERS_JOIN)
             if t.is_alive():
