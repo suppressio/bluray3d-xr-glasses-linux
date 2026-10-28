@@ -143,8 +143,9 @@ def mount(tree: Tree, mount_point: str) -> None:
     log.info("mounted on %s — Ctrl+C to unmount", mount_point)
 
 
-async def serve() -> None:
-    await pyfuse3.main()
+def serve() -> None:
+    # the only blocking call that still needs trio: pyfuse3 itself is built on it
+    trio.run(pyfuse3.main)
 
 
 def terminate() -> None:

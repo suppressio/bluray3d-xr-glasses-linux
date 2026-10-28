@@ -31,9 +31,9 @@ import shutil
 import signal
 import stat
 import subprocess
+import threading
+import time
 from pathlib import Path
-
-import trio
 
 from dlna import Dlna
 from langs import lang_list
@@ -107,23 +107,24 @@ OPEN_ATTEMPTS = 3                    # a drive can fail a read now and then: ret
 RETRY_AFTER = 30                     # seconds between attempts
 
 
-async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None) -> None:
+def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
+                 stop: threading.Event) -> None:
     """A movie appears when a disc is inserted and disappears when it is ejected."""
     entries: list[FileEntry] = []
     state = "empty"                  # empty -> loaded / failed -> (eject) -> empty
     gone = attempts = 0
     retry_at = 0.0
-    while True:
-        status = await trio.to_thread.run_sync(drive_status, device)
+    while not stop.is_set():
+        status = drive_status(device)
         gone = gone + 1 if status == DriveStatus.EMPTY else 0
         retry = (state == "failed" and attempts < OPEN_ATTEMPTS
-                 and trio.current_time() >= retry_at)
+                 and time.monotonic() >= retry_at)
         if status == DriveStatus.DISC and (state == "empty" or retry):
             attempts += 1
             log.info("%s: %s", device, "disc inserted, opening it" if state == "empty"
                      else f"opening it again (attempt {attempts} of {OPEN_ATTEMPTS})")
             try:
-                found = await trio.to_thread.run_sync(open_disc, device, audio_langs)
+                found = open_disc(device, audio_langs)
                 entries = [e for source in found for e in library.add(source)]
                 state = "loaded"
             # whatever goes wrong with one disc (cannot decrypt, not ready yet, a
@@ -132,56 +133,54 @@ async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None
             except Exception as e:  # noqa: BLE001
                 # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
                 log.info("%s: %s", device, str(e).removeprefix(f"{device}: "))
-                state, retry_at = "failed", trio.current_time() + RETRY_AFTER
+                state, retry_at = "failed", time.monotonic() + RETRY_AFTER
                 if attempts >= OPEN_ATTEMPTS:
                     log.info("%s: giving up: eject and reinsert the disc to try again", device)
         elif gone >= GONE_AFTER and state != "empty":
             log.info("%s: disc ejected", device)
-            await trio.to_thread.run_sync(library.remove, entries)
+            library.remove(entries)
             entries, state, attempts = [], "empty", 0
         elif status == DriveStatus.UNKNOWN:
             log.debug("%s: drive status %s, ignored", device, status)
-        await trio.sleep(3)
+        stop.wait(3)
 
 
-async def idle_watchdog(tree: Tree) -> None:
-    while True:
-        await trio.sleep(10)
+def idle_watchdog(tree: Tree, stop: threading.Event) -> None:
+    while not stop.wait(10):
         for f in tree.files():
-            await trio.to_thread.run_sync(f.stop_if_idle)
+            f.stop_if_idle()
 
 
-async def terminate_on_signal(stop: trio.Event, use_fuse: bool) -> None:
-    # use_fuse is positional: nursery.start_soon() only forwards *args, not
-    # kwargs, to the task it starts
+def terminate_on_signal(stop: threading.Event, use_fuse: bool) -> None:
     # Ctrl+C (SIGINT), docker stop / systemctl stop (SIGTERM): unmount (if
-    # mounted) and exit cleanly. Left to Python, Ctrl+C would surface as a
-    # KeyboardInterrupt wrapped in trio's exception groups, printed as a long
-    # traceback.
-    with trio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
-        async for _ in signals:
-            log.info("stopping%s", ": unmounting" if use_fuse else "")
-            if use_fuse:
-                import fuse_fs  # noqa: PLC0415  already loaded by main() when used
-                fuse_fs.terminate()
-            stop.set()
-            return
-
-
-async def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] | None,
-              use_fuse: bool) -> None:
-    stop = trio.Event()
-    async with trio.open_nursery() as nursery:
-        nursery.start_soon(idle_watchdog, tree)
-        nursery.start_soon(terminate_on_signal, stop, use_fuse)
-        for device in drives:
-            nursery.start_soon(watch_drive, device, library, audio_langs)
+    # mounted) and exit cleanly, instead of the traceback a signal leaves by
+    # default.
+    def handler(_signum: int, _frame: object) -> None:
+        log.info("stopping%s", ": unmounting" if use_fuse else "")
         if use_fuse:
             import fuse_fs  # noqa: PLC0415  already loaded by main() when used
-            await fuse_fs.serve()
-        else:
-            await stop.wait()
-        nursery.cancel_scope.cancel()
+            fuse_fs.terminate()
+        stop.set()
+
+    signal.signal(signal.SIGINT, handler)
+    signal.signal(signal.SIGTERM, handler)
+
+
+def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] | None,
+        use_fuse: bool) -> None:
+    stop = threading.Event()
+    terminate_on_signal(stop, use_fuse)
+    threads = [threading.Thread(target=idle_watchdog, args=(tree, stop), daemon=True)]
+    threads += [threading.Thread(target=watch_drive, args=(device, library, audio_langs, stop),
+                                 daemon=True)
+                for device in drives]
+    for t in threads:
+        t.start()
+    if use_fuse:
+        import fuse_fs  # noqa: PLC0415  already loaded by main() when used
+        fuse_fs.serve()
+    else:
+        stop.wait()
 
 
 def require_fuse(share: str) -> None:
@@ -328,7 +327,7 @@ def main() -> None:
             except OSError as e:
                 dlna = None  # Dlna() / start() close what they had opened before failing
                 raise SystemExit(f"DLNA: cannot start on port {args.http_port}: {e}") from e
-        trio.run(run, tree, lib, drives, audio_langs, use_fuse)
+        run(tree, lib, drives, audio_langs, use_fuse)
     except KeyboardInterrupt:
         pass
     finally:
