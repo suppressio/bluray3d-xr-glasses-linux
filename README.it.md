@@ -1,11 +1,11 @@
-[🇬🇧 English](README.md) | 🇮🇹 Italiano
+🌐 [English](README.md) | **Italiano**
 
 # Blu-ray e DVD su ogni schermo di casa, 3D compreso, da Linux
 #### _Metti un disco nel lettore del PC Linux e guardalo su qualunque dispositivo di casa: TV, tablet, telefono, occhiali XR. Il PC legge, decifra e decodifica il disco al volo e lo serve in rete locale come un normale file video. I Blu-ray 3D diventano 3D affiancato vero per gli occhiali XR (VITURE & co.). Niente rip, niente conversione, niente spazio su disco._
 
 ***Nota:*** _Qualsiasi player capace di aprire video da una cartella di rete (SMB), o di esplorare invece un media server DLNA/UPnP ([docs/OPTIONS.it.md](docs/OPTIONS.it.md#dlnaupnp-invece-di-samba)), dovrebbe funzionare; per il 3D deve anche mostrare il video affiancato. Dispositivi, player e dischi provati finora, con una guida per ciascuno: [**docs/TESTED.it.md**](docs/TESTED.it.md)._
 
-![Il 3D Player VITURE apre la cartella condivisa: un file per lingua audio, con e senza sottotitoli italiani](docs/viture-3d-player.png)
+![Il 3D Player VITURE apre la cartella condivisa: un file per lingua audio, con e senza sottotitoli italiani](docs/screenshots/viture-3d-player.png)
 
 ---
 
@@ -229,14 +229,6 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 
 Qualcosa non funziona? Vedi [docs/TROUBLESHOOTING.it.md](docs/TROUBLESHOOTING.it.md), che spiega anche come segnalare un problema.
 
----
-
-## Sviluppo
-
-Come il programma legge, decodifica e serve un disco: [docs/ARCHITECTURE.it.md](docs/ARCHITECTURE.it.md). Avviarlo da una copia del progetto, dove stanno le cose nel codice, i test e i log: [docs/DEVELOPMENT.it.md](docs/DEVELOPMENT.it.md).
-
----
-
 ## Limiti
 
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
@@ -246,6 +238,12 @@ Come il programma legge, decodifica e serve un disco: [docs/ARCHITECTURE.it.md](
 ## E Windows?
 
 Questo progetto è solo per Linux. Su Windows puoi guardare [**SyLC**](https://github.com/5ymph0en1x/SyLC), un player open source che riproduce direttamente l'MVC dei Blu-ray 3D (MKV, ISO, BDMV) e può produrre SBS. Non l'ho provato.
+
+---
+
+## Sviluppo
+
+Come il programma legge, decodifica e serve un disco: [docs/ARCHITECTURE.it.md](docs/ARCHITECTURE.it.md). Avviarlo da una copia del progetto, dove stanno le cose nel codice, i test e i log: [docs/DEVELOPMENT.it.md](docs/DEVELOPMENT.it.md).
 
 ## Licenza
 

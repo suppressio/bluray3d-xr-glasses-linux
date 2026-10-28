@@ -1,11 +1,11 @@
-🇬🇧 English | [🇮🇹 Italiano](README.it.md)
+🌐 **English** | [Italiano](README.it.md)
 
 # Blu-rays and DVDs on every screen at home, 3D included, from Linux
 #### _Put a disc in your Linux PC's drive and watch it on any device at home: TV, tablet, phone, XR glasses. The PC reads, decrypts and decodes the disc on the fly and serves it over the LAN as an ordinary video file. 3D Blu-rays become real side-by-side 3D for XR glasses (VITURE & co.). No rip, no conversion, no disk space._
 
 ***Note:*** _Any player able to open videos from a network share (SMB), or browse a DLNA/UPnP media server instead ([docs/OPTIONS.md](docs/OPTIONS.md#dlnaupnp-instead-of-samba)), should work; for 3D it must also show side-by-side video. Devices, players and discs tested so far, with a guide for each: [**docs/TESTED.md**](docs/TESTED.md)._
 
-![The VITURE 3D Player opening the share: one file per audio language, with and without Italian subtitles](docs/viture-3d-player.png)
+![The VITURE 3D Player opening the share: one file per audio language, with and without Italian subtitles](docs/screenshots/viture-3d-player.png)
 
 ---
 
@@ -229,14 +229,6 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 
 Something does not work? See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md), which also says how to report a problem.
 
----
-
-## Development
-
-How the program reads, decodes and serves a disc: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Running it from a clone, where things are in the code, the tests and the logs: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-
----
-
 ## Limits
 
 - The last ~2.7 seconds of every movie (after the end credits) are black: the tail of the file is synthetic.
@@ -246,6 +238,12 @@ How the program reads, decodes and serves a disc: [docs/ARCHITECTURE.md](docs/AR
 ## Windows?
 
 This project is Linux only. On Windows you can look at [**SyLC**](https://github.com/5ymph0en1x/SyLC), an open-source player that plays 3D Blu-ray MVC directly (MKV, ISO, BDMV) and can output SBS. I have not tried it.
+
+---
+
+## Development
+
+How the program reads, decodes and serves a disc: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Running it from a clone, where things are in the code, the tests and the logs: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## License
 

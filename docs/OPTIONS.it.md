@@ -1,6 +1,8 @@
-[🇬🇧 English](OPTIONS.md) | 🇮🇹 Italiano
+🌐 [English](OPTIONS.md) | **Italiano**
 
 # Le opzioni nel dettaglio
+
+> Riferimento, aggiornato: tutte le opzioni del programma, per la strada nativa e per Docker.
 
 Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiare cosa offre la cartella condivisa (lingue, sottotitoli, qualità) o come si comporta. Torna al [README](../README.it.md).
 

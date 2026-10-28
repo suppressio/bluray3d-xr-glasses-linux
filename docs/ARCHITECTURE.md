@@ -1,6 +1,8 @@
-🇬🇧 English | [🇮🇹 Italiano](ARCHITECTURE.it.md)
+🌐 **English** | [Italiano](ARCHITECTURE.it.md)
 
 # How it works
+
+> Design document, current: how the program reads, decodes and serves a disc, as built in the latest release. Background facts on the Blu-ray format are in [RESEARCH.md](RESEARCH.md).
 
 Back to the [README](../README.md).
 

@@ -1,6 +1,8 @@
-🇬🇧 English | [🇮🇹 Italiano](ROADMAP.it.md)
+🌐 **English** | [Italiano](ROADMAP.it.md)
 
 # Roadmap
+
+> Plan, kept up to date: what is done and what comes next. The *Phases* section is the historical record of how the 3D path was first built and verified, and is not updated.
 
 ## Status
 

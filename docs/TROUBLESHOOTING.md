@@ -1,6 +1,8 @@
-🇬🇧 English | [🇮🇹 Italiano](TROUBLESHOOTING.it.md)
+🌐 **English** | [Italiano](TROUBLESHOOTING.it.md)
 
 # Troubleshooting
+
+> User guide, current: known problems with their fix, and how to report a new one.
 
 Back to the [README](../README.md).
 

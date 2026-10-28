@@ -1,6 +1,8 @@
-🇬🇧 English | [🇮🇹 Italiano](TESTED.it.md)
+🌐 **English** | [Italiano](TESTED.it.md)
 
 # Tested: devices, players, discs
+
+> Field reports, updated as devices, players and discs are tried. Discs are listed only when they had a problem or a peculiarity.
 
 What this project has been tried with so far, and how it went. The [README](../README.md) covers the general steps; here are the details for each device and player, and the discs that taught something. More reports are welcome: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
 
@@ -23,7 +25,7 @@ What this project has been tried with so far, and how it went. The [README](../R
 - [ ] Open **Disks**, then the folder and the movie (go back and in again if a folder looks empty).
 - [ ] The player recognizes the side-by-side format and switches to 3D by itself. 🎉
 
-![Playback in the VITURE 3D Player: 3D on, seek bar, the file's name](viture-3d-playback.png)
+![Playback in the VITURE 3D Player: 3D on, seek bar, the file's name](screenshots/viture-3d-playback.png)
 
 Good to know:
 - It has **no audio track menu** and picks a track on its own: that is why each language is its own file by default ([Audio languages](OPTIONS.md#audio-languages)).
@@ -43,11 +45,11 @@ Good to know:
 - [ ] If the picture shows two images side by side, press the cube button in the player bar (**Switch Mode**): **Non-VR** and **3D SBS**.
 - [ ] In the gear menu (**Advanced Settings → Aspect Ratio**) choose **16:9**. 16:10 fills the screen more, but stretches the picture a bit in height. 🎉
 
-![The Switch Mode panel of the PICO 4 player: Non-VR, 3D SBS](pico-switch-mode.png)
+![The Switch Mode panel of the PICO 4 player: Non-VR, 3D SBS](screenshots/pico-switch-mode.png)
 
-![The PICO 4 File Manager in the Blu-ray 3D folder: one file per language, with and without subtitles](pico-file-manager.png)
+![The PICO 4 File Manager in the Blu-ray 3D folder: one file per language, with and without subtitles](screenshots/pico-file-manager.png)
 
-![A 3D Blu-ray in the PICO 4 video player, in the virtual cinema](pico-cinema.png)
+![A 3D Blu-ray in the PICO 4 video player, in the virtual cinema](screenshots/pico-cinema.png)
 
 Good to know:
 - The scene menu (mountain icon) chooses the room (e.g. **PMAX Cinema**), where you sit (**Close / Centre / Far**) and the screen size.

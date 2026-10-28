@@ -1,6 +1,8 @@
-[🇬🇧 English](ROADMAP.md) | 🇮🇹 Italiano
+🌐 [English](ROADMAP.md) | **Italiano**
 
 # Roadmap
+
+> Piano, tenuto aggiornato: cosa è fatto e cosa viene dopo. La sezione *Fasi* è il resoconto storico di come è stata costruita e verificata la prima strada 3D, e non viene aggiornata.
 
 ## Stato
 

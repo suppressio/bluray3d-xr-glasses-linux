@@ -1,6 +1,8 @@
-🇬🇧 English | [🇮🇹 Italiano](OPTIONS.it.md)
+🌐 **English** | [Italiano](OPTIONS.it.md)
 
 # Options in detail
+
+> Reference, current: every option of the program, for the native and the Docker path.
 
 The defaults work: you only need this page to change what the share offers (languages, subtitles, quality) or how it behaves. Back to the [README](../README.md).
 
