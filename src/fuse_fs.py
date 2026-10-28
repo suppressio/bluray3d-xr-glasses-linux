@@ -9,6 +9,7 @@ import errno
 import logging
 import os
 import stat
+import threading
 from typing import override
 
 import pyfuse3
@@ -143,13 +144,20 @@ def mount(tree: Tree, mount_point: str) -> None:
     log.info("mounted on %s — Ctrl+C to unmount", mount_point)
 
 
-def serve() -> None:
-    # the only blocking call that still needs trio: pyfuse3 itself is built on it
-    trio.run(pyfuse3.main)
-
-
-def terminate() -> None:
-    pyfuse3.terminate()
+def serve(stop: threading.Event) -> None:
+    """Serves until stop is set, or until the file system is unmounted from
+    outside. The only blocking call that still needs trio: pyfuse3 itself is
+    built on it, and pyfuse3.terminate() must run in trio's own thread."""
+    async def main() -> None:
+        async with trio.open_nursery() as nursery:
+            async def fuse() -> None:
+                await pyfuse3.main()
+                nursery.cancel_scope.cancel()   # unmounted from outside: stop waiting
+            nursery.start_soon(fuse)
+            await trio.to_thread.run_sync(stop.wait, abandon_on_cancel=True)
+            # set before pyfuse3.main() started too: its loop checks the exit flag first
+            pyfuse3.terminate()
+    trio.run(main)
 
 
 def unmount() -> None:

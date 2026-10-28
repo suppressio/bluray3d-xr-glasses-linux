@@ -33,6 +33,7 @@ import stat
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from dlna import Dlna
@@ -105,6 +106,7 @@ def log_to_file(path: str) -> None:
 GONE_AFTER = 2                       # "no disc" answers in a row before we believe it
 OPEN_ATTEMPTS = 3                    # a drive can fail a read now and then: retry the disc
 RETRY_AFTER = 30                     # seconds between attempts
+WORKERS_JOIN = 10                    # seconds to wait at exit for a drive still being read
 
 
 def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
@@ -125,6 +127,8 @@ def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
                      else f"opening it again (attempt {attempts} of {OPEN_ATTEMPTS})")
             try:
                 found = open_disc(device, audio_langs)
+                if stop.is_set():    # stopping while the disc was read: main() is
+                    return           # tearing the library down, add nothing to it
                 entries = [e for source in found for e in library.add(source)]
                 state = "loaded"
             # whatever goes wrong with one disc (cannot decrypt, not ready yet, a
@@ -154,13 +158,12 @@ def idle_watchdog(tree: Tree, stop: threading.Event) -> None:
 def terminate_on_signal(stop: threading.Event, use_fuse: bool) -> None:
     # Ctrl+C (SIGINT), docker stop / systemctl stop (SIGTERM): unmount (if
     # mounted) and exit cleanly, instead of the traceback a signal leaves by
-    # default.
+    # default. The handler only sets stop, and from a thread of its own: it can
+    # interrupt the main thread anywhere (before or after trio runs FUSE, or
+    # while it holds stop's lock); fuse_fs.serve() ends FUSE from trio itself.
     def handler(_signum: int, _frame: object) -> None:
         log.info("stopping%s", ": unmounting" if use_fuse else "")
-        if use_fuse:
-            import fuse_fs  # noqa: PLC0415  already loaded by main() when used
-            fuse_fs.terminate()
-        stop.set()
+        threading.Thread(target=stop.set).start()
 
     signal.signal(signal.SIGINT, handler)
     signal.signal(signal.SIGTERM, handler)
@@ -169,18 +172,43 @@ def terminate_on_signal(stop: threading.Event, use_fuse: bool) -> None:
 def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] | None,
         use_fuse: bool) -> None:
     stop = threading.Event()
+    failed: list[Exception] = []
+
+    def worker(target: Callable[..., None], *args: object) -> None:
+        # a watcher that dies would leave the program running but deaf to its
+        # drive (or never stopping idle files): stop it all and fail instead
+        try:
+            target(*args, stop)
+        except Exception as e:  # noqa: BLE001  re-raised by run() once all is stopped
+            failed.append(e)
+            stop.set()
+
     terminate_on_signal(stop, use_fuse)
-    threads = [threading.Thread(target=idle_watchdog, args=(tree, stop), daemon=True)]
-    threads += [threading.Thread(target=watch_drive, args=(device, library, audio_langs, stop),
-                                 daemon=True)
+    threads = [threading.Thread(target=worker, args=(idle_watchdog, tree), daemon=True,
+                                name="idle watchdog")]
+    threads += [threading.Thread(target=worker, args=(watch_drive, device, library, audio_langs),
+                                 daemon=True, name=device)
                 for device in drives]
     for t in threads:
         t.start()
-    if use_fuse:
-        import fuse_fs  # noqa: PLC0415  already loaded by main() when used
-        fuse_fs.serve()
-    else:
-        stop.wait()
+    try:
+        if use_fuse:
+            import fuse_fs  # noqa: PLC0415  already loaded by main() when used
+            fuse_fs.serve(stop)
+        else:
+            stop.wait()
+    finally:
+        # main() stops the files and unmounts once this returns: no watcher may
+        # still be changing the library then (also when FUSE was unmounted from
+        # outside, which sets no stop). A drive stuck in a read is not waited
+        # for: watch_drive() adds nothing once stop is set.
+        stop.set()
+        for t in threads:
+            t.join(WORKERS_JOIN)
+            if t.is_alive():
+                log.info("%s: still busy, not waited for", t.name)
+    if failed:
+        raise failed[0]
 
 
 def require_fuse(share: str) -> None:
