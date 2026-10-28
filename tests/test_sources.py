@@ -12,7 +12,7 @@ import bluray as bluray_module
 import dvd
 import osplatform
 import sources
-from bdmv import AudioStream
+from bdmv import AudioStream, PlayItem
 from bluray import DiscInfo, Title
 from builders import Item, Stream, clpi, mpls
 from fakes import EPS, FakeBluray, FakeDvd, mkv_probe, opener, pack
@@ -21,6 +21,8 @@ from sources import (
     DvdSource,
     MkvSource,
     SubTrack,
+    _content_hash,
+    _episode_name,
     _first_per_lang,
     _parse_season,
     _pick_audio,
@@ -78,6 +80,30 @@ def test_parse_season(name: str, expected: tuple[int, str] | None) -> None:
 def test_parse_season_name_and_label(names: tuple[str, str],
                                      expected: tuple[int, str] | None) -> None:
     assert _parse_season(*names) == expected
+
+
+@pytest.mark.parametrize(("raw_names", "online_title", "expected"), [
+    # #84: a title from --lookup is appended to whichever name #27 already picked
+    (["Rick_and_Morty_Staffel1", "RICK_AND_MORTY_S1"], "Pilot",
+     ("S01E01 - Rick and Morty - Pilot", "")),
+    (["Firefly", "FIREFLY"], "Serenity",
+     ("Firefly - 1 - Serenity", "")),
+    # no online title: today's naming, unchanged
+    (["Rick_and_Morty_Staffel1", "RICK_AND_MORTY_S1"], None,
+     ("S01E01 - Rick and Morty", "")),
+    # SMB-forbidden characters in the online title are stripped like everywhere else
+    (["Firefly", "FIREFLY"], 'The Train Job: Part "2"',
+     ("Firefly - 1 - The Train Job - Part - 2", "")),
+])
+def test_episode_name_online_title(raw_names: list[str], online_title: str | None,
+                                   expected: tuple[str, str]) -> None:
+    assert _episode_name("Firefly", raw_names, 1, False, online_title) == expected
+
+
+def test_episode_name_extra_ignores_online_title() -> None:
+    """An extra's online title, if any, is not used: extras keep #39's own naming."""
+    assert _episode_name("Show", ["Show"], 2, True, "Behind the Scenes") == \
+        ("Show - Extra 2", "Extra")
 
 
 A = [AudioStream(1, "truehd", "eng"), AudioStream(2, "dts-hd ma", "eng"),
@@ -667,6 +693,110 @@ def test_bluray_episode_naming(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     assert [s.name for s in found] == expected
 
 
+def test_bluray_lookup_disabled_by_default_touches_no_lookup(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#84: --lookup is opt-in. Without it, lookup.episode_titles() (and so any
+    network access) is never called, even on a multi-episode disc."""
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+    disc = _two_episode_disc("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1")
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("lookup.episode_titles() must not be called")
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    monkeypatch.setattr(sources.lookup, "episode_titles", fail)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [s.name for s in found] == ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
+
+
+def test_bluray_lookup_enabled_appends_online_titles(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """--lookup on: the per-episode title lookup.episode_titles() returns is appended
+    to the offline name, and it is called with this disc's content hash and
+    playlists."""
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+    disc = _two_episode_disc("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1")
+    seen: dict[str, object] = {}
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    def fake_episode_titles(cache_dir: str, content_hash: str, playlists: list[str]
+                            ) -> list[str | None]:
+        seen.update(cache_dir=cache_dir, content_hash=content_hash, playlists=playlists)
+        return ["Pilot", "Lawnmower Dog"]
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    monkeypatch.setattr(sources.lookup, "episode_titles", fake_episode_titles)
+    found = [s for s in BlurayDiscSource.all_on(str(iso), lookup_enabled=True)
+            if isinstance(s, BlurayDiscSource)]
+
+    assert [s.name for s in found] == \
+        ["S01E01 - Rick and Morty - Pilot", "S01E02 - Rick and Morty - Lawnmower Dog"]
+    assert seen["playlists"] == ["00001", "00002"]
+    assert seen["content_hash"]            # computed from the clips just read
+
+
+def test_bluray_lookup_no_titles_found_keeps_offline_naming(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        ) -> None:
+    """lookup.episode_titles() returning nothing (no match / network error, already
+    logged there) must not break naming: the offline S01E.. names are kept, with
+    one more log line here."""
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+    disc = _two_episode_disc("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1")
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    def no_titles(cache_dir: str, content_hash: str, playlists: list[str]
+                 ) -> list[str | None]:
+        return [None, None]
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    monkeypatch.setattr(sources.lookup, "episode_titles", no_titles)
+    caplog.set_level(logging.INFO, logger="bd3d_fs")
+    found = [s for s in BlurayDiscSource.all_on(str(iso), lookup_enabled=True)
+            if isinstance(s, BlurayDiscSource)]
+
+    assert [s.name for s in found] == ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
+    assert "no online episode titles" in caplog.text
+
+
+def test_content_hash_stable_and_order_independent() -> None:
+    """The hash only depends on which clips are referenced and their size, not on
+    the order items_by_playlist is given in, or which playlist a clip came from."""
+    disc = _two_episode_disc("Show", "SHOW")
+    items_by_playlist = {"00001": [PlayItem("00010", 0, 45_000 * 1200)],
+                         "00002": [PlayItem("00020", 0, 45_000 * 1200)]}
+    a = _content_hash(disc, items_by_playlist)  # type: ignore[arg-type]
+    b = _content_hash(disc, dict(reversed(items_by_playlist.items())))  # type: ignore[arg-type]
+    assert a == b
+    assert isinstance(a, str) and a == a.upper()
+
+    smaller = {"00001": [PlayItem("00010", 0, 45_000 * 1200)]}
+    assert _content_hash(disc, smaller) != a  # type: ignore[arg-type]
+
+
+def test_content_hash_none_on_read_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A clip that cannot be read (disc problem) must not fail the disc over the
+    hash: None, so the caller just skips TheDiscDB (#84)."""
+    disc = _two_episode_disc("Show", "SHOW")
+
+    def fail(path: str) -> bytes:
+        raise OSError(f"cannot read {path}")
+
+    monkeypatch.setattr(disc, "read_file", fail)
+    items_by_playlist = {"00001": [PlayItem("00010", 0, 45_000 * 1200)]}
+    assert _content_hash(disc, items_by_playlist) is None  # type: ignore[arg-type]
+
+
 NO_EXTRAS: list[str] = []
 
 
@@ -1041,7 +1171,8 @@ def test_discover_logs_the_failed_candidate(monkeypatch: pytest.MonkeyPatch, tmp
     iso = tmp_path / "broken.iso"
     iso.write_text("")
 
-    def fails(path: str, audio_langs: list[str] | None = None) -> list[sources.Source]:
+    def fails(path: str, audio_langs: list[str] | None = None, *,
+             lookup_enabled: bool = False) -> list[sources.Source]:
         # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
         prefix = f"{path}: " if prefixed else ""
         raise OSError(prefix + "cannot read the disc (AACS error -1): drive or media problem")

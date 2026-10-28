@@ -18,6 +18,8 @@ services:
       - "${BDPLUS_DIR:-./bdplus}:/root/.config/bdplus:ro"
       # encrypted DVDs (CSS) need libdvdcss, not in the image: uncomment to use the host's
       # - /usr/lib/x86_64-linux-gnu/libdvdcss.so.2:/usr/lib/x86_64-linux-gnu/libdvdcss.so.2:ro
+      # --lookup's local cache, kept across container recreations (LOOKUP=on only)
+      - "${LOOKUP_CACHE_DIR:-./lookup-cache}:/root/.cache/bluray3d-xr"
     environment:
       DRIVE: "${DRIVE:-}"
       AUDIO_LANG: "${AUDIO_LANG:-}"
@@ -29,6 +31,7 @@ services:
       ENCODER: "${ENCODER:-auto}"
       SHARE: "${SHARE:-samba}"
       HTTP_PORT: "${HTTP_PORT:-8200}"
+      LOOKUP: "${LOOKUP:-off}"
     # FUSE inside the container needs the device and SYS_ADMIN
     devices:
       - /dev/fuse

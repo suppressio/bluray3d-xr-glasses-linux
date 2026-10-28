@@ -36,7 +36,7 @@ Blu-ray 3D nel lettore (oppure un ISO / una cartella BDMV / un rip MKV)
 
 - **Inserisci il disco, compare il film.** Circa 15 secondi dopo la chiusura dello sportello il file compare nella cartella condivisa, con il nome del disco; togli il disco e sparisce.
 - **Blu-ray 3D, Blu-ray 2D e DVD.** Stesso funzionamento per tutti: i dischi 3D finiscono nella cartella `Blu-ray 3D/`, i Blu-ray 2D in `Blu-ray/`, i DVD in `DVD/`.
-- **Serie TV.** Un Blu-ray con più episodi nomina ognuno `S01E05 - Serie.ts`, nell'ordine del "play all", con la stagione letta dal nome del disco ([dettagli](docs/OPTIONS.it.md#serie-tv)).
+- **Serie TV.** Un Blu-ray con più episodi nomina ognuno `S01E05 - Serie.ts`, nell'ordine del "play all", con la stagione letta dal nome del disco ([dettagli](docs/OPTIONS.it.md#serie-tv)); `--lookup` nomina ogni episodio anche con il suo titolo vero, cercato online su [TheDiscDB](https://thediscdb.com) ([dettagli](docs/OPTIONS.it.md#ricerca-online-degli-episodi)).
 - **Qualunque dispositivo di casa.** Una TV, un tablet o un telefono con un player che apre le cartelle di rete riproduce Blu-ray e DVD; per i file 3D serve un player che mostri il 3D affiancato (occhiali XR, visori VR). Più dispositivi possono guardare insieme, anche lo stesso disco in due lingue.
 - **Non si scrive niente su disco.** Il file `.ts` risulta di circa 22 GB ma non occupa spazio: ogni pezzo viene prodotto nel momento in cui il player lo legge.
 - **Il seek funziona.** Il file ha bitrate costante, quindi ogni byte corrisponde a un secondo preciso del film. Quando il player salta, il PC riprende a leggere il disco da lì (qualche secondo: il lettore ottico deve riposizionarsi).
@@ -255,4 +255,5 @@ Questo progetto è solo per Linux. Su Windows puoi guardare [**SyLC**](https://g
 
 - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc) (BSD), fork di [edge264](https://github.com/tvlabs/edge264): il decoder MVC che rende possibile tutto questo;
 - [libbluray / libaacs](https://www.videolan.org/developers/libbluray.html), [FFmpeg](https://ffmpeg.org/), [Samba](https://www.samba.org/), [pyfuse3](https://github.com/libfuse/pyfuse3), [MakeMKV](https://www.makemkv.com/);
+- [TheDiscDB](https://thediscdb.com): il database comunitario dei contenuti dei dischi da cui `--lookup` prende i titoli degli episodi;
 - [Play 3D Blu-ray in SBS directly from the disc…](https://cybereality.com/play-3d-blu-ray-in-sbs-directly-from-the-disc-for-playback-on-3d-monitors-xr-glasses-and-vr-headsets-using-free-and-open-source-tools/) (cybereality): un approccio per Windows (LAV Filters + madVR).

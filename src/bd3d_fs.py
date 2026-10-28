@@ -107,7 +107,8 @@ OPEN_ATTEMPTS = 3                    # a drive can fail a read now and then: ret
 RETRY_AFTER = 30                     # seconds between attempts
 
 
-async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None) -> None:
+async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
+                      lookup_enabled: bool) -> None:
     """A movie appears when a disc is inserted and disappears when it is ejected."""
     entries: list[FileEntry] = []
     state = "empty"                  # empty -> loaded / failed -> (eject) -> empty
@@ -123,7 +124,8 @@ async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None
             log.info("%s: %s", device, "disc inserted, opening it" if state == "empty"
                      else f"opening it again (attempt {attempts} of {OPEN_ATTEMPTS})")
             try:
-                found = await trio.to_thread.run_sync(open_disc, device, audio_langs)
+                found = await trio.to_thread.run_sync(
+                    lambda: open_disc(device, audio_langs, lookup_enabled=lookup_enabled))
                 entries = [e for source in found for e in library.add(source)]
                 state = "loaded"
             # whatever goes wrong with one disc (cannot decrypt, not ready yet, a
@@ -169,13 +171,13 @@ async def terminate_on_signal(stop: trio.Event, use_fuse: bool) -> None:
 
 
 async def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] | None,
-              use_fuse: bool) -> None:
+              use_fuse: bool, lookup_enabled: bool) -> None:
     stop = trio.Event()
     async with trio.open_nursery() as nursery:
         nursery.start_soon(idle_watchdog, tree)
         nursery.start_soon(terminate_on_signal, stop, use_fuse)
         for device in drives:
-            nursery.start_soon(watch_drive, device, library, audio_langs)
+            nursery.start_soon(watch_drive, device, library, audio_langs, lookup_enabled)
         if use_fuse:
             import fuse_fs  # noqa: PLC0415  already loaded by main() when used
             await fuse_fs.serve()
@@ -246,6 +248,12 @@ def build_parser() -> argparse.ArgumentParser:
                              f"{LIGHT_DIR}/, for weak Wi-Fi (default: on)")
     parser.add_argument("--debug", action="store_true",
                         help="also log every jump and the player's reads after it")
+    parser.add_argument("--lookup", action="store_true",
+                        help="name series episodes with their real title, looked up online "
+                             "on TheDiscDB: off by default, so no "
+                             "network is touched unless given; cached locally, and falls back "
+                             "silently to the offline S01E05 naming on no match or a network "
+                             "error. Blu-ray only")
     parser.add_argument("--loader", default=DEFAULT_LOADER,
                         help="the animation shown in a loop after a jump until the movie is "
                              f"ready: {DEFAULT_LOADER} (default, 3D on 3D movies), simple, "
@@ -282,6 +290,7 @@ def main() -> None:
     loader_3d_arg: str = args.loader_3d
     mount: str = args.mount
     share: str = args.share
+    lookup_enabled: bool = args.lookup
     use_fuse, use_dlna = share in ("samba", "both"), share in ("dlna", "both")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -307,7 +316,8 @@ def main() -> None:
     loader, loader_3d = loader_video(loader_arg), loader_video(loader_3d_arg)
     lib = Library(tree, encoder, args.log_file, args.audio_files, args.light, sub_langs,
                   loader, loader_3d)
-    for source in discover(others, audio_langs) if others else []:
+    for source in discover(others, audio_langs,
+                          lookup_enabled=lookup_enabled) if others else []:
         lib.add(source)
     if not tree.files() and not drives:
         raise SystemExit("no source found")
@@ -328,7 +338,7 @@ def main() -> None:
             except OSError as e:
                 dlna = None  # Dlna() / start() close what they had opened before failing
                 raise SystemExit(f"DLNA: cannot start on port {args.http_port}: {e}") from e
-        trio.run(run, tree, lib, drives, audio_langs, use_fuse)
+        trio.run(run, tree, lib, drives, audio_langs, use_fuse, lookup_enabled)
     except KeyboardInterrupt:
         pass
     finally:

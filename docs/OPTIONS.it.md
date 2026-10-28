@@ -21,6 +21,7 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 | Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
 | [Condivisione via Samba, DLNA, o entrambe](#dlnaupnp-invece-di-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
 | [Porta DLNA/HTTP](#dlnaupnp-invece-di-samba) | `HTTP_PORT` | `--http-port` | `8200` |
+| [Titoli episodi online](#ricerca-online-degli-episodi) | `LOOKUP=on\|off` | `--lookup` | spento |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |
 | [File di log del programma](#log) | — | `--log percorso` o `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
 | [Log della pipeline](#log) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
@@ -56,6 +57,19 @@ La stagione si legge dal nome del disco o dall'etichetta del volume (`Staffel 1`
 Un disco 3D non è mai una serie quando un titolo "play all" in 3D copre tutte le parti: è un film diviso in parti (Tron: Legacy 3D ha anche le due metà come titoli a sé), e si carica come un solo film.
 
 I contenuti extra di un disco (making-of, scene eliminate...) vanno in una sottocartella `Extra/`, numerati separatamente dagli episodi.
+
+## Ricerca online degli episodi
+
+Per default il nome di un episodio ha solo il numero di stagione/episodio, letto offline dal disco (sopra). `--lookup` (Docker: `LOOKUP=on`) cerca online anche il titolo vero di ogni episodio, e il nome diventa `S01E05 - Rick and Morty - Rixty Minutes.ts`:
+
+```console
+bluray3d-xr --lookup /dev/sr0
+```
+
+- **[TheDiscDB](https://thediscdb.com)** è la fonte: identifica il disco dal suo contenuto (un'impronta dei file video, senza nome o etichetta) e, quando il disco è nel suo database comunitario, mappa ogni playlist direttamente al titolo del suo episodio. Nessuna chiave API, nessuna configurazione.
+- **Niente viene cercato due volte**: il risultato per un disco (anche "nessuna corrispondenza", ma non un errore di rete, riprovato al prossimo inserimento) resta in cache in `~/.cache/bluray3d-xr/lookup/` (Docker: il volume `LOOKUP_CACHE_DIR`, così sopravvive alla ricreazione del container), identificato dall'impronta del contenuto.
+- **Non blocca mai la riproduzione**: nessuna corrispondenza, un disco non conosciuto o un problema di rete tornano tutti, in silenzio, alla nomenclatura offline `S01E05 - Serie`, con una riga nel log; `--lookup` tocca la rete solo per le serie che altrimenti non saprebbe nominare online, mai per un film singolo.
+- Solo Blu-ray, come il riconoscimento della stagione sopra; gli episodi di un DVD mantengono la nomenclatura attuale indipendentemente da `--lookup`.
 
 ## DLNA/UPnP invece di Samba
 

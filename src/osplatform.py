@@ -113,3 +113,12 @@ def default_program_log() -> Path:
         return Path.home() / "Library" / "Logs" / "bluray3d-xr" / "bluray3d-xr.log"
     state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
     return Path(state) / "bluray3d-xr" / "bluray3d-xr.log"
+
+
+def default_cache_dir() -> str:
+    """Where this run's local caches go, e.g. --lookup's episode titles (#84),
+    so the same disc does not query the network again."""
+    if MACOS:
+        return str(Path.home() / "Library" / "Caches" / "bluray3d-xr")
+    cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return str(Path(cache) / "bluray3d-xr")
