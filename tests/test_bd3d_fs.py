@@ -5,19 +5,34 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
-import trio
-import trio.testing
 
 import bd3d_fs
 from osplatform import DriveStatus
 from sources import Source
 from test_library import DiscSource
 from tree import FileEntry
+
+
+class FakeStop:
+    """A stand-in for the threading.Event watch_drive polls: wait() advances a
+    fake clock instead of really sleeping, and never reports stopped."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def is_set(self) -> bool:
+        return False
+
+    def wait(self, timeout: float) -> bool:
+        self.now += timeout
+        return False
 
 
 def test_program_version(tmp_path: Path) -> None:
@@ -88,11 +103,10 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
     monkeypatch.setattr(bd3d_fs, "RETRY_AFTER", 9)
 
-    async def main() -> None:
-        with pytest.raises(NoMoreStatusError):
-            await bd3d_fs.watch_drive("/dev/sr0", Lib(), None)
-
-    trio.run(main, clock=trio.testing.MockClock(autojump_threshold=0))
+    fake_stop = FakeStop()
+    monkeypatch.setattr(bd3d_fs.time, "monotonic", lambda: fake_stop.now)
+    with pytest.raises(NoMoreStatusError):
+        bd3d_fs.watch_drive("/dev/sr0", Lib(), None, cast("threading.Event", fake_stop))
     # 1st disc: cannot be opened, retried twice, then not again while it stays in;
     # a busy drive and a single "no disc" are not an eject; two in a row are;
     # the 2nd disc opens; the 3rd fails once (a read error) and opens on the retry
@@ -131,12 +145,10 @@ def test_watch_drive_logs_the_device_once(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setattr(bd3d_fs, "drive_status", status)
     monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
 
-    async def main() -> None:
-        with pytest.raises(NoMoreStatusError):
-            await bd3d_fs.watch_drive(device, Lib(), None)
-
-    with caplog.at_level(logging.INFO, logger=bd3d_fs.log.name):
-        trio.run(main, clock=trio.testing.MockClock(autojump_threshold=0))
+    fake_stop = FakeStop()
+    monkeypatch.setattr(bd3d_fs.time, "monotonic", lambda: fake_stop.now)
+    with caplog.at_level(logging.INFO, logger=bd3d_fs.log.name), pytest.raises(NoMoreStatusError):
+        bd3d_fs.watch_drive(device, Lib(), None, cast("threading.Event", fake_stop))
     messages = [r.getMessage() for r in caplog.records]
     assert f"{device}: no title found" in messages              # the device, exactly once
     assert f"{device}: {device}: no title found" not in messages
@@ -188,7 +200,7 @@ def test_share_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     monkeypatch.setattr(bd3d_fs, "pick_encoder", Mock(return_value="x264"))
     monkeypatch.setattr(bd3d_fs.shutil, "which", which)
     monkeypatch.setattr(bd3d_fs.importlib, "import_module", import_module)
-    monkeypatch.setattr(bd3d_fs.trio, "run", run)
+    monkeypatch.setattr(bd3d_fs, "run", run)
     monkeypatch.setattr(bd3d_fs, "Dlna", Mock())
     monkeypatch.setitem(sys.modules, "fuse_fs", None if missing == "fuse" else fuse)
 
