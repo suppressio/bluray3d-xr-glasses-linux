@@ -1,8 +1,8 @@
-[🇬🇧 English](DEVELOPMENT.md) | 🇮🇹 Italiano
+🌐 [English](DEVELOPMENT.md) | **Italiano**
 
 # Sviluppo
 
-🌍 [English](DEVELOPMENT.md)
+> Guida per chi sviluppa, aggiornata. Per chi lavora sul codice; per installare e usare il programma basta il [README](../README.it.md).
 
 Come avviare il programma da un clone, dove stanno le cose nel codice, cosa controllano i test e come leggere i log. Per cosa fa il programma e come, vedi [ARCHITECTURE.it.md](ARCHITECTURE.it.md).
 

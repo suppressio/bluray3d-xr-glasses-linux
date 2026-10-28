@@ -1,6 +1,8 @@
-[🇬🇧 English](TROUBLESHOOTING.md) | 🇮🇹 Italiano
+🌐 [English](TROUBLESHOOTING.md) | **Italiano**
 
 # Risoluzione dei problemi
+
+> Guida per l'utente, aggiornata: i problemi noti con la soluzione, e come segnalarne uno nuovo.
 
 Torna al [README](../README.it.md).
 

@@ -1,8 +1,8 @@
-🇬🇧 English | [🇮🇹 Italiano](DEVELOPMENT.it.md)
+🌐 **English** | [Italiano](DEVELOPMENT.it.md)
 
 # Development
 
-🌍 [Italiano](DEVELOPMENT.it.md)
+> Developer guide, current. For people working on the code; to install and use the program, the [README](../README.md) is enough.
 
 How to run the program from a clone, where things are in the code, what the tests check and how to read the logs. For what the program does and how, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
