@@ -6,12 +6,14 @@ import copy
 import logging
 import re
 import shlex
+import subprocess
 import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Self, cast, override
+from unittest.mock import Mock
 
 import pytest
 
@@ -441,6 +443,26 @@ def test_slow_pipeline_is_logged(monkeypatch: pytest.MonkeyPatch,
     assert gen.read(4_150_000, 100) == b"x" * 100
     assert "waited 6s for the movie at 1:09:10" in caplog.text
 
+
+
+def test_stop_does_not_hang_on_a_stuck_pipeline(monkeypatch: pytest.MonkeyPatch,
+                                                caplog: pytest.LogCaptureFixture) -> None:
+    """A pipeline stuck on the drive survives SIGKILL: stop() returns all the same."""
+    gen = object.__new__(library.Generator)
+    gen.loader, gen.stopped, gen.cond = None, False, threading.Condition()
+    gen.path = "Blu-ray 3D/ITA - x - 3D SBS.ts"
+    proc = Mock(pid=4242)
+    proc.poll.return_value = None
+    proc.wait.side_effect = subprocess.TimeoutExpired("ffmpeg", library.KILL_WAIT)
+    gen.proc = cast("subprocess.Popen[bytes]", proc)
+    killpg = Mock()
+    monkeypatch.setattr(library.os, "killpg", killpg)
+    caplog.set_level(logging.INFO, logger="bd3d_fs")
+    gen.stop()
+    killpg.assert_called_once_with(4242, library.signal.SIGKILL)
+    proc.wait.assert_called_once_with(library.KILL_WAIT)
+    assert gen.stopped
+    assert "did not exit 5s after SIGKILL" in caplog.text
 
 # --- the tree of files ---------------------------------------------------------
 

@@ -62,6 +62,7 @@ LOADER_AHEAD = 8                     # seconds of loading animation prepared ahe
 LOADER_LEAD = 2.0
 LOADER_RATE = 1.0
 TRACE_READS = 20                     # seconds of reads logged after a jump (--debug)
+KILL_WAIT = 5                        # seconds a killed pipeline gets to exit
 # a player that stopped reading this long ago is paused (its buffer is full and
 # it does not play it): a jump then shows it one still frame, which must be the
 # movie, not the animation
@@ -275,7 +276,13 @@ class Generator:
         if self.proc.poll() is None:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(self.proc.pid, signal.SIGKILL)
-        self.proc.wait()
+        # SIGKILL waits for a process stuck in the kernel (a drive that does not
+        # answer a read): do not hang an eject or the program's exit on it
+        try:
+            self.proc.wait(KILL_WAIT)
+        except subprocess.TimeoutExpired:
+            log.warning("%s: the pipeline did not exit %ds after SIGKILL (stuck on the "
+                        "drive?): left behind", self.path, KILL_WAIT)
 
 
 class VirtualFile:
