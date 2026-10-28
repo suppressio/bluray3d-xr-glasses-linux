@@ -6,7 +6,7 @@ For AI coding agents (Claude Code, GitHub Copilot and the like) working on this 
 
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): where things are in the code, the checks, the tests, the logs.
 - [docs/OPTIONS.md](docs/OPTIONS.md): every command-line option, when your change adds or changes one.
-- [docs/bluray-mpls-internals.md](docs/bluray-mpls-internals.md): Blu-ray playlists (MPLS), play-all playlists, title selection.
+- [docs/RESEARCH.md](docs/RESEARCH.md): Blu-ray playlists (MPLS), play-all playlists, title selection.
 
 ## Branches and pull requests
 
