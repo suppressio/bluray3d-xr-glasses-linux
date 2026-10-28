@@ -184,8 +184,22 @@ def test_stop_while_a_disc_is_loaded(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     # waiting for it (bounded by WORKERS_JOIN), and it is not added to the
     # library main() is tearing down. Already being added: run() waits for it,
     # so main()'s cleanup sees its files.
-    busy, release = threading.Event(), threading.Event()
+    busy, release, cleaning = threading.Event(), threading.Event(), threading.Event()
     added: list[Source] = []
+
+    class SpyLock:
+        """library_changing, telling when run() (the main thread) asks for it."""
+
+        def __init__(self) -> None:
+            self.lock = threading.Lock()
+
+        def __enter__(self) -> None:
+            if threading.current_thread() is threading.main_thread():
+                cleaning.set()
+            self.lock.acquire()
+
+        def __exit__(self, *exc: object) -> None:
+            self.lock.release()
 
     def open_disc(device: str, langs: list[str] | None) -> list[Source]:
         if busy_in == "open_disc":
@@ -205,20 +219,27 @@ def test_stop_while_a_disc_is_loaded(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         assert busy.wait(5)
         os.kill(os.getpid(), signal.SIGTERM)
         if busy_in == "add":
-            threading.Timer(0.5, release.set).start()  # well after WORKERS_JOIN
+            cleaning.wait(5)                         # run() is past WORKERS_JOIN's reach
+            release.set()
 
     monkeypatch.setattr(bd3d_fs, "drive_status", Mock(return_value=DriveStatus.DISC))
     monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
     monkeypatch.setattr(bd3d_fs, "WORKERS_JOIN", 0.1)
-    threading.Thread(target=terminate).start()
-    bd3d_fs.run(Tree(), cast("Library", Lib()), ["/dev/sr0"], None, use_fuse=False)
-    watcher = [t for t in threading.enumerate() if t.name == "/dev/sr0"]
+    monkeypatch.setattr(bd3d_fs, "library_changing", SpyLock())
+    helper = threading.Thread(target=terminate)
+    helper.start()
+    try:
+        bd3d_fs.run(Tree(), cast("Library", Lib()), ["/dev/sr0"], None, use_fuse=False)
+        done_before_return = list(added)
+        watcher = [t for t in threading.enumerate() if t.name == "/dev/sr0"]
+    finally:
+        release.set()
+        helper.join(5)
     if busy_in == "add":
-        assert len(added) == 1                       # done before run() returned
+        assert len(done_before_return) == 1          # run() waited for it
         assert not watcher
     else:
         assert len(watcher) == 1                     # still reading: not waited for
-        release.set()
         watcher[0].join(5)
         assert not watcher[0].is_alive()
         assert added == []
