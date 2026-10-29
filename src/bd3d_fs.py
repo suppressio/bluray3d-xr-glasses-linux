@@ -296,8 +296,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "announce them over DLNA/UPnP instead, for players that browse a "
                              "media server (TVs, Moon VR, Kodi...); neither FUSE nor Samba is "
                              "needed. both: do both")
-    parser.add_argument("--http-port", type=tcp_port, default=8200,
-                        help="port of the DLNA/HTTP server (--share dlna/both, default 8200)")
+    parser.add_argument("--http-port", type=tcp_port, default=8201,
+                        help="port of the DLNA/HTTP server (--share dlna/both, default 8201)")
     # a log of our own pipeline at a documented place; the kernel's protected
     # symlinks keep other users from redirecting it
     parser.add_argument("--log-file", default=os.path.join(default_temp_dir(),
@@ -363,7 +363,10 @@ def main() -> None:
                 dlna.start()
             except OSError as e:
                 dlna = None  # Dlna() / start() close what they had opened before failing
-                raise SystemExit(f"DLNA: cannot start on port {args.http_port}: {e}") from e
+                hint = (" (minidlna? another DLNA/media server often takes this port first: "
+                         "stop it, or try a different --http-port)"
+                         if args.http_port == 8200 else "")
+                raise SystemExit(f"DLNA: cannot start on port {args.http_port}: {e}{hint}") from e
         run(tree, lib, drives, audio_langs, use_fuse)
     except KeyboardInterrupt:
         pass
