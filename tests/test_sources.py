@@ -809,7 +809,8 @@ def test_open_disc_bdplus_only_through_libbdplus(
         _, _, env = sources._open_disc("/dev/sr0")
         assert env == {}
     else:
-        with pytest.raises(OSError, match="BD\\+ disc: not decrypted") as err:
+        with pytest.raises(sources.UnsupportedDiscError,
+                           match="BD\\+ disc: not decrypted") as err:
             sources._open_disc("/dev/sr0")
         assert "KEYDB" not in str(err.value)
     assert "LIBBDPLUS_PATH" not in os.environ                # restored
@@ -835,7 +836,7 @@ def test_open_disc_refuses_bdplus_without_a_conversion_table(
 
     monkeypatch.setattr(bluray_module, "bdplus_table_found", no_table)
     monkeypatch.setattr(sources, "_decrypt_backends", libaacs_only)
-    with pytest.raises(OSError, match="BD\\+ disc: no conversion table"):
+    with pytest.raises(sources.UnsupportedDiscError, match="BD\\+ disc: no conversion table"):
         sources._open_disc("/dev/sr0")
     assert len(opened) == 1 and opened[0].closed
 
@@ -853,7 +854,7 @@ def test_open_disc_refuses_bdplus_from_an_exported_libmmbd(
     monkeypatch.setattr(bluray_module, "Disc", Disc)
     monkeypatch.setattr(sources, "_decrypt_backends", lambda: backends)
     monkeypatch.setenv("LIBBDPLUS_PATH", "libmmbd")
-    with pytest.raises(OSError, match="BD\\+ disc: not decrypted"):
+    with pytest.raises(sources.UnsupportedDiscError, match="BD\\+ disc: not decrypted"):
         sources._open_disc("/dev/sr0")
     assert os.environ["LIBBDPLUS_PATH"] == "libmmbd"         # restored
 
