@@ -41,7 +41,7 @@ from langs import lang_list
 from library import LIGHT_DIR, MULTI_AUDIO_DIR, Library, Shelf
 from osplatform import DriveStatus, default_program_log, default_temp_dir, drive_status
 from pipeline import ENCODERS, pick_encoder
-from sources import Source, discover, open_disc
+from sources import Source, UnsupportedDiscError, discover, open_disc
 from tree import FileEntry, Tree
 
 log = logging.getLogger("bd3d_fs")
@@ -141,6 +141,10 @@ def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
             except Exception as e:  # noqa: BLE001
                 # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
                 log.info("%s: %s", device, str(e).removeprefix(f"{device}: "))
+                if isinstance(e, UnsupportedDiscError):
+                    # a definitive rejection (e.g. BD+ this program cannot decrypt), not a
+                    # slow or flaky drive: retrying would only repeat the same rejection
+                    attempts = OPEN_ATTEMPTS
                 state, retry_at = "failed", time.monotonic() + RETRY_AFTER
                 if attempts >= OPEN_ATTEMPTS:
                     log.info("%s: giving up: eject and reinsert the disc to try again", device)

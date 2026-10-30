@@ -17,7 +17,7 @@ import pytest
 import bd3d_fs
 from library import Library
 from osplatform import DriveStatus
-from sources import Source
+from sources import Source, UnsupportedDiscError
 from test_library import DiscSource
 from tree import FileEntry, Tree
 
@@ -114,6 +114,58 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # the 2nd disc opens; the 3rd fails once (a read error) and opens on the retry
     assert events == ["remove 0", "add", "remove 0", "add"]
     assert next(opened, None) is None
+
+
+def test_watch_drive_does_not_retry_a_definitive_rejection(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        caplog: pytest.LogCaptureFixture) -> None:
+    # a BD+ disc this program cannot decrypt (#89): one attempt, no retry, even
+    # though RETRY_AFTER is already passed at the very next poll; eject/reinsert
+    # starts over like any other disc
+    ok, no_disc = DriveStatus.DISC, DriveStatus.EMPTY
+    statuses = iter([ok, ok, ok, no_disc, no_disc, ok])
+
+    class NoMoreStatusError(Exception):
+        pass
+
+    def status(device: str) -> DriveStatus:
+        try:
+            return next(statuses)
+        except StopIteration:
+            raise NoMoreStatusError from None
+
+    opened = iter([UnsupportedDiscError("BD+ disc: not decrypted"),
+                   DiscSource(str(tmp_path / "d"))])
+
+    def open_disc(device: str, langs: list[str] | None) -> list[Source]:
+        item = next(opened)
+        if isinstance(item, Exception):
+            raise item
+        return [item]
+
+    class Lib:
+        def add(self, source: Source) -> list[FileEntry]:
+            events.append("add")
+            return []
+
+        def remove(self, entries: Sequence[FileEntry]) -> None:
+            events.append(f"remove {len(entries)}")
+
+    events: list[str] = []
+    monkeypatch.setattr(bd3d_fs, "drive_status", status)
+    monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
+    monkeypatch.setattr(bd3d_fs, "RETRY_AFTER", 1)   # would be retried almost at once if allowed
+
+    fake_stop = FakeStop()
+    monkeypatch.setattr(bd3d_fs.time, "monotonic", lambda: fake_stop.now)
+    with caplog.at_level(logging.INFO, logger=bd3d_fs.log.name), \
+            pytest.raises(NoMoreStatusError):
+        bd3d_fs.watch_drive("/dev/sr0", Lib(), None, cast("threading.Event", fake_stop))
+    assert events == ["remove 0", "add"]
+    assert next(opened, None) is None            # open_disc called exactly twice: no retry
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("giving up" in m for m in messages)
+    assert not any("attempt 2" in m for m in messages)
 
 
 @pytest.mark.parametrize("prefixed", [False, True])
