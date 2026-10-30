@@ -328,6 +328,12 @@ def _decrypted_with(info: bluray.DiscInfo, env: dict[str, str]) -> str:
     return f"{info.protection}, decrypted with {backend}"
 
 
+class UnsupportedDiscError(OSError):
+    """A disc this program will never be able to open, whatever the drive: a
+    definitive rejection (e.g. BD+ with no way to decrypt it here), not a
+    drive/media problem. The caller (watch_drive) does not retry these."""
+
+
 AACS_ERROR_CORRUPTED_DISC = -1
 """libaacs: opening or reading of the AACS files on the disc failed."""
 AACS_ERROR_MMC_OPEN = -6
@@ -357,9 +363,10 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
             if info.decrypted and not bdplus_by_mmbd:
                 if "BD+" in info.protection and not bluray.bdplus_table_found(path):
                     disc.close()
-                    raise OSError("BD+ disc: no conversion table for it in "
-                                  "~/.config/bdplus/convtab (libbdplus), see "
-                                  "Decryption in the README")
+                    raise UnsupportedDiscError(
+                        "BD+ disc: no conversion table for it in "
+                        "~/.config/bdplus/convtab (libbdplus), see "
+                        "Decryption in the README")
                 log.info("%s: %s", path, _decrypted_with(info, env))
                 return disc, info, env
             last = info
@@ -374,9 +381,10 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
         raise OSError(f"cannot read the disc (AACS error {last.aacs_error}): "
                       "drive or media problem, not a missing key")
     if last is not None and "BD+" in last.protection:
-        raise OSError("BD+ disc: not decrypted (libbdplus needs ~/.config/bdplus/vm0 "
-                      "and a conversion table, see Decryption in the README; MakeMKV's "
-                      "libmmbd is not used for BD+: it corrupts the picture after a seek)")
+        raise UnsupportedDiscError(
+            "BD+ disc: not decrypted (libbdplus needs ~/.config/bdplus/vm0 "
+            "and a conversion table, see Decryption in the README; MakeMKV's "
+            "libmmbd is not used for BD+: it corrupts the picture after a seek)")
     raise OSError(f"cannot decrypt (AACS error {last.aacs_error if last else 'unknown'}). "
                   f"Provide a KEYDB.cfg for libaacs or install MakeMKV (libmmbd).")
 
