@@ -255,6 +255,30 @@ def test_http_port_accepts_a_real_port() -> None:
     assert bd3d_fs.build_parser().parse_args(["--http-port", "8200", "x.mkv"]).http_port == 8200
 
 
+def test_http_port_default_avoids_the_minidlna_port() -> None:
+    # 8200 is minidlna's own default; sharing it with a common home-server
+    # package would make --share dlna/both fail to start out of the box
+    assert bd3d_fs.build_parser().parse_args(["x.mkv"]).http_port != 8200
+
+
+@pytest.mark.parametrize(("port", "hint_expected"), [(8200, True), (8201, False)])
+def test_dlna_start_failure_hints_at_minidlna_on_port_8200(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, port: int, hint_expected: bool) -> None:
+    drive = tmp_path / "sr0"
+    drive.touch()
+    monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--share", "dlna", "--log", "none",
+                                      "--loader", "none", "--http-port", str(port), str(drive)])
+    monkeypatch.setattr(bd3d_fs.stat, "S_ISBLK", Mock(return_value=True))
+    monkeypatch.setattr(bd3d_fs, "pick_encoder", Mock(return_value="x264"))
+    monkeypatch.setattr(bd3d_fs, "Dlna", Mock(side_effect=OSError("Address already in use")))
+
+    with pytest.raises(SystemExit) as error:
+        bd3d_fs.main()
+    message = str(error.value)
+    assert f"cannot start on port {port}" in message
+    assert ("minidlna" in message) == hint_expected
+
+
 def test_dlna_only_does_not_need_fuse() -> None:
     # without pyfuse3 the program still imports (--share dlna runs) ...
     src = Path(bd3d_fs.__file__).parent

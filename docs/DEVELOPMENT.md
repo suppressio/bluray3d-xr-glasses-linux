@@ -125,7 +125,7 @@ It goes to the terminal and to `~/.local/state/bluray3d-xr/bluray3d-xr.log`, wit
 | `bluray3d-xr v1.1.0` | the version: the first thing to ask for in a bug report |
 | `video encoder: nvenc` | NVENC or x264, chosen at start |
 | `watching /dev/sr0: insert a disc` | a drive is watched, even when it is empty |
-| `DLNA: bluray3d-xr announced at http://192.168.1.5:8200/description.xml` | `--share dlna`/`both`: the HTTP+SSDP server started, with the URL a renderer fetches its description from |
+| `DLNA: bluray3d-xr announced at http://192.168.1.5:8201/description.xml` | `--share dlna`/`both`: the HTTP+SSDP server started, with the URL a renderer fetches its description from |
 | `/dev/sr0: disc inserted, opening it` / `disc ejected` | the drive saw a disc go in or out |
 | `+ Blu-ray 3D/ITA - Movie - 3D SBS.ts (120 min, 24.0 Mbit/s, audio …)` | a file appeared: its length, bitrate and tracks |
 | `- …` | a file went away (eject) |

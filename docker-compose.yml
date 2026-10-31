@@ -28,7 +28,7 @@ services:
       LOADER: "${LOADER:-retrowave}"
       ENCODER: "${ENCODER:-auto}"
       SHARE: "${SHARE:-samba}"
-      HTTP_PORT: "${HTTP_PORT:-8200}"
+      HTTP_PORT: "${HTTP_PORT:-8201}"
     # FUSE inside the container needs the device and SYS_ADMIN
     devices:
       - /dev/fuse
