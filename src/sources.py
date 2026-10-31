@@ -419,18 +419,40 @@ def _parse_season(*names: str) -> tuple[int, str] | None:
     return None
 
 
+def _parse_disc_part(*names: str) -> tuple[str, str] | None:
+    """Disc/volume marker and show name from a disc's names, most preferred first
+    (#80), e.g. "Il Prigioniero Disco 1" -> ("Disco 1", "Il Prigioniero"). Used for
+    the episode fallback name when no season is recognised (_parse_season already
+    returns None for these discs): shows the marker instead of silently dropping it,
+    since "<Show> - <episode>" alone reads as if "Disco 1" were part of the show
+    name. None if no marker is found."""
+    norms = [n.replace("_", " ") for n in names if n]
+    for i, norm in enumerate(norms):
+        m = _DISC_PART_PATTERN.search(norm)
+        if m:
+            show = norm[:m.start()] + " " + norm[m.end():] if i == 0 else norms[0]
+            marker = f"{m.group(1).capitalize()} {int(m.group(2))}"
+            return marker, re.sub(r"\s+", " ", show).strip(" -")
+    return None
+
+
 def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool
                   ) -> tuple[str, str]:
     """An episode's file name and subfolder: extras (#39) are numbered apart and go
     in Extra/; an episode gets S<season>E<episode> first when the season is known
-    and reliable (#27), today's "<name> - <episode>" otherwise."""
+    and reliable (#27). Otherwise (#80) "E<episode> - <name>", with the disc/volume
+    marker in parentheses when the disc's name carries one (e.g. "Disco 1")."""
     if extra:
         return f"{name} - Extra {episode}", "Extra"
     season_show = _parse_season(*raw_names)
     if season_show is not None:
         season, show = season_show
         return f"S{season:02d}E{episode:02d} - {_safe_name(show)}", ""
-    return f"{name} - {episode}", ""
+    disc_part = _parse_disc_part(*raw_names)
+    if disc_part is not None:
+        marker, show = disc_part
+        return f"E{episode:02d} - {_safe_name(show)} ({marker})", ""
+    return f"E{episode:02d} - {name}", ""
 
 
 AUDIO_PREFERENCE = ["dts-hd ma", "dts-hd", "dts", "ac3", "eac3", "lpcm", "truehd"]
@@ -551,16 +573,37 @@ def _movie_title(path: str, disc: bluray.Disc, info: bluray.DiscInfo
     return *longest, True
 
 
+def _apply_uniform_lang_label(sources: Sequence[Source]) -> None:
+    """#80: when any episode of a series has more than one selected audio language,
+    every episode gets the language prefix (`ITA - `...), even the ones that only
+    have one themselves: a series must not name some episodes with it and others
+    without just because one episode happens to be dubbed and another is not."""
+    episodes = [s for s in sources if isinstance(s, DiscSource)]
+    if any(len(s.audio_pids) > 1 for s in episodes):
+        for s in episodes:
+            s.force_lang_label = True
+
+
 class DiscSource(Source):
     """A disc (Blu-ray or DVD): its audio tracks are PIDs / stream ids of one stream."""
 
     max_pipelines = 1
     audio_pids: list[int]
+    # #80: on a series, some episodes may have fewer selected audio languages than
+    # others (e.g. one episode dubbed, the rest not); set by all_on() when any
+    # episode has more than one, so every episode's name gets the language prefix,
+    # instead of just the ones that happen to have several themselves
+    force_lang_label: bool = False
 
     @override
     def variants(self) -> Sequence[Self]:
         if len(self.audio_pids) < 2:
-            return [self]
+            # no selected audio track: no language to put in front of the name
+            if not self.force_lang_label or not self.audio_langs:
+                return [self]
+            v = copy.copy(self)
+            v.label = self.audio_langs[0].upper()
+            return [v]
         out: list[Self] = []
         for pid, lang in zip(self.audio_pids, self.audio_langs, strict=True):
             v = copy.copy(self)
@@ -669,6 +712,7 @@ class BlurayDiscSource(DiscSource):
                     found += [cls(path, audio_langs, _title=t, _episode=i, _extra=True,
                                   _disc=disc, _info=info, _env=env)
                               for i, t in enumerate(extras, 1)]
+                    _apply_uniform_lang_label(found)
                     return found
             return [cls(path, audio_langs, _disc=disc, _info=info, _env=env)]
         finally:
@@ -787,7 +831,10 @@ class DvdSource(DiscSource):
             chosen = dvd.main_titles(disc)
         if len(chosen) == 1:
             return [cls(path, audio_langs, chosen[0])]
-        return [cls(path, audio_langs, t, episode) for episode, t in enumerate(chosen, 1)]
+        found: list[DvdSource] = [cls(path, audio_langs, t, episode)
+                                  for episode, t in enumerate(chosen, 1)]
+        _apply_uniform_lang_label(found)
+        return found
 
     def __init__(self, path: str, audio_langs: list[str] | None = None,
                  title: dvd.DvdTitle | None = None, episode: int = 0) -> None:

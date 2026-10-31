@@ -668,8 +668,12 @@ class Library:
     def _add_set(self, source: Source, folder: int, level: str) -> list[FileEntry]:
         variants: Sequence[Source] = source.variants()
         multi = None
-        if self.audio_files == "single" or len(variants) == 1:
+        if self.audio_files == "single":
             variants = [source]
+        elif len(variants) == 1:
+            # a single variant: keep it as is (it may carry a disc-wide language
+            # prefix even with one language, #80), rather than the plain source
+            variants = [variants[0]]
         elif self.audio_files == "both":
             multi = source
         added: list[FileEntry] = []

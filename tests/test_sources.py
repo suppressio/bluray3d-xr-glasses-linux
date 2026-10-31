@@ -643,15 +643,17 @@ def _two_episode_disc(name: str, label: str) -> MultiEpisodeBluray:
     # #27: a recognised, reliable season -> S<season>E<episode> first in the name
     ("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1",
      ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]),
-    # no season recognised: today's naming
-    ("Firefly - Blu-ray", "FIREFLY", ["Firefly - 1", "Firefly - 2"]),
-    # a season split over discs: the first episode number is not known, no S/E
+    # no season, no disc marker recognised (#80): episode number first
+    ("Firefly - Blu-ray", "FIREFLY", ["E01 - Firefly", "E02 - Firefly"]),
+    # a season split over discs: the first episode number is not known, no S/E;
+    # the disc marker shows in parentheses instead of reading as part of the show (#80)
     ("Rick and Morty Staffel 1 Disc 2 - Blu-ray", "RICK_AND_MORTY_S1_D2",
-     ["Rick and Morty Staffel 1 Disc 2 - 1", "Rick and Morty Staffel 1 Disc 2 - 2"]),
+     ["E01 - Rick and Morty Staffel 1 (Disc 2)", "E02 - Rick and Morty Staffel 1 (Disc 2)"]),
     # the season only in the label: the show keeps the disc's own name
     ("Rick and Morty", "RICK_AND_MORTY_S1", ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]),
-    # "Disc 2" only in the label still marks a split season
-    ("Show Season 1", "SHOW_S1_DISC_2", ["Show Season 1 - 1", "Show Season 1 - 2"]),
+    # "Disc 2" only in the label still marks a split season; the marker still shows
+    ("Show Season 1", "SHOW_S1_DISC_2",
+     ["E01 - Show Season 1 (Disc 2)", "E02 - Show Season 1 (Disc 2)"]),
 ])
 def test_bluray_episode_naming(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
                                name: str, label: str, expected: list[str]) -> None:
@@ -665,6 +667,72 @@ def test_bluray_episode_naming(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     monkeypatch.setattr(sources, "_open_disc", open_disc)
     found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
     assert [s.name for s in found] == expected
+
+
+def test_bluray_all_on_uniform_lang_label(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#80: "Il Prigioniero" Disco 1, Italian edition: two episodes with only an Italian
+    track, one with Italian + English. The language prefix must be the same for every
+    episode of the disc, not just the one that happens to carry two languages; the
+    fallback name also shows the disc marker instead of baking "Disco 1" into the show
+    name with an episode number that looks like a continuation of it."""
+    iso = tmp_path / "Prigioniero.iso"
+    iso.write_text("")
+
+    def ep(clip: str, audio: list[Stream]) -> Item:
+        return Item(clip, 0, 45_000 * 1200, audio=audio)
+
+    ita_only = [Stream(0x1100, "ita", 0x81)]
+    ita_and_eng = [Stream(0x1100, "ita", 0x81), Stream(0x1101, "eng", 0x81)]
+    disc = MultiEpisodeBluray({
+        "00001": [ep("00010", ita_only)],
+        "00002": [ep("00020", ita_only)],
+        "00003": [ep("00030", ita_and_eng)],
+    }, name="Il Prigioniero Disco 1 - Blu-ray", volume_id="IL_PRIGIONIERO_D1")
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [s.name for s in found] == [
+        "E01 - Il Prigioniero (Disco 1)", "E02 - Il Prigioniero (Disco 1)",
+        "E03 - Il Prigioniero (Disco 1)"]
+    assert [[v.label for v in s.variants()] for s in found] == \
+        [["ITA"], ["ITA"], ["ITA", "ENG"]]
+
+
+def test_bluray_uniform_lang_label_episode_without_audio(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#80: an episode with no selected audio track (none in the chosen languages)
+    has no language to put in front of its name: it keeps the plain name instead
+    of failing on audio_langs[0] when another episode forces the prefix."""
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+
+    def ep(clip: str, audio: list[Stream]) -> Item:
+        return Item(clip, 0, 45_000 * 1200, audio=audio)
+
+    disc = MultiEpisodeBluray({
+        "00001": [ep("00010", [])],
+        "00002": [ep("00020", [Stream(0x1100, "ita", 0x81), Stream(0x1101, "eng", 0x81)])],
+    }, name="Firefly - Blu-ray", volume_id="FIREFLY")
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [[v.label for v in s.variants()] for s in found] == [[""], ["ITA", "ENG"]]
+
+
+@pytest.mark.parametrize(("name", "expected"), [
+    ("Il Prigioniero Disco 1", ("Disco 1", "Il Prigioniero")),
+    ("Rick and Morty Staffel 1 Disc 2", ("Disc 2", "Rick and Morty Staffel 1")),
+    ("Show Vol. 2", ("Vol 2", "Show")),
+    ("Firefly", None),
+])
+def test_parse_disc_part(name: str, expected: tuple[str, str] | None) -> None:
+    assert sources._parse_disc_part(name) == expected
 
 
 NO_EXTRAS: list[str] = []

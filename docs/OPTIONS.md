@@ -51,9 +51,9 @@ Folders are scanned at startup: restart the program to see a new file. Drives ar
 
 ## TV series
 
-A Blu-ray that holds several episodes (one title per episode, in play-all order: see [RESEARCH.md](RESEARCH.md)) gets each one named `S<season>E<episode> - <Show>.ts`, e.g. `S01E05 - Rick and Morty.ts`; the season/episode part always comes right after the language/subtitle prefix (`ITA - `, `subITA - `...), since players cut long names in their file list.
+A Blu-ray that holds several episodes (one title per episode, in play-all order: see [RESEARCH.md](RESEARCH.md)) gets each one named `S<season>E<episode> - <Show>.ts`, e.g. `S01E05 - Rick and Morty.ts`; the season/episode part always comes right after the language/subtitle prefix (`ITA - `, `subITA - `...), since players cut long names in their file list. The prefix itself is uniform across the disc: if any episode has more than one selected audio language, every episode gets it, even one that itself only has one (an episode dubbed where another is not must not name differently from its siblings).
 
-The season is read from the disc's own name or volume label (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), with no network lookup. The first episode's number is not on the disc, so it is only assumed (1, 2, 3...) when neither the disc's name nor its label gives a sign that it holds just part of a season (`Disc 2`, `Vol. 2`...); a season split over several discs, or a disc with no recognised season, keeps today's naming (`<Show> - <episode>`) instead.
+The season is read from the disc's own name or volume label (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), with no network lookup. The first episode's number is not on the disc, so it is only assumed (1, 2, 3...) when neither the disc's name nor its label gives a sign that it holds just part of a season (`Disc 2`, `Vol. 2`...); a season split over several discs, or a disc with no recognised season, is named `E<episode> - <Show>.ts` instead, with the disc/volume marker in parentheses when there is one, e.g. `E01 - Il Prigioniero (Disco 1).ts`.
 
 A 3D disc is never a series when a 3D "play all" title covers every part: that is a movie split into parts (Tron: Legacy 3D has both halves as titles of their own), and it is loaded as one movie.
 
