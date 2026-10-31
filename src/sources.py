@@ -598,7 +598,8 @@ class DiscSource(Source):
     @override
     def variants(self) -> Sequence[Self]:
         if len(self.audio_pids) < 2:
-            if not self.force_lang_label:
+            # no selected audio track: no language to put in front of the name
+            if not self.force_lang_label or not self.audio_langs:
                 return [self]
             v = copy.copy(self)
             v.label = self.audio_langs[0].upper()

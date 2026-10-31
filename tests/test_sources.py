@@ -701,6 +701,30 @@ def test_bluray_all_on_uniform_lang_label(monkeypatch: pytest.MonkeyPatch, tmp_p
         [["ITA"], ["ITA"], ["ITA", "ENG"]]
 
 
+def test_bluray_uniform_lang_label_episode_without_audio(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#80: an episode with no selected audio track (none in the chosen languages)
+    has no language to put in front of its name: it keeps the plain name instead
+    of failing on audio_langs[0] when another episode forces the prefix."""
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+
+    def ep(clip: str, audio: list[Stream]) -> Item:
+        return Item(clip, 0, 45_000 * 1200, audio=audio)
+
+    disc = MultiEpisodeBluray({
+        "00001": [ep("00010", [])],
+        "00002": [ep("00020", [Stream(0x1100, "ita", 0x81), Stream(0x1101, "eng", 0x81)])],
+    }, name="Firefly - Blu-ray", volume_id="FIREFLY")
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [[v.label for v in s.variants()] for s in found] == [[""], ["ITA", "ENG"]]
+
+
 @pytest.mark.parametrize(("name", "expected"), [
     ("Il Prigioniero Disco 1", ("Disco 1", "Il Prigioniero")),
     ("Rick and Morty Staffel 1 Disc 2", ("Disc 2", "Rick and Morty Staffel 1")),
