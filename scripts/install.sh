@@ -138,7 +138,7 @@ if command -v ufw >/dev/null && sudo ufw status | grep -q "Status: active"; then
         printf '    sudo ufw allow from %s to any port 445 proto tcp    # SMB\n' "$net" ;;
     esac
     case "$SHARE" in dlna|both)
-        printf '    sudo ufw allow from %s to any port 8200 proto tcp   # DLNA/HTTP\n' "$net"
+        printf '    sudo ufw allow from %s to any port 8201 proto tcp   # DLNA/HTTP\n' "$net"
         printf '    sudo ufw allow from %s to any port 1900 proto udp   # DLNA discovery (SSDP)\n' "$net" ;;
     esac
 fi
