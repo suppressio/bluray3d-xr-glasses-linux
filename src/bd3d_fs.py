@@ -31,16 +31,17 @@ import shutil
 import signal
 import stat
 import subprocess
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
-
-import trio
 
 from dlna import Dlna
 from langs import lang_list
 from library import LIGHT_DIR, MULTI_AUDIO_DIR, Library, Shelf
 from osplatform import DriveStatus, default_program_log, default_temp_dir, drive_status
 from pipeline import ENCODERS, pick_encoder
-from sources import Source, discover, open_disc
+from sources import Source, UnsupportedDiscError, discover, open_disc
 from tree import FileEntry, Tree
 
 log = logging.getLogger("bd3d_fs")
@@ -105,26 +106,34 @@ def log_to_file(path: str) -> None:
 GONE_AFTER = 2                       # "no disc" answers in a row before we believe it
 OPEN_ATTEMPTS = 3                    # a drive can fail a read now and then: retry the disc
 RETRY_AFTER = 30                     # seconds between attempts
+WORKERS_JOIN = 10                    # seconds to wait at exit for a drive still being read
+# held while a watcher adds or removes a disc's files, and by run() before it
+# hands over to main()'s cleanup: the two never overlap
+library_changing = threading.Lock()
 
 
-async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None) -> None:
+def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
+                 stop: threading.Event) -> None:
     """A movie appears when a disc is inserted and disappears when it is ejected."""
     entries: list[FileEntry] = []
     state = "empty"                  # empty -> loaded / failed -> (eject) -> empty
     gone = attempts = 0
     retry_at = 0.0
-    while True:
-        status = await trio.to_thread.run_sync(drive_status, device)
+    while not stop.is_set():
+        status = drive_status(device)
         gone = gone + 1 if status == DriveStatus.EMPTY else 0
         retry = (state == "failed" and attempts < OPEN_ATTEMPTS
-                 and trio.current_time() >= retry_at)
+                 and time.monotonic() >= retry_at)
         if status == DriveStatus.DISC and (state == "empty" or retry):
             attempts += 1
             log.info("%s: %s", device, "disc inserted, opening it" if state == "empty"
                      else f"opening it again (attempt {attempts} of {OPEN_ATTEMPTS})")
             try:
-                found = await trio.to_thread.run_sync(open_disc, device, audio_langs)
-                entries = [e for source in found for e in library.add(source)]
+                found = open_disc(device, audio_langs)
+                with library_changing:
+                    if stop.is_set():    # stopped while the disc was read: main() is
+                        return           # tearing the library down, add nothing to it
+                    entries = [e for source in found for e in library.add(source)]
                 state = "loaded"
             # whatever goes wrong with one disc (cannot decrypt, not ready yet, a
             # read error, a structure the parsers do not expect) must not stop the
@@ -132,56 +141,87 @@ async def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None
             except Exception as e:  # noqa: BLE001
                 # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
                 log.info("%s: %s", device, str(e).removeprefix(f"{device}: "))
-                state, retry_at = "failed", trio.current_time() + RETRY_AFTER
+                if isinstance(e, UnsupportedDiscError):
+                    # a definitive rejection (e.g. BD+ this program cannot decrypt), not a
+                    # slow or flaky drive: retrying would only repeat the same rejection
+                    attempts = OPEN_ATTEMPTS
+                state, retry_at = "failed", time.monotonic() + RETRY_AFTER
                 if attempts >= OPEN_ATTEMPTS:
                     log.info("%s: giving up: eject and reinsert the disc to try again", device)
         elif gone >= GONE_AFTER and state != "empty":
             log.info("%s: disc ejected", device)
-            await trio.to_thread.run_sync(library.remove, entries)
+            with library_changing:
+                if stop.is_set():        # main() stops and drops every file itself
+                    return
+                library.remove(entries)
             entries, state, attempts = [], "empty", 0
         elif status == DriveStatus.UNKNOWN:
             log.debug("%s: drive status %s, ignored", device, status)
-        await trio.sleep(3)
+        stop.wait(3)
 
 
-async def idle_watchdog(tree: Tree) -> None:
-    while True:
-        await trio.sleep(10)
+def idle_watchdog(tree: Tree, stop: threading.Event) -> None:
+    while not stop.wait(10):
         for f in tree.files():
-            await trio.to_thread.run_sync(f.stop_if_idle)
+            f.stop_if_idle()
 
 
-async def terminate_on_signal(stop: trio.Event, use_fuse: bool) -> None:
-    # use_fuse is positional: nursery.start_soon() only forwards *args, not
-    # kwargs, to the task it starts
+def terminate_on_signal(stop: threading.Event, use_fuse: bool) -> None:
     # Ctrl+C (SIGINT), docker stop / systemctl stop (SIGTERM): unmount (if
-    # mounted) and exit cleanly. Left to Python, Ctrl+C would surface as a
-    # KeyboardInterrupt wrapped in trio's exception groups, printed as a long
-    # traceback.
-    with trio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
-        async for _ in signals:
-            log.info("stopping%s", ": unmounting" if use_fuse else "")
-            if use_fuse:
-                import fuse_fs  # noqa: PLC0415  already loaded by main() when used
-                fuse_fs.terminate()
+    # mounted) and exit cleanly, instead of the traceback a signal leaves by
+    # default. The handler only sets stop, and from a thread of its own: it can
+    # interrupt the main thread anywhere (before or after trio runs FUSE, or
+    # while it holds stop's lock); fuse_fs.serve() ends FUSE from trio itself.
+    def handler(_signum: int, _frame: object) -> None:
+        log.info("stopping%s", ": unmounting" if use_fuse else "")
+        threading.Thread(target=stop.set).start()
+
+    signal.signal(signal.SIGINT, handler)
+    signal.signal(signal.SIGTERM, handler)
+
+
+def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] | None,
+        use_fuse: bool) -> None:
+    stop = threading.Event()
+    failed: list[Exception] = []
+
+    def worker(target: Callable[..., None], *args: object) -> None:
+        # a watcher that dies would leave the program running but deaf to its
+        # drive (or never stopping idle files): stop it all and fail instead
+        try:
+            target(*args, stop)
+        except Exception as e:  # noqa: BLE001  re-raised by run() once all is stopped
+            failed.append(e)
             stop.set()
-            return
 
-
-async def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] | None,
-              use_fuse: bool) -> None:
-    stop = trio.Event()
-    async with trio.open_nursery() as nursery:
-        nursery.start_soon(idle_watchdog, tree)
-        nursery.start_soon(terminate_on_signal, stop, use_fuse)
-        for device in drives:
-            nursery.start_soon(watch_drive, device, library, audio_langs)
+    terminate_on_signal(stop, use_fuse)
+    threads = [threading.Thread(target=worker, args=(idle_watchdog, tree), daemon=True,
+                                name="idle watchdog")]
+    threads += [threading.Thread(target=worker, args=(watch_drive, device, library, audio_langs),
+                                 daemon=True, name=device)
+                for device in drives]
+    for t in threads:
+        t.start()
+    try:
         if use_fuse:
             import fuse_fs  # noqa: PLC0415  already loaded by main() when used
-            await fuse_fs.serve()
+            fuse_fs.serve(stop)
         else:
-            await stop.wait()
-        nursery.cancel_scope.cancel()
+            stop.wait()
+    finally:
+        # main() stops the files and unmounts once this returns: no watcher may
+        # still be changing the library then (also when FUSE was unmounted from
+        # outside, which sets no stop). One adding or removing files is waited
+        # for, after that they all see stop; one stuck reading a disc is not.
+        stop.set()
+        with library_changing:
+            pass
+        for t in threads:
+            t.join(WORKERS_JOIN)
+            if t.is_alive():
+                log.info("%s: still busy, not waited for", t.name)
+    if failed:
+        raise failed[0]
 
 
 def require_fuse(share: str) -> None:
@@ -260,8 +300,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "announce them over DLNA/UPnP instead, for players that browse a "
                              "media server (TVs, Moon VR, Kodi...); neither FUSE nor Samba is "
                              "needed. both: do both")
-    parser.add_argument("--http-port", type=tcp_port, default=8200,
-                        help="port of the DLNA/HTTP server (--share dlna/both, default 8200)")
+    parser.add_argument("--http-port", type=tcp_port, default=8201,
+                        help="port of the DLNA/HTTP server (--share dlna/both, default 8201)")
     # a log of our own pipeline at a documented place; the kernel's protected
     # symlinks keep other users from redirecting it
     parser.add_argument("--log-file", default=os.path.join(default_temp_dir(),
@@ -327,8 +367,11 @@ def main() -> None:
                 dlna.start()
             except OSError as e:
                 dlna = None  # Dlna() / start() close what they had opened before failing
-                raise SystemExit(f"DLNA: cannot start on port {args.http_port}: {e}") from e
-        trio.run(run, tree, lib, drives, audio_langs, use_fuse)
+                hint = (" (minidlna? another DLNA/media server often takes this port first: "
+                         "stop it, or try a different --http-port)"
+                         if args.http_port == 8200 else "")
+                raise SystemExit(f"DLNA: cannot start on port {args.http_port}: {e}{hint}") from e
+        run(tree, lib, drives, audio_langs, use_fuse)
     except KeyboardInterrupt:
         pass
     finally:

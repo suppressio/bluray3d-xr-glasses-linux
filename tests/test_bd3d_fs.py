@@ -3,21 +3,38 @@ own log file, its version string, and the drive watcher that adds/removes a
 disc's files on insertion/eject."""
 import logging
 import os
+import signal
 import subprocess
 import sys
-from collections.abc import Sequence
+import threading
+from collections.abc import Iterator, Sequence
 from pathlib import Path
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
-import trio
-import trio.testing
 
 import bd3d_fs
+from library import Library
 from osplatform import DriveStatus
-from sources import Source
+from sources import Source, UnsupportedDiscError
 from test_library import DiscSource
-from tree import FileEntry
+from tree import FileEntry, Tree
+
+
+class FakeStop:
+    """A stand-in for the threading.Event watch_drive polls: wait() advances a
+    fake clock instead of really sleeping, and never reports stopped."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def is_set(self) -> bool:
+        return False
+
+    def wait(self, timeout: float) -> bool:
+        self.now += timeout
+        return False
 
 
 def test_program_version(tmp_path: Path) -> None:
@@ -88,16 +105,67 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
     monkeypatch.setattr(bd3d_fs, "RETRY_AFTER", 9)
 
-    async def main() -> None:
-        with pytest.raises(NoMoreStatusError):
-            await bd3d_fs.watch_drive("/dev/sr0", Lib(), None)
-
-    trio.run(main, clock=trio.testing.MockClock(autojump_threshold=0))
+    fake_stop = FakeStop()
+    monkeypatch.setattr(bd3d_fs.time, "monotonic", lambda: fake_stop.now)
+    with pytest.raises(NoMoreStatusError):
+        bd3d_fs.watch_drive("/dev/sr0", Lib(), None, cast("threading.Event", fake_stop))
     # 1st disc: cannot be opened, retried twice, then not again while it stays in;
     # a busy drive and a single "no disc" are not an eject; two in a row are;
     # the 2nd disc opens; the 3rd fails once (a read error) and opens on the retry
     assert events == ["remove 0", "add", "remove 0", "add"]
     assert next(opened, None) is None
+
+
+def test_watch_drive_does_not_retry_a_definitive_rejection(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        caplog: pytest.LogCaptureFixture) -> None:
+    # a BD+ disc this program cannot decrypt (#89): one attempt, no retry, even
+    # though RETRY_AFTER is already passed at the very next poll; eject/reinsert
+    # starts over like any other disc
+    ok, no_disc = DriveStatus.DISC, DriveStatus.EMPTY
+    statuses = iter([ok, ok, ok, no_disc, no_disc, ok])
+
+    class NoMoreStatusError(Exception):
+        pass
+
+    def status(device: str) -> DriveStatus:
+        try:
+            return next(statuses)
+        except StopIteration:
+            raise NoMoreStatusError from None
+
+    opened = iter([UnsupportedDiscError("BD+ disc: not decrypted"),
+                   DiscSource(str(tmp_path / "d"))])
+
+    def open_disc(device: str, langs: list[str] | None) -> list[Source]:
+        item = next(opened)
+        if isinstance(item, Exception):
+            raise item
+        return [item]
+
+    class Lib:
+        def add(self, source: Source) -> list[FileEntry]:
+            events.append("add")
+            return []
+
+        def remove(self, entries: Sequence[FileEntry]) -> None:
+            events.append(f"remove {len(entries)}")
+
+    events: list[str] = []
+    monkeypatch.setattr(bd3d_fs, "drive_status", status)
+    monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
+    monkeypatch.setattr(bd3d_fs, "RETRY_AFTER", 1)   # would be retried almost at once if allowed
+
+    fake_stop = FakeStop()
+    monkeypatch.setattr(bd3d_fs.time, "monotonic", lambda: fake_stop.now)
+    with caplog.at_level(logging.INFO, logger=bd3d_fs.log.name), \
+            pytest.raises(NoMoreStatusError):
+        bd3d_fs.watch_drive("/dev/sr0", Lib(), None, cast("threading.Event", fake_stop))
+    assert events == ["remove 0", "add"]
+    assert next(opened, None) is None            # open_disc called exactly twice: no retry
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("giving up" in m for m in messages)
+    assert not any("attempt 2" in m for m in messages)
 
 
 @pytest.mark.parametrize("prefixed", [False, True])
@@ -131,15 +199,102 @@ def test_watch_drive_logs_the_device_once(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setattr(bd3d_fs, "drive_status", status)
     monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
 
-    async def main() -> None:
-        with pytest.raises(NoMoreStatusError):
-            await bd3d_fs.watch_drive(device, Lib(), None)
-
-    with caplog.at_level(logging.INFO, logger=bd3d_fs.log.name):
-        trio.run(main, clock=trio.testing.MockClock(autojump_threshold=0))
+    fake_stop = FakeStop()
+    monkeypatch.setattr(bd3d_fs.time, "monotonic", lambda: fake_stop.now)
+    with caplog.at_level(logging.INFO, logger=bd3d_fs.log.name), pytest.raises(NoMoreStatusError):
+        bd3d_fs.watch_drive(device, Lib(), None, cast("threading.Event", fake_stop))
     messages = [r.getMessage() for r in caplog.records]
     assert f"{device}: no title found" in messages              # the device, exactly once
     assert f"{device}: {device}: no title found" not in messages
+
+
+@pytest.fixture
+def signal_handlers() -> Iterator[None]:
+    """run() installs its own SIGINT/SIGTERM handlers: put pytest's back after."""
+    saved = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
+    yield
+    for s, handler in saved.items():
+        signal.signal(s, handler)
+
+
+@pytest.mark.usefixtures("signal_handlers")
+def test_run_fails_when_a_watcher_dies(monkeypatch: pytest.MonkeyPatch) -> None:
+    # a dead watcher stops the program, instead of leaving it running deaf to its drive
+    def broken(*args: object) -> None:
+        raise OSError("drive gone")
+
+    monkeypatch.setattr(bd3d_fs, "watch_drive", broken)
+    with pytest.raises(OSError, match="drive gone"):
+        bd3d_fs.run(Tree(), cast("Library", Mock()), ["/dev/sr0"], None, use_fuse=False)
+
+
+@pytest.mark.usefixtures("signal_handlers")
+@pytest.mark.parametrize("busy_in", ["open_disc", "add"])
+def test_stop_while_a_disc_is_loaded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                     busy_in: str) -> None:
+    # SIGTERM while a disc is loaded. Still being read: run() returns without
+    # waiting for it (bounded by WORKERS_JOIN), and it is not added to the
+    # library main() is tearing down. Already being added: run() waits for it,
+    # so main()'s cleanup sees its files.
+    busy, release, cleaning = threading.Event(), threading.Event(), threading.Event()
+    added: list[Source] = []
+
+    class SpyLock:
+        """library_changing, telling when run() (the main thread) asks for it."""
+
+        def __init__(self) -> None:
+            self.lock = threading.Lock()
+
+        def __enter__(self) -> None:
+            if threading.current_thread() is threading.main_thread():
+                cleaning.set()
+            self.lock.acquire()
+
+        def __exit__(self, *exc: object) -> None:
+            self.lock.release()
+
+    def open_disc(device: str, langs: list[str] | None) -> list[Source]:
+        if busy_in == "open_disc":
+            busy.set()
+            assert release.wait(5)
+        return [DiscSource(str(tmp_path / "d"))]
+
+    class Lib:
+        def add(self, source: Source) -> list[FileEntry]:
+            if busy_in == "add":
+                busy.set()
+                assert release.wait(5)
+            added.append(source)
+            return []
+
+    def terminate() -> None:
+        assert busy.wait(5)
+        os.kill(os.getpid(), signal.SIGTERM)
+        if busy_in == "add":
+            cleaning.wait(5)                         # run() is past WORKERS_JOIN's reach
+            release.set()
+
+    monkeypatch.setattr(bd3d_fs, "drive_status", Mock(return_value=DriveStatus.DISC))
+    monkeypatch.setattr(bd3d_fs, "open_disc", open_disc)
+    monkeypatch.setattr(bd3d_fs, "WORKERS_JOIN", 0.1)
+    monkeypatch.setattr(bd3d_fs, "library_changing", SpyLock())
+    helper = threading.Thread(target=terminate)
+    helper.start()
+    try:
+        bd3d_fs.run(Tree(), cast("Library", Lib()), ["/dev/sr0"], None, use_fuse=False)
+        done_before_return = list(added)
+        watcher = [t for t in threading.enumerate() if t.name == "/dev/sr0"]
+    finally:
+        release.set()
+        helper.join(5)
+    if busy_in == "add":
+        assert len(done_before_return) == 1          # run() waited for it
+        assert not watcher
+    else:
+        assert len(watcher) == 1                     # still reading: not waited for
+        watcher[0].join(5)
+        assert not watcher[0].is_alive()
+        assert added == []
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "65536", "http"])
@@ -150,6 +305,30 @@ def test_http_port_rejects_unusable_ports(value: str) -> None:
 
 def test_http_port_accepts_a_real_port() -> None:
     assert bd3d_fs.build_parser().parse_args(["--http-port", "8200", "x.mkv"]).http_port == 8200
+
+
+def test_http_port_default_avoids_the_minidlna_port() -> None:
+    # 8200 is minidlna's own default; sharing it with a common home-server
+    # package would make --share dlna/both fail to start out of the box
+    assert bd3d_fs.build_parser().parse_args(["x.mkv"]).http_port != 8200
+
+
+@pytest.mark.parametrize(("port", "hint_expected"), [(8200, True), (8201, False)])
+def test_dlna_start_failure_hints_at_minidlna_on_port_8200(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, port: int, hint_expected: bool) -> None:
+    drive = tmp_path / "sr0"
+    drive.touch()
+    monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--share", "dlna", "--log", "none",
+                                      "--loader", "none", "--http-port", str(port), str(drive)])
+    monkeypatch.setattr(bd3d_fs.stat, "S_ISBLK", Mock(return_value=True))
+    monkeypatch.setattr(bd3d_fs, "pick_encoder", Mock(return_value="x264"))
+    monkeypatch.setattr(bd3d_fs, "Dlna", Mock(side_effect=OSError("Address already in use")))
+
+    with pytest.raises(SystemExit) as error:
+        bd3d_fs.main()
+    message = str(error.value)
+    assert f"cannot start on port {port}" in message
+    assert ("minidlna" in message) == hint_expected
 
 
 def test_dlna_only_does_not_need_fuse() -> None:
@@ -188,7 +367,7 @@ def test_share_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     monkeypatch.setattr(bd3d_fs, "pick_encoder", Mock(return_value="x264"))
     monkeypatch.setattr(bd3d_fs.shutil, "which", which)
     monkeypatch.setattr(bd3d_fs.importlib, "import_module", import_module)
-    monkeypatch.setattr(bd3d_fs.trio, "run", run)
+    monkeypatch.setattr(bd3d_fs, "run", run)
     monkeypatch.setattr(bd3d_fs, "Dlna", Mock())
     monkeypatch.setitem(sys.modules, "fuse_fs", None if missing == "fuse" else fuse)
 

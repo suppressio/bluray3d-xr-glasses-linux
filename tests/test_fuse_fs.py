@@ -1,6 +1,7 @@
 """fuse_fs.py: Bd3dFS, the thin FUSE adapter over a Tree library.py builds —
 getattr/lookup/readdir/open/read/statfs, and that a read failing on one file
 does not take the program down."""
+import threading
 from pathlib import Path
 from typing import cast
 
@@ -80,3 +81,30 @@ def test_a_failing_read_does_not_stop_the_program(tmp_path: Path,
 
     trio.run(read)
     assert "read at 0 failed" in caplog.text and "navigation pack" in caplog.text
+
+
+@pytest.mark.parametrize("unmounted", [False, True])
+def test_serve_ends(monkeypatch: pytest.MonkeyPatch, unmounted: bool) -> None:
+    # serve() ends when stop is set, even before FUSE runs (a signal at start-up),
+    # ending FUSE from trio's own thread; or when the file system is unmounted
+    # from outside, with stop never set
+    stop = threading.Event()
+    terminated: list[bool] = []
+    exit_loop = trio.Event()
+
+    async def main() -> None:
+        if not unmounted:
+            await exit_loop.wait()
+
+    def terminate() -> None:
+        trio.lowlevel.current_trio_token()              # raises outside trio
+        terminated.append(True)
+        exit_loop.set()
+
+    monkeypatch.setattr(fuse_fs.pyfuse3, "main", main)
+    monkeypatch.setattr(fuse_fs.pyfuse3, "terminate", terminate)
+    if not unmounted:
+        stop.set()
+    fuse_fs.serve(stop)
+    assert terminated == ([] if unmounted else [True])
+    stop.set()                                          # frees the thread left waiting on it

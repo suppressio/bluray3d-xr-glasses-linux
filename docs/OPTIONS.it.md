@@ -1,6 +1,8 @@
-[🇬🇧 English](OPTIONS.md) | 🇮🇹 Italiano
+🌐 [English](OPTIONS.md) | **Italiano**
 
 # Le opzioni nel dettaglio
+
+> Riferimento, aggiornato: tutte le opzioni del programma, per la strada nativa e per Docker.
 
 Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiare cosa offre la cartella condivisa (lingue, sottotitoli, qualità) o come si comporta. Torna al [README](../README.it.md).
 
@@ -20,7 +22,7 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 | [Animazione dopo un salto](#animazione-di-caricamento-dopo-un-salto) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
 | Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
 | [Condivisione via Samba, DLNA, o entrambe](#dlnaupnp-invece-di-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
-| [Porta DLNA/HTTP](#dlnaupnp-invece-di-samba) | `HTTP_PORT` | `--http-port` | `8200` |
+| [Porta DLNA/HTTP](#dlnaupnp-invece-di-samba) | `HTTP_PORT` | `--http-port` | `8201` |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |
 | [File di log del programma](#log) | — | `--log percorso` o `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
 | [Log della pipeline](#log) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
@@ -49,9 +51,9 @@ Le cartelle vengono lette all'avvio: per vedere un file nuovo riavvia il program
 
 ## Serie TV
 
-Un Blu-ray con più episodi (un titolo per episodio, nell'ordine del "play all": vedi [bluray-mpls-internals.md](bluray-mpls-internals.md)) ha ogni episodio nominato `S<stagione>E<episodio> - <Serie>.ts`, per esempio `S01E05 - Rick and Morty.ts`; la parte stagione/episodio viene sempre subito dopo il prefisso di lingua/sottotitoli (`ITA - `, `subITA - `...), perché i lettori tagliano i nomi lunghi nell'elenco dei file.
+Un Blu-ray con più episodi (un titolo per episodio, nell'ordine del "play all": vedi [RESEARCH.it.md](RESEARCH.it.md)) ha ogni episodio nominato `S<stagione>E<episodio> - <Serie>.ts`, per esempio `S01E05 - Rick and Morty.ts`; la parte stagione/episodio viene sempre subito dopo il prefisso di lingua/sottotitoli (`ITA - `, `subITA - `...), perché i lettori tagliano i nomi lunghi nell'elenco dei file. Il prefisso stesso è uniforme su tutto il disco: se un episodio qualsiasi ha più di una lingua audio selezionata, lo riceve ogni episodio, anche quello che ne ha solo una (un episodio doppiato quando un altro non lo è non deve chiamarsi diversamente dai suoi "fratelli").
 
-La stagione si legge dal nome del disco o dall'etichetta del volume (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), senza alcuna ricerca in rete. Il numero del primo episodio non è scritto sul disco, quindi viene solo ipotizzato (1, 2, 3...) quando né il nome del disco né l'etichetta lasciano intendere che contenga solo una parte della stagione (`Disco 2`, `Disc 2`, `Vol. 2`...); una stagione divisa su più dischi, o un disco senza una stagione riconosciuta, mantiene invece la nomenclatura di oggi (`<Serie> - <episodio>`).
+La stagione si legge dal nome del disco o dall'etichetta del volume (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), senza alcuna ricerca in rete. Il numero del primo episodio non è scritto sul disco, quindi viene solo ipotizzato (1, 2, 3...) quando né il nome del disco né l'etichetta lasciano intendere che contenga solo una parte della stagione (`Disco 2`, `Disc 2`, `Vol. 2`...); una stagione divisa su più dischi, o un disco senza una stagione riconosciuta, viene invece nominato `E<episodio> - <Serie>.ts`, con l'indicazione di disco/volume tra parentesi quando è presente, per esempio `E01 - Il Prigioniero (Disco 1).ts`.
 
 Un disco 3D non è mai una serie quando un titolo "play all" in 3D copre tutte le parti: è un film diviso in parti (Tron: Legacy 3D ha anche le due metà come titoli a sé), e si carica come un solo film.
 
@@ -65,7 +67,7 @@ Per default i file sono montati solo per Samba, la cartella `[Disks]` (`--share 
 bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
 ```
 
-- Il server ascolta su `--http-port` (predefinito `8200`). Apri `http://<ip-pc>:8200/` in un browser per vedere le stesse cartelle come una pagina semplice: un modo rapido per controllare che funzioni, e qualsiasi player che apre un video da un URL può usarlo direttamente.
+- Il server ascolta su `--http-port` (predefinito `8201`). Apri `http://<ip-pc>:8201/` in un browser per vedere le stesse cartelle come una pagina semplice: un modo rapido per controllare che funzioni, e qualsiasi player che apre un video da un URL può usarlo direttamente.
 - Sul player, cerca "bluray3d-xr" tra i media server DLNA che trova in rete (nessun indirizzo IP da digitare): entra in `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, le stesse cartelle della condivisione SMB.
 - Il salto funziona come su SMB: un byte del file corrisponde sempre a un secondo preciso del film, quindi un salto riavvia la pipeline da lì, che il player legga via SMB o via HTTP.
 - Docker, solo DLNA: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — niente Samba, niente FUSE, niente porta 445; usa la rete dell'host, perché la scoperta SSDP è multicast (la porta si imposta con `HTTP_PORT` in `.env`). DLNA insieme a Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, anche questo sulla rete dell'host, quindi Samba usa direttamente la porta 445 dell'host (`SMB_PORT` non vale).

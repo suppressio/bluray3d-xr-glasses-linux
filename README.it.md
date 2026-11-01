@@ -1,11 +1,11 @@
-[🇬🇧 English](README.md) | 🇮🇹 Italiano
+🌐 [English](README.md) | **Italiano**
 
 # Blu-ray e DVD su ogni schermo di casa, 3D compreso, da Linux
 #### _Metti un disco nel lettore del PC Linux e guardalo su qualunque dispositivo di casa: TV, tablet, telefono, occhiali XR. Il PC legge, decifra e decodifica il disco al volo e lo serve in rete locale come un normale file video. I Blu-ray 3D diventano 3D affiancato vero per gli occhiali XR (VITURE & co.). Niente rip, niente conversione, niente spazio su disco._
 
 ***Nota:*** _Qualsiasi player capace di aprire video da una cartella di rete (SMB), o di esplorare invece un media server DLNA/UPnP ([docs/OPTIONS.it.md](docs/OPTIONS.it.md#dlnaupnp-invece-di-samba)), dovrebbe funzionare; per il 3D deve anche mostrare il video affiancato. Dispositivi, player e dischi provati finora, con una guida per ciascuno: [**docs/TESTED.it.md**](docs/TESTED.it.md)._
 
-![Il 3D Player VITURE apre la cartella condivisa: un file per lingua audio, con e senza sottotitoli italiani](docs/viture-3d-player.png)
+![Il 3D Player VITURE apre la cartella condivisa: un file per lingua audio, con e senza sottotitoli italiani](docs/screenshots/viture-3d-player.png)
 
 ---
 
@@ -60,79 +60,28 @@ I Blu-ray commerciali sono cifrati (AACS, alcuni anche BD+). Il progetto **non f
 2. **MakeMKV**, se installato e registrato: la sua libreria `libmmbd` decifra l'AACS al posto di libaacs.
 3. Gli **ISO / le cartelle BDMV non cifrati** non richiedono chiavi.
 
-**I dischi con BD+** (una minoranza, usciti fino al 2017 circa) **non sono supportati tramite MakeMKV**: li apre, ma dopo ogni salto nel film l'immagine si rovina, quindi il programma li salta e lo scrive nel log. Tramite libbdplus, open source, non sono provati ([#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87)).
+**I dischi con BD+** (una minoranza, usciti fino al 2017 circa) sono decifrati da **libaacs + libbdplus**, open source. libbdplus ha bisogno di due cose che fornisci tu, in `~/.config/bdplus/` (con Docker: nella cartella indicata come `BDPLUS_DIR`): `vm0/`, la sua configurazione, e `convtab/`, le tabelle di conversione precalcolate dei dischi (un archivio della comunità copre praticamente tutti i dischi BD+). Dove trovarle: la [pagina Blu-ray dell'ArchWiki](https://wiki.archlinux.org/title/Blu-ray) e il thread a cui rimanda ([copia archiviata](https://web.archive.org/web/20260910011411/https://forum.doom9.org/showthread.php?t=176924)). Un disco BD+ senza la sua tabella viene saltato, e il log lo dice. MakeMKV per il BD+ non viene usato: questi dischi li apre, ma dopo ogni salto nel film l'immagine si rovina.
 
 I DVD (CSS) vengono decifrati da **libdvdcss**, che installi tu: su Debian/Ubuntu `sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg` (Debian: sezione `contrib`). Non è nell'immagine Docker; in `docker-compose.yml` c'è una riga commentata per usare quella del sistema.
 
 > ⚖️ In molti paesi (Italia e gran parte dell'UE compresi) aggirare una protezione anticopia non è consentito, nemmeno per una copia privata. Verifica le regole del tuo paese.
 
 #### Software sul PC
-- **Docker** (strada A) _oppure_ un sistema **Debian/Ubuntu** (strada B). Tutto il resto lo installa il progetto:
+- Un sistema **Debian/Ubuntu** (altre distribuzioni: [Docker](#docker)). Tutto il resto lo installa il progetto:
   - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc): l'unico decoder open source della vista dipendente MVC;
   - libbluray, libaacs, libbdplus (Blu-ray), libdvdread (DVD), FFmpeg, Samba (la cartella di rete), FUSE + pyfuse3 (il file virtuale; Samba e FUSE non servono con `--share dlna`).
 
 ---
 
-## Passo 1 — Installazione: scegli la strada
+## Passo 1 — Installazione
 
-| | **A. Docker** | **B. Pacchetto della release** | **C. Script nativo** |
-|---|---|---|---|
-| Per chi | usa già Docker | Debian / Ubuntu | ha già una copia del progetto |
-| Tocca il sistema | no: Samba, FUSE e librerie stanno nel container | sì: pacchetti, `/opt`, `smb.conf`, `fuse.conf` | sì: pacchetti, `/opt`, `smb.conf`, `fuse.conf` |
-| Decifratura | libaacs + il tuo KEYDB (MakeMKV non è nell'immagine) | libaacs + KEYDB, oppure MakeMKV se installato | libaacs + KEYDB, oppure MakeMKV se installato |
-| Codifica NVIDIA | serve il NVIDIA Container Toolkit | funziona subito | funziona subito |
-| Samba già installato sul PC | conflitto sulla porta 445: va fermato | la condivisione si aggiunge alle tue | la condivisione si aggiunge alle tue |
-
-Per Docker o per l'installazione nativa da una copia, scarica prima il progetto:
-```console
-git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
-cd bluray3d-xr-glasses-linux
-```
-
-### Strada A — Docker
-
-- [ ] Crea le impostazioni:
-```console
-cp .env.example .env
-```
-- [ ] Modifica `.env`:
-  - `DRIVE=/dev/sr0` per tenere d'occhio il lettore Blu-ray; in `docker-compose.yml` togli il commento alla riga `- /dev/sr0` sotto `devices`;
-  - `AACS_DIR` = la cartella che contiene il tuo `KEYDB.cfg`;
-  - `MOVIES_DIR` = una cartella con ISO, cartelle BDMV o rip MKV (può essere vuota se usi solo il lettore);
-  - `AUDIO_LANG` e `SUBS` = le lingue audio e dei sottotitoli che vuoi, per esempio `ita,eng` (il resto: [docs/OPTIONS.it.md](docs/OPTIONS.it.md)).
-- [ ] Costruisci e avvia. La prima volta ci vuole qualche minuto, perché compila edge264 per la tua CPU:
-```console
-docker compose up -d --build
-```
-- [ ] Inserisci un disco (Blu-ray 3D o 2D, DVD) e guarda il log:
-```console
-docker compose logs -f
-```
-```
-watching /dev/sr0: insert a disc
-/dev/sr0: disc inserted, opening it
-+ Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts)
-```
-
-Per fermarlo: `docker compose down`. Aggiornare e disinstallare: [più sotto](#aggiornare-e-disinstallare).
-
-##### GPU NVIDIA (facoltativo)
-Installa il [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), poi avvia con entrambi i file compose:
-```console
-docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
-```
-Nel log deve comparire `video encoder: nvenc`.
-> ⚠️ Questa variante non l'ho ancora provata (sul mio PC non c'è il Container Toolkit). NVENC è provato con la strada nativa.
-
-##### 💩 happens: porta 445 già occupata
-Se sul PC gira già Samba, il container non può prendere la porta 445. I player di telefoni e occhiali di solito parlano solo con la 445. Quindi mentre guardi il film ferma il Samba del sistema (`sudo systemctl stop smbd`), oppure usa la strada B, che aggiunge una condivisione al Samba che hai già.
-
-### Strada B — Pacchetto della release (Debian / Ubuntu)
+Su Debian o Ubuntu, dal pacchetto della release:
 
 - [ ] Scarica il `.deb` per il tuo sistema dalle [release](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases), poi installalo:
 ```console
 sudo apt install ./bluray3d-xr_<versione>_amd64.deb
 ```
+apt installa quello che serve al programma (FFmpeg, libbluray, libaacs, libdvdread...); edge264 è dentro il pacchetto. Le chiavi e libdvdcss sono tuoi: vedi [Decifratura](#decifratura-le-chiavi-le-porti-tu).
 - [ ] Aggiungi il tuo utente al gruppo del pacchetto per poter leggere i file montati; esci e rientra nella sessione perché la modifica abbia effetto:
 ```console
 sudo adduser "$USER" bluray3d-xr
@@ -163,11 +112,64 @@ Quando inserisci un disco compaiono i suoi file; ogni riga `pipeline from` è il
 ```
 Si ferma con `Ctrl+C`. Aggiornare e disinstallare: [più sotto](#aggiornare-e-disinstallare).
 
-### Strada C — Script nativo (da una copia del progetto)
+### Altri modi di installarlo
 
-Se usi una copia del progetto invece del pacchetto della release, avvia [`scripts/install.sh`](scripts/install.sh) come utente normale. Installa i pacchetti, compila edge264, installa il comando e aggiunge a Samba la condivisione `[Disks]` in sola lettura e ad accesso ospite. Lo script supporta Debian/Ubuntu; resta disponibile per le installazioni da una copia del progetto.
+#### Script nativo (da una copia del progetto)
+
+Per una copia di lavoro del progetto, o per seguire la versione in sviluppo. [`scripts/install.sh`](scripts/install.sh), avviato come utente normale, installa i pacchetti, compila edge264, installa il comando e aggiunge a Samba la condivisione `[Disks]` in sola lettura e ad accesso ospite (Debian/Ubuntu):
+```console
+git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
+cd bluray3d-xr-glasses-linux
+./scripts/install.sh
+```
 
 `scripts/install.sh --share dlna` salta del tutto Samba/FUSE e configura invece [DLNA/UPnP](docs/OPTIONS.it.md#dlnaupnp-invece-di-samba); `--share both` installa entrambi (default: `samba`).
+
+#### Docker
+
+Per le altre distribuzioni, o se preferisci non toccare il sistema: Samba, FUSE e le librerie stanno nel container. MakeMKV non è nell'immagine (solo libaacs + il tuo KEYDB).
+
+- [ ] Scarica il progetto:
+```console
+git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
+cd bluray3d-xr-glasses-linux
+```
+- [ ] Crea le impostazioni:
+```console
+cp .env.example .env
+```
+- [ ] Modifica `.env`:
+  - `DRIVE=/dev/sr0` per tenere d'occhio il lettore Blu-ray; in `docker-compose.yml` togli il commento alla riga `- /dev/sr0` sotto `devices`;
+  - `AACS_DIR` = la cartella che contiene il tuo `KEYDB.cfg`;
+  - `BDPLUS_DIR` = la cartella con `vm0/` e `convtab/` per i dischi BD+ (vedi [Decifratura](#decifratura-le-chiavi-le-porti-tu); lasciala com'è se non li hai);
+  - `MOVIES_DIR` = una cartella con ISO, cartelle BDMV o rip MKV (può essere vuota se usi solo il lettore);
+  - `AUDIO_LANG` e `SUBS` = le lingue audio e dei sottotitoli che vuoi, per esempio `ita,eng` (il resto: [docs/OPTIONS.it.md](docs/OPTIONS.it.md)).
+- [ ] Costruisci e avvia. La prima volta ci vuole qualche minuto, perché compila edge264 per la tua CPU:
+```console
+docker compose up -d --build
+```
+- [ ] Inserisci un disco (Blu-ray 3D o 2D, DVD) e guarda il log:
+```console
+docker compose logs -f
+```
+```
+watching /dev/sr0: insert a disc
+/dev/sr0: disc inserted, opening it
++ Blu-ray 3D/ITA - Tron - Legacy 3D - 3D SBS.ts  (125 min, 24.0 Mbit/s, audio 0x1102 ita dts)
+```
+
+Per fermarlo: `docker compose down`. Aggiornare e disinstallare: [più sotto](#aggiornare-e-disinstallare).
+
+##### GPU NVIDIA (facoltativo)
+Installa il [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), poi avvia con entrambi i file compose:
+```console
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
+```
+Nel log deve comparire `video encoder: nvenc`.
+> ⚠️ Questa variante non l'ho ancora provata (sul mio PC non c'è il Container Toolkit). NVENC è provato con la strada nativa.
+
+##### 💩 happens: porta 445 già occupata
+Se sul PC gira già Samba, il container non può prendere la porta 445. I player di telefoni e occhiali di solito parlano solo con la 445. Quindi mentre guardi il film ferma il Samba del sistema (`sudo systemctl stop smbd`), oppure installa il pacchetto della release, che aggiunge una condivisione al Samba che hai già.
 
 ### Aggiornare e disinstallare
 
@@ -227,23 +229,21 @@ bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 
 Qualcosa non funziona? Vedi [docs/TROUBLESHOOTING.it.md](docs/TROUBLESHOOTING.it.md), che spiega anche come segnalare un problema.
 
----
-
-## Sviluppo
-
-Come il programma legge, decodifica e serve un disco: [docs/ARCHITECTURE.it.md](docs/ARCHITECTURE.it.md). Avviarlo da una copia del progetto, dove stanno le cose nel codice, i test e i log: [docs/DEVELOPMENT.it.md](docs/DEVELOPMENT.it.md).
-
----
-
 ## Limiti
 
 - Gli ultimi 2,7 secondi circa di ogni film (dopo i titoli di coda) sono neri: la fine del file è sintetica.
-- Provato su pochi dischi ([docs/TESTED.it.md](docs/TESTED.it.md#dischi)), tutti solo AACS. I dischi con BD+ non sono supportati; i DVD NTSC non sono provati.
+- Provato su pochi dischi ([docs/TESTED.it.md](docs/TESTED.it.md#dischi)), tutti solo AACS tranne un disco BD+. I DVD NTSC non sono provati.
 - I sottotitoli del disco sono disegnati nell'immagine (una versione per lingua), non si scelgono dal player; la profondità 3D è fissa, non presa dal disco. L'audio è convertito in AAC stereo.
 
 ## E Windows?
 
 Questo progetto è solo per Linux. Su Windows puoi guardare [**SyLC**](https://github.com/5ymph0en1x/SyLC), un player open source che riproduce direttamente l'MVC dei Blu-ray 3D (MKV, ISO, BDMV) e può produrre SBS. Non l'ho provato.
+
+---
+
+## Sviluppo
+
+Come il programma legge, decodifica e serve un disco: [docs/ARCHITECTURE.it.md](docs/ARCHITECTURE.it.md). Avviarlo da una copia del progetto, dove stanno le cose nel codice, i test e i log: [docs/DEVELOPMENT.it.md](docs/DEVELOPMENT.it.md).
 
 ## Licenza
 

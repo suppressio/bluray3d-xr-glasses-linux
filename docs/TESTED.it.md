@@ -1,6 +1,8 @@
-[🇬🇧 English](TESTED.md) | 🇮🇹 Italiano
+🌐 [English](TESTED.md) | **Italiano**
 
 # Provato: dispositivi, player, dischi
+
+> Resoconti sul campo, aggiornati man mano che si provano dispositivi, player e dischi. I dischi compaiono solo se hanno avuto un problema o una particolarità.
 
 Con cosa è stato provato finora questo progetto, e come è andata. Il [README](../README.it.md) spiega i passi generali; qui ci sono i dettagli per ogni dispositivo e player, e i dischi che hanno insegnato qualcosa. Altre segnalazioni sono benvenute: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
 
@@ -23,7 +25,7 @@ Con cosa è stato provato finora questo progetto, e come è andata. Il [README](
 - [ ] Apri **Disks**, poi la cartella e il film (se una cartella sembra vuota, torna indietro e rientra).
 - [ ] Il player riconosce il formato affiancato e passa in 3D da solo. 🎉
 
-![La riproduzione nel 3D Player VITURE: 3D attivo, barra di avanzamento, nome del file](viture-3d-playback.png)
+![La riproduzione nel 3D Player VITURE: 3D attivo, barra di avanzamento, nome del file](screenshots/viture-3d-playback.png)
 
 Da sapere:
 - **Non ha un menu delle tracce audio** e ne sceglie una da solo: per questo di base ogni lingua è un file a sé ([Lingue audio](OPTIONS.it.md#lingue-audio)).
@@ -43,11 +45,11 @@ Da sapere:
 - [ ] Se l'immagine mostra due figure affiancate, premi il pulsante a cubo nella barra del player (**Switch Mode**): **Non-VR** e **3D SBS**.
 - [ ] Nel menu a ingranaggio (**Advanced Settings → Aspect Ratio**) scegli **16:9**. 16:10 riempie di più lo schermo, ma allunga un po' l'immagine in altezza. 🎉
 
-![Il pannello Switch Mode del lettore del PICO 4: Non-VR, 3D SBS](pico-switch-mode.png)
+![Il pannello Switch Mode del lettore del PICO 4: Non-VR, 3D SBS](screenshots/pico-switch-mode.png)
 
-![Il File Manager del PICO 4 nella cartella Blu-ray 3D: un file per lingua, con e senza sottotitoli](pico-file-manager.png)
+![Il File Manager del PICO 4 nella cartella Blu-ray 3D: un file per lingua, con e senza sottotitoli](screenshots/pico-file-manager.png)
 
-![Un Blu-ray 3D nel lettore video del PICO 4, nel cinema virtuale](pico-cinema.png)
+![Un Blu-ray 3D nel lettore video del PICO 4, nel cinema virtuale](screenshots/pico-cinema.png)
 
 Da sapere:
 - Il menu della scena (icona della montagna) sceglie la sala (per esempio **PMAX Cinema**), dove ti siedi (**Close / Centre / Far**) e la dimensione dello schermo.
@@ -73,7 +75,7 @@ Con VLC su un Wi-Fi debole aiuta alzare la sua cache di rete ([Rete e qualità](
 | **Ready Player One** | Blu-ray 2D | Sottotitoli dal disco; riprodotto anche in VLC su un PICO. |
 | **Cowboy Bebop** (disco 1) | Blu-ray 2D | 5 episodi in un unico titolo "riproduci tutto" da 120 minuti: esce come un solo file. |
 | **Rick and Morty**, stagione 1 (edizione tedesca) | Blu-ray 2D | 11 episodi in italiano e inglese, più una copia di ognuno solo in inglese e un extra: gli episodi escono come "S01E01 - Rick and Morty"…"S01E11 - Rick and Morty" (la stagione letta dal "Staffel 1" del disco), gli altri 12 titoli in `Extra/`. L'elenco degli episodi si legge aprendo il disco una volta sola (2 s invece di 50). |
-| **Predator 2** | Blu-ray 2D | **Non supportato: BD+.** MakeMKV (libmmbd) lo decifra pulito dall'inizio, ma dopo un salto l'immagine si rovina (circa 1000 errori di decodifica al minuto), quindi il programma lo salta. Vedi [#2](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/2) e [#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87). |
+| **Predator 2** | Blu-ray 2D | **BD+** (generazione 4): si vede tramite libaacs + libbdplus con la sua tabella di conversione, nessun errore di decodifica né dall'inizio né dopo un salto. libbdplus senza la tabella, e MakeMKV (libmmbd) dopo un salto, rovinano l'immagine: in entrambi i casi il programma salta il disco. Vedi [#2](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/2) e [#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87). |
 | **Ritorno al futuro** | DVD (PAL) | Sugli occhiali come un file locale, sottotitoli OK. |
 | **Utopia**, stagione 1 disco 1 | DVD (PAL) | Un disco di una serie inglese con una protezione a decine di titoli finti, e un punto rovinato: gli episodi escono giusti, il punto rovinato viene saltato. |
 

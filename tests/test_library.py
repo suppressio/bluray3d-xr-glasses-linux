@@ -6,12 +6,14 @@ import copy
 import logging
 import re
 import shlex
+import subprocess
 import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Self, cast, override
+from unittest.mock import Mock
 
 import pytest
 
@@ -442,6 +444,26 @@ def test_slow_pipeline_is_logged(monkeypatch: pytest.MonkeyPatch,
     assert "waited 6s for the movie at 1:09:10" in caplog.text
 
 
+
+def test_stop_does_not_hang_on_a_stuck_pipeline(monkeypatch: pytest.MonkeyPatch,
+                                                caplog: pytest.LogCaptureFixture) -> None:
+    """A pipeline stuck on the drive survives SIGKILL: stop() returns all the same."""
+    gen = object.__new__(library.Generator)
+    gen.loader, gen.stopped, gen.cond = None, False, threading.Condition()
+    gen.path = "Blu-ray 3D/ITA - x - 3D SBS.ts"
+    proc = Mock(pid=4242)
+    proc.poll.return_value = None
+    proc.wait.side_effect = subprocess.TimeoutExpired("ffmpeg", library.KILL_WAIT)
+    gen.proc = cast("subprocess.Popen[bytes]", proc)
+    killpg = Mock()
+    monkeypatch.setattr(library.os, "killpg", killpg)
+    caplog.set_level(logging.INFO, logger="bd3d_fs")
+    gen.stop()
+    killpg.assert_called_once_with(4242, library.signal.SIGKILL)
+    proc.wait.assert_called_once_with(library.KILL_WAIT)
+    assert gen.stopped
+    assert "did not exit 5s after SIGKILL" in caplog.text
+
 # --- the tree of files ---------------------------------------------------------
 
 class DiscSource(FakeSource):
@@ -489,6 +511,30 @@ def test_library_per_language(tmp_path: Path) -> None:
     assert files["DEU - Movie.ts"].source.sub is None
     assert files["DEUsubENG - Movie.ts"].source.sub == SubTrack(2, "eng")
     assert not files["DEUsubENG - Movie.ts"].source.forced_only
+
+
+class SingleVariantSource(FakeSource):
+    """variants() with a single language that still carries a label (#80: the
+    language prefix applied uniformly across a series, including an episode
+    that itself only has one language), unlike the plain, unlabelled source."""
+
+    def __init__(self, path: str) -> None:
+        super().__init__(path, langs=["ita"])
+        self.category, self.name_suffix = "Blu-ray", ""
+
+    @override
+    def variants(self) -> Sequence[Self]:
+        v = copy.copy(self)
+        v.label = "ITA"
+        return [v]
+
+
+def test_library_single_variant_keeps_forced_label(tmp_path: Path) -> None:
+    """#80: _add_set must use variants()[0] rather than the plain source when there
+    is only one variant, so a label added for consistency across a series is kept."""
+    tree, lib = make_library(tmp_path, sub_langs=[])
+    lib.add(SingleVariantSource(str(tmp_path / "d")))
+    assert paths(tree) == ["Blu-ray", "Blu-ray/ITA - Movie.ts"]
 
 
 def test_library_all_and_no_subtitles(tmp_path: Path) -> None:

@@ -1,6 +1,8 @@
-🇬🇧 English | [🇮🇹 Italiano](OPTIONS.it.md)
+🌐 **English** | [Italiano](OPTIONS.it.md)
 
 # Options in detail
+
+> Reference, current: every option of the program, for the native and the Docker path.
 
 The defaults work: you only need this page to change what the share offers (languages, subtitles, quality) or how it behaves. Back to the [README](../README.md).
 
@@ -20,7 +22,7 @@ The defaults work: you only need this page to change what the share offers (lang
 | [Animation after a jump](#loading-animation-after-a-jump) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
 | Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
 | [Share over Samba, DLNA, or both](#dlnaupnp-instead-of-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
-| [DLNA/HTTP port](#dlnaupnp-instead-of-samba) | `HTTP_PORT` | `--http-port` | `8200` |
+| [DLNA/HTTP port](#dlnaupnp-instead-of-samba) | `HTTP_PORT` | `--http-port` | `8201` |
 | Mount point | — | `--mount` | `/srv/bd3d` |
 | [Program log file](#logs) | — | `--log path` or `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
 | [Pipeline log](#logs) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
@@ -49,9 +51,9 @@ Folders are scanned at startup: restart the program to see a new file. Drives ar
 
 ## TV series
 
-A Blu-ray that holds several episodes (one title per episode, in play-all order: see [bluray-mpls-internals.md](bluray-mpls-internals.md)) gets each one named `S<season>E<episode> - <Show>.ts`, e.g. `S01E05 - Rick and Morty.ts`; the season/episode part always comes right after the language/subtitle prefix (`ITA - `, `subITA - `...), since players cut long names in their file list.
+A Blu-ray that holds several episodes (one title per episode, in play-all order: see [RESEARCH.md](RESEARCH.md)) gets each one named `S<season>E<episode> - <Show>.ts`, e.g. `S01E05 - Rick and Morty.ts`; the season/episode part always comes right after the language/subtitle prefix (`ITA - `, `subITA - `...), since players cut long names in their file list. The prefix itself is uniform across the disc: if any episode has more than one selected audio language, every episode gets it, even one that itself only has one (an episode dubbed where another is not must not name differently from its siblings).
 
-The season is read from the disc's own name or volume label (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), with no network lookup. The first episode's number is not on the disc, so it is only assumed (1, 2, 3...) when neither the disc's name nor its label gives a sign that it holds just part of a season (`Disc 2`, `Vol. 2`...); a season split over several discs, or a disc with no recognised season, keeps today's naming (`<Show> - <episode>`) instead.
+The season is read from the disc's own name or volume label (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), with no network lookup. The first episode's number is not on the disc, so it is only assumed (1, 2, 3...) when neither the disc's name nor its label gives a sign that it holds just part of a season (`Disc 2`, `Vol. 2`...); a season split over several discs, or a disc with no recognised season, is named `E<episode> - <Show>.ts` instead, with the disc/volume marker in parentheses when there is one, e.g. `E01 - Il Prigioniero (Disco 1).ts`.
 
 A 3D disc is never a series when a 3D "play all" title covers every part: that is a movie split into parts (Tron: Legacy 3D has both halves as titles of their own), and it is loaded as one movie.
 
@@ -65,7 +67,7 @@ By default the files are only mounted for Samba, the `[Disks]` share (`--share s
 bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
 ```
 
-- The server listens on `--http-port` (default `8200`). Open `http://<pc-ip>:8200/` in a browser to see the same folders as a plain page: a quick way to check it is working, and any player that opens a video by URL can use it directly.
+- The server listens on `--http-port` (default `8201`). Open `http://<pc-ip>:8201/` in a browser to see the same folders as a plain page: a quick way to check it is working, and any player that opens a video by URL can use it directly.
 - On the player, look for "bluray3d-xr" among the DLNA/media servers it finds on the network (no IP address to type): browse into `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, the same folders as the SMB share.
 - Seeking works the same way as over SMB: a byte of the file is still a precise second of the movie, so a jump restarts the pipeline from there regardless of whether the player reads it over SMB or HTTP.
 - Docker, DLNA only: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — no Samba, no FUSE, no port 445; it uses the host network, since SSDP discovery is multicast (`HTTP_PORT` in `.env` sets the port). DLNA together with Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, also on the host network, so Samba uses the host's port 445 directly (`SMB_PORT` does not apply).

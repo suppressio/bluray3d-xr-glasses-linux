@@ -319,8 +319,19 @@ def _decrypted_with(info: bluray.DiscInfo, env: dict[str, str]) -> str:
     """For the log and problem reports: which protection, opened by which backend."""
     if not info.protection:
         return "not encrypted"
-    backend = "MakeMKV (libmmbd)" if env.get("LIBAACS_PATH") == "libmmbd" else "libaacs"
+    if env.get("LIBAACS_PATH") == "libmmbd":
+        backend = "MakeMKV (libmmbd)"
+    elif "BD+" in info.protection:
+        backend = "libaacs + libbdplus"
+    else:
+        backend = "libaacs"
     return f"{info.protection}, decrypted with {backend}"
+
+
+class UnsupportedDiscError(OSError):
+    """A disc this program will never be able to open, whatever the drive: a
+    definitive rejection (e.g. BD+ with no way to decrypt it here), not a
+    drive/media problem. The caller (watch_drive) does not retry these."""
 
 
 AACS_ERROR_CORRUPTED_DISC = -1
@@ -337,7 +348,9 @@ a missing or wrong key: no KEYDB/MakeMKV hint for these."""
 
 def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]:
     """Open a disc/ISO/BDMV with the first decryption backend that works.
-    BD+ only through libbdplus: libmmbd's BD+ fixes go wrong after a seek."""
+    BD+ only through libbdplus with a cached conversion table: libmmbd's BD+ fixes
+    go wrong after a seek, libbdplus' own run of the disc's BD+ program fails on
+    newer discs."""
     last: bluray.DiscInfo | None = None
     for env in _decrypt_backends():
         saved = {k: os.environ.get(k) for k in ("LIBAACS_PATH", "LIBBDPLUS_PATH")}
@@ -348,6 +361,12 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
             bdplus_by_mmbd = ("BD+" in info.protection
                               and os.environ.get("LIBBDPLUS_PATH") == "libmmbd")
             if info.decrypted and not bdplus_by_mmbd:
+                if "BD+" in info.protection and not bluray.bdplus_table_found(path):
+                    disc.close()
+                    raise UnsupportedDiscError(
+                        "BD+ disc: no conversion table for it in "
+                        "~/.config/bdplus/convtab (libbdplus), see "
+                        "Decryption in the README")
                 log.info("%s: %s", path, _decrypted_with(info, env))
                 return disc, info, env
             last = info
@@ -362,9 +381,10 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
         raise OSError(f"cannot read the disc (AACS error {last.aacs_error}): "
                       "drive or media problem, not a missing key")
     if last is not None and "BD+" in last.protection:
-        raise OSError("BD+ disc: not supported (not decrypted by libaacs + libbdplus; "
-                      "MakeMKV's libmmbd is not used for BD+: it corrupts the picture "
-                      "after a seek)")
+        raise UnsupportedDiscError(
+            "BD+ disc: not decrypted (libbdplus needs ~/.config/bdplus/vm0 "
+            "and a conversion table, see Decryption in the README; MakeMKV's "
+            "libmmbd is not used for BD+: it corrupts the picture after a seek)")
     raise OSError(f"cannot decrypt (AACS error {last.aacs_error if last else 'unknown'}). "
                   f"Provide a KEYDB.cfg for libaacs or install MakeMKV (libmmbd).")
 
@@ -407,18 +427,40 @@ def _parse_season(*names: str) -> tuple[int, str] | None:
     return None
 
 
+def _parse_disc_part(*names: str) -> tuple[str, str] | None:
+    """Disc/volume marker and show name from a disc's names, most preferred first
+    (#80), e.g. "Il Prigioniero Disco 1" -> ("Disco 1", "Il Prigioniero"). Used for
+    the episode fallback name when no season is recognised (_parse_season already
+    returns None for these discs): shows the marker instead of silently dropping it,
+    since "<Show> - <episode>" alone reads as if "Disco 1" were part of the show
+    name. None if no marker is found."""
+    norms = [n.replace("_", " ") for n in names if n]
+    for i, norm in enumerate(norms):
+        m = _DISC_PART_PATTERN.search(norm)
+        if m:
+            show = norm[:m.start()] + " " + norm[m.end():] if i == 0 else norms[0]
+            marker = f"{m.group(1).capitalize()} {int(m.group(2))}"
+            return marker, re.sub(r"\s+", " ", show).strip(" -")
+    return None
+
+
 def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool
                   ) -> tuple[str, str]:
     """An episode's file name and subfolder: extras (#39) are numbered apart and go
     in Extra/; an episode gets S<season>E<episode> first when the season is known
-    and reliable (#27), today's "<name> - <episode>" otherwise."""
+    and reliable (#27). Otherwise (#80) "E<episode> - <name>", with the disc/volume
+    marker in parentheses when the disc's name carries one (e.g. "Disco 1")."""
     if extra:
         return f"{name} - Extra {episode}", "Extra"
     season_show = _parse_season(*raw_names)
     if season_show is not None:
         season, show = season_show
         return f"S{season:02d}E{episode:02d} - {_safe_name(show)}", ""
-    return f"{name} - {episode}", ""
+    disc_part = _parse_disc_part(*raw_names)
+    if disc_part is not None:
+        marker, show = disc_part
+        return f"E{episode:02d} - {_safe_name(show)} ({marker})", ""
+    return f"E{episode:02d} - {name}", ""
 
 
 AUDIO_PREFERENCE = ["dts-hd ma", "dts-hd", "dts", "ac3", "eac3", "lpcm", "truehd"]
@@ -500,7 +542,7 @@ def _play_all_order(titles: list[bluray.Title], items_by_playlist: dict[str, lis
                     ) -> list[bluray.Title] | None:
     """The play-all playlist among `titles`, if any: one whose PlayItems visit the
     opening clip of every title in `episodes` (`sigs`: playlist -> opening clip)
-    exactly once, in sequence (docs/bluray-mpls-internals.md, Q4). That sequence is
+    exactly once, in sequence (docs/RESEARCH.md, Q4). That sequence is
     the authoritative episode order, more reliable than sorting by playlist number
     (which may reflect authoring order, not air order). None when no such title is
     found: the caller keeps the current playlist-number order.
@@ -539,16 +581,37 @@ def _movie_title(path: str, disc: bluray.Disc, info: bluray.DiscInfo
     return *longest, True
 
 
+def _apply_uniform_lang_label(sources: Sequence[Source]) -> None:
+    """#80: when any episode of a series has more than one selected audio language,
+    every episode gets the language prefix (`ITA - `...), even the ones that only
+    have one themselves: a series must not name some episodes with it and others
+    without just because one episode happens to be dubbed and another is not."""
+    episodes = [s for s in sources if isinstance(s, DiscSource)]
+    if any(len(s.audio_pids) > 1 for s in episodes):
+        for s in episodes:
+            s.force_lang_label = True
+
+
 class DiscSource(Source):
     """A disc (Blu-ray or DVD): its audio tracks are PIDs / stream ids of one stream."""
 
     max_pipelines = 1
     audio_pids: list[int]
+    # #80: on a series, some episodes may have fewer selected audio languages than
+    # others (e.g. one episode dubbed, the rest not); set by all_on() when any
+    # episode has more than one, so every episode's name gets the language prefix,
+    # instead of just the ones that happen to have several themselves
+    force_lang_label: bool = False
 
     @override
     def variants(self) -> Sequence[Self]:
         if len(self.audio_pids) < 2:
-            return [self]
+            # no selected audio track: no language to put in front of the name
+            if not self.force_lang_label or not self.audio_langs:
+                return [self]
+            v = copy.copy(self)
+            v.label = self.audio_langs[0].upper()
+            return [v]
         out: list[Self] = []
         for pid, lang in zip(self.audio_pids, self.audio_langs, strict=True):
             v = copy.copy(self)
@@ -657,6 +720,7 @@ class BlurayDiscSource(DiscSource):
                     found += [cls(path, audio_langs, _title=t, _episode=i, _extra=True,
                                   _disc=disc, _info=info, _env=env)
                               for i, t in enumerate(extras, 1)]
+                    _apply_uniform_lang_label(found)
                     return found
             return [cls(path, audio_langs, _disc=disc, _info=info, _env=env)]
         finally:
@@ -775,7 +839,10 @@ class DvdSource(DiscSource):
             chosen = dvd.main_titles(disc)
         if len(chosen) == 1:
             return [cls(path, audio_langs, chosen[0])]
-        return [cls(path, audio_langs, t, episode) for episode, t in enumerate(chosen, 1)]
+        found: list[DvdSource] = [cls(path, audio_langs, t, episode)
+                                  for episode, t in enumerate(chosen, 1)]
+        _apply_uniform_lang_label(found)
+        return found
 
     def __init__(self, path: str, audio_langs: list[str] | None = None,
                  title: dvd.DvdTitle | None = None, episode: int = 0) -> None:

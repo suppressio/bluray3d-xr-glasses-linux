@@ -1,6 +1,8 @@
-[🇬🇧 English](ROADMAP.md) | 🇮🇹 Italiano
+🌐 [English](ROADMAP.md) | **Italiano**
 
 # Roadmap
+
+> Piano, tenuto aggiornato: cosa è fatto e cosa viene dopo. La sezione *Fasi* è il resoconto storico di come è stata costruita e verificata la prima strada 3D, e non viene aggiornata.
 
 ## Stato
 
@@ -49,6 +51,10 @@ progetto **non distribuisce e non scarica mai chiavi**):
    database di chiavi in `~/.config/aacs/` e lo tiene aggiornato (i dischi
    nuovi revocano le chiavi vecchie; alcuni lettori chiedono anche un
    certificato "host"). Si usa quando viene trovato un KEYDB.
+   Il BD+ tramite libbdplus, con `~/.config/bdplus/` dell'utente (configurazione
+   della VM e tabella di conversione del disco: l'esecuzione del programma BD+
+   fatta da libbdplus fallisce sui dischi più recenti, quindi un disco senza
+   tabella viene rifiutato, #87).
 2. **libmmbd** (di MakeMKV): sostituisce libaacs/libbdplus usando le chiavi di
    MakeMKV (`LIBAACS_PATH=libmmbd LIBBDPLUS_PATH=libmmbd`). Apre quasi tutto,
    ma è proprietario: al suo interno lancia `makemkvcon`, quindi MakeMKV deve

@@ -1,6 +1,8 @@
-🇬🇧 English | [🇮🇹 Italiano](TESTED.it.md)
+🌐 **English** | [Italiano](TESTED.it.md)
 
 # Tested: devices, players, discs
+
+> Field reports, updated as devices, players and discs are tried. Discs are listed only when they had a problem or a peculiarity.
 
 What this project has been tried with so far, and how it went. The [README](../README.md) covers the general steps; here are the details for each device and player, and the discs that taught something. More reports are welcome: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
 
@@ -23,7 +25,7 @@ What this project has been tried with so far, and how it went. The [README](../R
 - [ ] Open **Disks**, then the folder and the movie (go back and in again if a folder looks empty).
 - [ ] The player recognizes the side-by-side format and switches to 3D by itself. 🎉
 
-![Playback in the VITURE 3D Player: 3D on, seek bar, the file's name](viture-3d-playback.png)
+![Playback in the VITURE 3D Player: 3D on, seek bar, the file's name](screenshots/viture-3d-playback.png)
 
 Good to know:
 - It has **no audio track menu** and picks a track on its own: that is why each language is its own file by default ([Audio languages](OPTIONS.md#audio-languages)).
@@ -43,11 +45,11 @@ Good to know:
 - [ ] If the picture shows two images side by side, press the cube button in the player bar (**Switch Mode**): **Non-VR** and **3D SBS**.
 - [ ] In the gear menu (**Advanced Settings → Aspect Ratio**) choose **16:9**. 16:10 fills the screen more, but stretches the picture a bit in height. 🎉
 
-![The Switch Mode panel of the PICO 4 player: Non-VR, 3D SBS](pico-switch-mode.png)
+![The Switch Mode panel of the PICO 4 player: Non-VR, 3D SBS](screenshots/pico-switch-mode.png)
 
-![The PICO 4 File Manager in the Blu-ray 3D folder: one file per language, with and without subtitles](pico-file-manager.png)
+![The PICO 4 File Manager in the Blu-ray 3D folder: one file per language, with and without subtitles](screenshots/pico-file-manager.png)
 
-![A 3D Blu-ray in the PICO 4 video player, in the virtual cinema](pico-cinema.png)
+![A 3D Blu-ray in the PICO 4 video player, in the virtual cinema](screenshots/pico-cinema.png)
 
 Good to know:
 - The scene menu (mountain icon) chooses the room (e.g. **PMAX Cinema**), where you sit (**Close / Centre / Far**) and the screen size.
@@ -73,7 +75,7 @@ With VLC on a weak Wi-Fi, raising its network cache helps ([Network and quality]
 | **Ready Player One** | Blu-ray 2D | Subtitles from the disc; also played in VLC on a PICO. |
 | **Cowboy Bebop** (disc 1) | Blu-ray 2D | 5 episodes in one 120-minute "play all" title: plays as one file. |
 | **Rick and Morty**, season 1 (German edition) | Blu-ray 2D | 11 episodes in Italian and English, plus an English-only copy of each and a bonus: the episodes come out as "S01E01 - Rick and Morty" to "S01E11 - Rick and Morty" (the season from the disc's own "Staffel 1"), the other 12 titles in `Extra/`. The episode list is read with a single disc open (2 s instead of 50). |
-| **Predator 2** | Blu-ray 2D | **Not supported: BD+.** MakeMKV (libmmbd) decrypts it cleanly from the start, but after a seek the picture breaks up (about 1000 decoding errors a minute), so the program skips it. See [#2](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/2) and [#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87). |
+| **Predator 2** | Blu-ray 2D | **BD+** (generation 4): plays through libaacs + libbdplus with its conversion table, no decoding errors from the start or after a seek. libbdplus without the table, and MakeMKV (libmmbd) after a seek, break up the picture: the program skips the disc in both cases. See [#2](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/2) and [#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87). |
 | **Back to the Future** | DVD (PAL) | Played on the glasses like a local file, subtitles OK. |
 | **Utopia**, series 1 disc 1 | DVD (PAL) | A UK series disc with a copy protection of dozens of fake titles, and a damaged spot: the episodes come out right, the damaged spot is skipped. |
 

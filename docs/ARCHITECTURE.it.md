@@ -1,6 +1,8 @@
-[🇬🇧 English](ARCHITECTURE.md) | 🇮🇹 Italiano
+🌐 [English](ARCHITECTURE.md) | **Italiano**
 
 # Come funziona
+
+> Documento di progetto, aggiornato: come il programma legge, decodifica e serve un disco, così com'è nell'ultima release. I fatti di base sul formato Blu-ray sono in [RESEARCH.it.md](RESEARCH.it.md).
 
 Torna al [README](../README.it.md).
 
