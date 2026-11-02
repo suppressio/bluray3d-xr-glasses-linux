@@ -154,12 +154,12 @@ Done. Start it with:
     bluray3d-xr$share_flag --audio-lang eng /path/to/your/movies      # ISO, BDMV/VIDEO_TS folders, MKV rips
 Every option: docs/OPTIONS.md
 DONE
-# decryption hints only for what is missing (the program checks the same at run time)
+# decryption hints only for what is missing: the key file libaacs reads, the libraries the program looks for
 keydb="${XDG_CONFIG_HOME:-$HOME/.config}/aacs/KEYDB.cfg"
 # captured once: grep -q on a pipe would kill ldconfig early (SIGPIPE, fails under pipefail)
-libs=$(/sbin/ldconfig -p)
+libs=$(/sbin/ldconfig -p 2>/dev/null || true)
 if [ ! -f "$keydb" ] && [ ! -f /etc/xdg/aacs/KEYDB.cfg ] \
-        && ! grep -q 'libmmbd\.so\.0' <<<"$libs"; then
+        && ! grep -q 'libmmbd\.so\.0' <<<"$libs" && [ ! -e /usr/lib/libmmbd.so.0 ]; then
     cat <<HINT
 Commercial Blu-rays need a decryption key database for libaacs in $keydb
 (this project does not provide one), or MakeMKV installed (used via its libmmbd).
