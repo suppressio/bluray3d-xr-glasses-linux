@@ -12,6 +12,7 @@ set -- --mount /srv/bd3d --encoder "${ENCODER:-auto}" --share "$share"
 [ -n "$SUBS" ] && set -- "$@" --subs "$SUBS"
 [ -n "$SUB_DEPTH" ] && set -- "$@" --sub-depth "$SUB_DEPTH"
 [ -n "$LOADER" ] && set -- "$@" --loader "$LOADER"
+[ "$LOOKUP" = "on" ] && set -- "$@" --lookup
 # exec: bd3d_fs.py receives docker stop's SIGTERM (via tini) and unmounts cleanly
 # DRIVE: a Blu-ray drive passed to the container (the movie appears when a disc is in)
 exec python3 /app/bd3d_fs.py "$@" /films ${DRIVE:+"$DRIVE"}
