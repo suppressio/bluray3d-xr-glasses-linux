@@ -175,11 +175,13 @@ def unmount() -> None:
     pyfuse3.close(unmount=True)
 
 
-def _process(pid: int) -> str:
+def _process(tid: int) -> str:
     """The process reading through FUSE, for the log: with Samba an smbd child,
-    one per client (smbstatus maps it to an IP)."""
+    one per client (smbstatus maps it to an IP). FUSE gives the id of the
+    calling thread: its process (Tgid) is what smbstatus shows."""
     try:
-        with open(f"/proc/{pid}/comm") as f:
-            return f"pid {pid} ({f.read().strip()})"
-    except OSError:
-        return f"pid {pid}"
+        with open(f"/proc/{tid}/status") as f:
+            fields = dict(line.split(":", 1) for line in f if ":" in line)
+        return f"pid {fields['Tgid'].strip()} ({fields['Name'].strip()})"
+    except (OSError, KeyError):
+        return f"pid {tid}"
