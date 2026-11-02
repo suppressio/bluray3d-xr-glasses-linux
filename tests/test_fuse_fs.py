@@ -110,10 +110,31 @@ def test_a_read_names_the_process_that_opened_the_file(tmp_path: Path) -> None:
         fh = (await fs.open(movie.inode, 0, ctx)).fh
         await fs.read(fh, 0, 1)
 
+    # read in a worker thread: still named after the process, not the thread
     trio.run(check)
     with open(f"/proc/{os.getpid()}/comm") as f:
         assert seen == [f"pid {os.getpid()} ({f.read().strip()})"]
     assert current_reader() == "an unknown reader"
+
+
+def test_two_opens_of_a_file_have_their_own_handles(tmp_path: Path) -> None:
+    # Samba opens a file many times: closing one must not break the others
+    tree, lib = make_library(tmp_path, audio_files="single", sub_langs=[])
+    fs = Bd3dFS(tree)
+    source = DiscSource(str(tmp_path / "d"))
+    source.sidecars = [(".srt", str(tmp_path / "x.srt"))]
+    (tmp_path / "x.srt").write_text("hello")
+    lib.add(source)
+    sidecar = next(e for e in tree.files() if isinstance(e, SidecarFile))
+
+    async def check() -> None:
+        a = (await fs.open(sidecar.inode, 0, None)).fh
+        b = (await fs.open(sidecar.inode, 0, None)).fh
+        assert a != b
+        await fs.release(a)
+        assert await fs.read(b, 0, 100) == b"hello"
+
+    trio.run(check)
 
 
 @pytest.mark.parametrize("unmounted", [False, True])
