@@ -286,14 +286,18 @@ def test_generator_invariants_with_irregular_keyframes(tmp_path: Path) -> None:
                 if offset + reads > vf.tail_start:
                     continue                         # the synthetic tail: no pipeline
                 before = list(vf.gens)
-                assert_movie(vf.read(offset, reads), offset)
+                data = vf.read(offset, reads)
+                assert len(data) == reads
+                assert_movie(data, offset)
                 started = [g for g in vf.gens if g not in before]
                 assert len(started) <= 1
                 for g in started:                    # the pipeline started for this read
                     assert g.base <= offset and g.base % TS_PACKET == 0
                     assert g.covers(offset)
                 again = list(vf.gens)
-                assert_movie(vf.read(offset, reads), offset)
+                data = vf.read(offset, reads)
+                assert len(data) == reads
+                assert_movie(data, offset)
                 assert vf.gens == again              # the same read starts nothing new
         finally:
             vf.stop()
