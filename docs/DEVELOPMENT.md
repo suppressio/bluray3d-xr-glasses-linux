@@ -83,6 +83,8 @@ The first run creates `.venv` with the pinned tools from `requirements-dev.txt`.
 They need no disc and no drive, and take a few seconds.
 - `tests/builders.py` writes small but real MPLS, CLPI and IFO files and TS streams.
 - `tests/fakes.py` stands in for libbluray and libdvdread (`FakeBluray`, `FakeDvd`).
+- Some tests are property-based ([Hypothesis](https://hypothesis.readthedocs.io), a development dependency only): they generate irregular keyframe timelines and check the invariants of the pipelines. Keep their strategies small: in `test_library.py` every pipeline is a real process.
+- In `test_library.py` a small program stands in for FFmpeg. Whatever is read to its end (the synthetic tail) must end, as `ffmpeg -t` does: one that writes forever fills the memory.
 
 One test file per module: `test_bdmv.py` for `bdmv.py`, and so on. A fix comes with the test that would have caught the bug.
 

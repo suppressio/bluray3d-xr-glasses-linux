@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 import bluray as bluray_module
 import dvd
@@ -174,6 +176,21 @@ def test_bluray_keyframes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     assert s.keyframe_at_or_before(3605.0) == pytest.approx(3604.0, abs=ms)
     # the truncated EP_map time falls a few ms before the in time: never before the clip
     assert s.keyframe_at_or_before(3600.5) == 3600.0
+
+
+def test_bluray_keyframe_within_its_clip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # a keyframe before its clip's start sends the decoder to a time no clip holds
+    # (371d80a); one after the requested time leaves a gap the pipeline never covers
+    s = bluray(monkeypatch, tmp_path, FakeBluray())
+    ends = [*s.starts[1:], s.duration]
+
+    @settings(max_examples=200, deadline=None)
+    @given(clip=st.integers(0, len(s.starts) - 1), into=st.floats(0.0, 1.0, exclude_max=True))
+    def within_clip(clip: int, into: float) -> None:
+        seconds = s.starts[clip] + into * (ends[clip] - s.starts[clip])
+        assert s.starts[clip] <= s.keyframe_at_or_before(seconds) <= seconds
+
+    within_clip()
 
 
 def test_bluray_3d_commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

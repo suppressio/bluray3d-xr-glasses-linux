@@ -83,6 +83,8 @@ Al primo avvio crea `.venv` con gli strumenti alle versioni fissate in `requirem
 Non serve né un disco né un lettore, e durano pochi secondi.
 - `tests/builders.py` scrive file MPLS, CLPI e IFO e flussi TS piccoli ma veri.
 - `tests/fakes.py` sostituisce libbluray e libdvdread (`FakeBluray`, `FakeDvd`).
+- Alcuni test sono property-based ([Hypothesis](https://hypothesis.readthedocs.io), solo dipendenza di sviluppo): generano timeline di keyframe irregolari e controllano gli invarianti delle pipeline. Tieni piccole le strategie: in `test_library.py` ogni pipeline è un processo vero.
+- In `test_library.py` un piccolo programma sostituisce FFmpeg. Quello che viene letto fino alla fine (la coda sintetica) deve terminare, come fa `ffmpeg -t`: uno che scrive all'infinito riempie la memoria.
 
 Un file di test per modulo: `test_bdmv.py` per `bdmv.py`, e così via. Una correzione arriva con il test che avrebbe trovato il bug.
 

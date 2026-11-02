@@ -20,6 +20,7 @@ import copy
 import errno
 import functools
 import logging
+import math
 import os
 import shlex
 import signal
@@ -137,8 +138,12 @@ class Generator:
         # the stream's clock and bytes start at t0: the keyframe, or the requested
         # time when the disc's first keyframe comes after it (0.081s on Il
         # Prigioniero, #73). The pipeline must cover the offset it was started for,
-        # or every read there would start another one
-        t0 = min(start, seconds)
+        # or every read there would start another one. Never before 0: a source
+        # whose first keyframe precedes the start would put the pipeline at a
+        # negative offset, and the head of the file would never be cached.
+        # Down to the millisecond, as -output_ts_offset gets it: otherwise the
+        # clock starts up to 0.5 ms after the bytes, and down keeps base <= the read
+        t0 = math.floor(max(0.0, min(start, seconds)) * 1000) / 1000
         # base aligned to TS packets, so bytes match the global grid
         self.base = int(t0 * vf.bytes_per_sec) // TS_PACKET * TS_PACKET
         self.buf = bytearray()
@@ -208,7 +213,10 @@ class Generator:
                     self.cond.notify_all()
                     return
                 self.buf += data
-                drop = self.reader_pos - BEHIND_KEEP - self.buf_start
+                # never past the end: a pipeline just started from a keyframe far
+                # before the player's position holds less than that, and moving
+                # buf_start beyond its bytes would shift every byte after them
+                drop = min(self.reader_pos - BEHIND_KEEP, self.end) - self.buf_start
                 if drop > 2 * BEHIND_KEEP:  # trim in big chunks: rare memmove
                     del self.buf[:drop]
                     self.buf_start += drop
