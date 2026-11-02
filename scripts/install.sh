@@ -153,11 +153,24 @@ Done. Start it with:
     bluray3d-xr$share_flag --audio-lang eng --subs eng /dev/sr0       # the disc in the drive
     bluray3d-xr$share_flag --audio-lang eng /path/to/your/movies      # ISO, BDMV/VIDEO_TS folders, MKV rips
 Every option: docs/OPTIONS.md
-Commercial Blu-rays need a decryption key database for libaacs in ~/.config/aacs/KEYDB.cfg
+DONE
+# decryption hints only for what is missing (the program checks the same at run time)
+keydb="${XDG_CONFIG_HOME:-$HOME/.config}/aacs/KEYDB.cfg"
+# captured once: grep -q on a pipe would kill ldconfig early (SIGPIPE, fails under pipefail)
+libs=$(/sbin/ldconfig -p)
+if [ ! -f "$keydb" ] && [ ! -f /etc/xdg/aacs/KEYDB.cfg ] \
+        && ! grep -q 'libmmbd\.so\.0' <<<"$libs"; then
+    cat <<HINT
+Commercial Blu-rays need a decryption key database for libaacs in $keydb
 (this project does not provide one), or MakeMKV installed (used via its libmmbd).
+HINT
+fi
+if ! grep -q 'libdvdcss\.so\.2' <<<"$libs"; then
+    cat <<'HINT'
 Encrypted DVDs (CSS) need libdvdcss, not installed by this script. On Debian/Ubuntu:
     sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg   (Debian: "contrib")
-DONE
+HINT
+fi
 case "$SHARE" in
     samba)
         printf 'Then on the glasses open the network share \\\\%s\\Disks\n' "$(hostname -I | awk '{print $1}')" ;;
