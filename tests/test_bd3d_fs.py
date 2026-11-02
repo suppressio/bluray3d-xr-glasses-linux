@@ -92,6 +92,7 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
     def open_disc(device: str, langs: list[str] | None, *,
                   lookup_enabled: bool = False) -> list[Source]:
+        assert lookup_enabled                    # --lookup reaches every open (#84)
         item = next(opened)
         if isinstance(item, Exception):
             raise item
@@ -112,7 +113,7 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     fake_stop = FakeStop()
     monkeypatch.setattr(bd3d_fs.time, "monotonic", lambda: fake_stop.now)
     with pytest.raises(NoMoreStatusError):
-        bd3d_fs.watch_drive("/dev/sr0", Lib(), None, False, cast("threading.Event", fake_stop))
+        bd3d_fs.watch_drive("/dev/sr0", Lib(), None, True, cast("threading.Event", fake_stop))
     # 1st disc: cannot be opened, retried twice, then not again while it stays in;
     # a busy drive and a single "no disc" are not an eject; two in a row are;
     # the 2nd disc opens; the 3rd fails once (a read error) and opens on the retry
