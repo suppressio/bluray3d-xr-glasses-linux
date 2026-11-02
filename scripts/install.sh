@@ -22,8 +22,8 @@ set -euo pipefail
 PREFIX=/opt/bluray3d-xr
 MOUNT=/srv/bd3d
 EDGE264_REPO=https://github.com/jens-duttke/edge264-mvc.git
-# edge264-mvc release v2026.09.22
-EDGE264_COMMIT=44e30b66d43a17418e0b342eba54d69d0c3be829
+# edge264-mvc release v2026.10.19
+EDGE264_COMMIT=f181792e842ce4e99e2ef4a41bfd30c1c1514b42
 MARK_BEGIN="# >>> bluray3d-xr >>>"
 MARK_END="# <<< bluray3d-xr <<<"
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
@@ -62,7 +62,7 @@ sudo apt-get install -y --no-install-recommends "${packages[@]}"
 step "2/5 edge264-mvc decoder (MVC 3D)"
 # built once per pinned commit: the one installed is recorded next to it
 if [ "$(cat "$PREFIX/bin/edge264.commit" 2>/dev/null)" = "$EDGE264_COMMIT" ] \
-        && [ -x "$PREFIX/bin/edge264_test" ]; then
+        && [ -x "$PREFIX/bin/edge264mvc_test" ]; then
     echo "already built (${EDGE264_COMMIT:0:12})"
 else
     build=$(mktemp -d)
@@ -71,12 +71,14 @@ else
     # plain system PATH: toolchains from Homebrew/conda & co. can break the link step
     env PATH=/usr/local/bin:/usr/bin:/bin make -C "$build/edge264" -j"$(nproc)" CC=/usr/bin/gcc >/dev/null
     sudo install -d "$PREFIX/bin" "$PREFIX/app"
-    sudo install -m 755 "$build/edge264/edge264_test" "$PREFIX/bin/"
-    sudo install -m 644 "$build/edge264/libedge264.so.1" "$PREFIX/bin/"
+    sudo install -m 755 "$build/edge264/edge264mvc_test" "$PREFIX/bin/"
+    sudo install -m 644 "$build/edge264/libedge264mvc.so.2" "$PREFIX/bin/"
     echo "$EDGE264_COMMIT" | sudo tee "$PREFIX/bin/edge264.commit" >/dev/null
+    # names used before edge264-mvc's API v2 (v2026.10.19)
+    sudo rm -f "$PREFIX/bin/edge264_test" "$PREFIX/bin/libedge264.so.1"
     rm -rf "$build"
 fi
-"$PREFIX/bin/edge264_test" -h >/dev/null && echo "edge264_test OK"
+"$PREFIX/bin/edge264mvc_test" -h >/dev/null && echo "edge264mvc_test OK"
 
 step "3/5 Program"
 sudo install -d "$PREFIX/app"

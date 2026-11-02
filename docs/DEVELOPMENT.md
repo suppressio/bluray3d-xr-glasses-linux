@@ -164,7 +164,7 @@ The `--debug` command of a pipeline gives the playlist, title and tracks. Each s
 python3 disc_reader.py /dev/sr0 --playlist 00800 --start 600 --mode 2d | ffplay -
 
 # 3D Blu-ray: the two views decoded side by side
-python3 disc_reader.py /dev/sr0 --playlist 00070 --start 600 | edge264_test - -Ok | ffplay -f yuv4mpegpipe -
+python3 disc_reader.py /dev/sr0 --playlist 00070 --start 600 | edge264mvc_test - -O | ffplay -f yuv4mpegpipe -
 
 # DVD: the title with its first audio track
 python3 dvd_reader.py /dev/sr0 --title 2 --start 600 --audio 0x80 | ffplay -f mpeg -

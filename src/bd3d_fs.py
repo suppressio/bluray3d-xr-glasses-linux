@@ -17,7 +17,7 @@ Usage:
     python3 bd3d_fs.py [--mount /srv/bd3d] ~/Videos/3D [more MKVs or folders...]
 Unmount: Ctrl+C (or fusermount3 -u /srv/bd3d)
 
-Requires: python3-trio, edge264_test, ffmpeg, ffprobe; python3-pyfuse3 and fuse3
+Requires: python3-trio, edge264mvc_test, ffmpeg, ffprobe; python3-pyfuse3 and fuse3
 for --share samba/both (fuse_fs.py)
 """
 from __future__ import annotations

@@ -187,12 +187,12 @@ def test_decoded_3d_frames(source: Source, reference: Reference) -> None:
     frames = subprocess.run(
         # no pipefail: ffmpeg stops after 48 frames and edge264 then gets SIGPIPE
         ["bash", "-c",
-         "edge264_test - -Ok | ffmpeg -v error -f yuv4mpegpipe -i - -frames:v 48 -f framemd5 -"],
+         "edge264mvc_test - -O | ffmpeg -v error -f yuv4mpegpipe -i - -frames:v 48 -f framemd5 -"],
         input=video, capture_output=True, check=True).stdout.decode()
     hashes = [line.rsplit(",", 1)[1].strip() for line in frames.splitlines()
               if line and not line.startswith("#")]
     assert len(hashes) == 48
-    header = subprocess.run(["bash", "-c", "edge264_test - -Ok | head -c 64"],
+    header = subprocess.run(["bash", "-c", "edge264mvc_test - -O | head -c 64"],
                             input=video[:4_000_000], capture_output=True, check=False).stdout
     assert header.startswith(b"YUV4MPEG2 W3840 H1080 "), header
     reference.check("48 SBS frames at 50%", _sha("\n".join(hashes).encode()))

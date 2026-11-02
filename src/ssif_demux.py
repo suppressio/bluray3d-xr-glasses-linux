@@ -21,7 +21,7 @@ through libbluray's bd_open_file_dec(). Output: Annex B on stdout.
 
 Usage:
     python3 ssif_demux.py 00131.ssif > movie.264
-    <decrypted ssif bytes> | python3 ssif_demux.py - | edge264_test - -Ok | ...
+    <decrypted ssif bytes> | python3 ssif_demux.py - | edge264mvc_test - -O | ...
 """
 import sys
 from collections import deque
