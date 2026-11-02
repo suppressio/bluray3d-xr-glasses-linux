@@ -114,23 +114,27 @@ def test_a_read_names_the_process_that_opened_the_file(tmp_path: Path) -> None:
 
     # read in a worker thread: still named after the process, not the thread
     trio.run(check)
-    with open(f"/proc/{os.getpid()}/cmdline", "rb") as f:
-        title = " ".join(f.read().decode().replace("\0", " ").split())
-    assert seen == [f"pid {os.getpid()} ({title})"]
+    with open(f"/proc/{os.getpid()}/comm") as f:
+        assert seen == [f"pid {os.getpid()} ({f.read().strip()})"]
     assert current_reader() == "an unknown reader"
 
 
-def test_the_reader_keeps_the_whole_smbd_title() -> None:
-    # smbd's thread name stops at 15 characters, cutting the client's IP
+def test_the_reader_keeps_the_whole_smbd_title(tmp_path: Path) -> None:
+    # smbd's name stops at 15 characters ("smbd[192.168.68"), cutting the client's IP
     title = "smbd: client [192.168.68.65]"
-    with subprocess.Popen(["bash", "-c", f'exec -a "{title}" cat'], stdin=subprocess.PIPE) as p:
+    smbd = tmp_path / "smbd[192.168.68.65]"
+    smbd.symlink_to("/bin/cat")
+    cmd = ["bash", "-c", f'exec -a "{title}" "{smbd}"']
+    with subprocess.Popen(cmd, stdin=subprocess.PIPE) as p:
         try:
-            for _ in range(100):  # until bash has exec'd cat
-                with open(f"/proc/{p.pid}/comm") as f:
-                    if f.read().strip() == "cat":
-                        break
+            expected = f"pid {p.pid} ({title})"
+            got = ""
+            for _ in range(500):  # until bash has exec'd cat and its argv is set
+                got = fuse_fs._process(p.pid)  # pyright: ignore[reportPrivateUsage]
+                if got == expected:
+                    break
                 time.sleep(0.01)
-            assert fuse_fs._process(p.pid) == f"pid {p.pid} ({title})"  # pyright: ignore[reportPrivateUsage]
+            assert got == expected
         finally:
             p.kill()
 
