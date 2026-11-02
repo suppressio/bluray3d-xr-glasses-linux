@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import cast, override
 from urllib.parse import quote, unquote
 
-from tree import Entry, FileEntry, Folder, Tree
+from tree import Entry, FileEntry, Folder, Tree, read_as
 
 log = logging.getLogger("http_server")
 
@@ -115,7 +115,8 @@ class TreeHttpHandler(BaseHTTPRequestHandler):
                 # read again (that would start a new pipeline for a gone disc)
                 if self.tree.nodes.get(entry.inode) is not entry:
                     break
-                data = entry.read(offset, min(CHUNK, end - offset + 1))
+                data = read_as(self.client_address[0], entry, offset,
+                               min(CHUNK, end - offset + 1))
                 if not data:
                     break
                 self.wfile.write(data)

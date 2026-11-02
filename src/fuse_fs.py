@@ -6,6 +6,7 @@ FUSE installed.
 from __future__ import annotations  # annotations are not evaluated: pyfuse3 versions differ
 
 import errno
+import itertools
 import logging
 import os
 import stat
@@ -15,7 +16,7 @@ from typing import override
 import pyfuse3
 import trio
 
-from tree import Entry, Folder, Tree
+from tree import Entry, Folder, Tree, read_as
 
 log = logging.getLogger("bd3d_fs")
 
@@ -28,6 +29,9 @@ class Bd3dFS(pyfuse3.Operations):
     def __init__(self, tree: Tree) -> None:
         super().__init__()
         self.tree = tree
+        # file handle -> (inode, who opened it): read() gets no request context
+        self._handles: dict[int, tuple[int, str]] = {}
+        self._next_fh = itertools.count(1)
         tree.on_remove.append(self._invalidate)
 
     def _invalidate(self, e: Entry) -> None:
@@ -97,7 +101,13 @@ class Bd3dFS(pyfuse3.Operations):
             raise pyfuse3.FUSEError(errno.EROFS)
         # no page cache for the movies: the same bytes can differ between two
         # reads (the loading animation, or the movie once it is ready)
-        return pyfuse3.FileInfo(fh=inode, direct_io=getattr(e, "changing", False))
+        fh = next(self._next_fh)
+        self._handles[fh] = (inode, _process(ctx.pid if ctx else 0))
+        return pyfuse3.FileInfo(fh=fh, direct_io=getattr(e, "changing", False))
+
+    @override
+    async def release(self, fh: int) -> None:
+        self._handles.pop(fh, None)
 
     @override
     async def statfs(self, ctx: pyfuse3.RequestContext | None) -> pyfuse3.StatvfsData:
@@ -113,11 +123,12 @@ class Bd3dFS(pyfuse3.Operations):
 
     @override
     async def read(self, fh: int, off: int, size: int) -> bytes:
-        e = self.tree.nodes.get(fh)
+        inode, reader = self._handles.get(fh, (0, ""))
+        e = self.tree.nodes.get(inode)
         if e is None or isinstance(e, Folder):     # the disc was ejected while playing
             raise pyfuse3.FUSEError(errno.EIO)
         try:
-            return await trio.to_thread.run_sync(e.read, off, size)
+            return await trio.to_thread.run_sync(read_as, reader, e, off, size)
         except pyfuse3.FUSEError:
             raise
         except OSError as err:
@@ -162,3 +173,13 @@ def serve(stop: threading.Event) -> None:
 
 def unmount() -> None:
     pyfuse3.close(unmount=True)
+
+
+def _process(pid: int) -> str:
+    """The process reading through FUSE, for the log: with Samba an smbd child,
+    one per client (smbstatus maps it to an IP)."""
+    try:
+        with open(f"/proc/{pid}/comm") as f:
+            return f"pid {pid} ({f.read().strip()})"
+    except OSError:
+        return f"pid {pid}"

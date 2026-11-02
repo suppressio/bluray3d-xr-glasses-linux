@@ -29,7 +29,7 @@ from library import (
 )
 from pipeline import Quality
 from sources import Source, SubTrack
-from tree import ROOT_ID, Folder, Tree
+from tree import ROOT_ID, Folder, Tree, read_as
 
 PPS = 500                                  # TS packets per second of movie
 BPS = PPS * TS_PACKET                      # bytes per second
@@ -334,6 +334,18 @@ def test_stop_if_idle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(library, "IDLE_STOP", -1)
     vf.stop_if_idle()
     assert vf.gens == [] and gen.stopped
+
+
+def test_log_names_who_started_a_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                         caplog: pytest.LogCaptureFixture) -> None:
+    # pipeline start and idle stop name the reader (#78)
+    caplog.set_level(logging.INFO, logger="bd3d_fs")
+    vf = vfile(tmp_path)
+    read_as("192.168.1.20", vf, 0, 4096)
+    assert "for 192.168.1.20" in caplog.text
+    monkeypatch.setattr(library, "IDLE_STOP", -1)
+    vf.stop_if_idle()
+    assert "stopping a pipeline (started for 192.168.1.20)" in caplog.text
 
 
 class Clock:

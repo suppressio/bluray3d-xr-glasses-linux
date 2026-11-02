@@ -129,7 +129,7 @@ It goes to the terminal and to `~/.local/state/bluray3d-xr/bluray3d-xr.log`, wit
 | `/dev/sr0: disc inserted, opening it` / `disc ejected` | the drive saw a disc go in or out |
 | `+ Blu-ray 3D/ITA - Movie - 3D SBS.ts (120 min, 24.0 Mbit/s, audio …)` | a file appeared: its length, bitrate and tracks |
 | `- …` | a file went away (eject) |
-| `…: pipeline from 1234.5s (requested 1236.0s, offset …)` | a player read there: decoding starts from the keyframe before the requested time |
+| `…: pipeline from 1234.5s (requested 1236.0s, offset …) for 192.168.1.20` | a player read there: decoding starts from the keyframe before the requested time. `for` names the reader: the client IP over DLNA/HTTP, `pid N (smbd)` over Samba (one smbd per client: `sudo smbstatus` gives its IP) |
 | `…: movie ready, 0.6s after the jump (…)` | after a jump, how long the loading animation ran |
 | `…: ignoring the player's late reads for the position it left` | normal after a jump: the player still asks for the old position for a moment |
 | `…: stopping its pipeline, … is reading the same disc` | another file on the same disc started playing: one disc, one pipeline |
@@ -137,7 +137,7 @@ It goes to the terminal and to `~/.local/state/bluray3d-xr/bluray3d-xr.log`, wit
 | `…: the player receives 87% of the data rate …, with 60s of movie ready ahead …` / `back to real time` | the movie is ready but the player pulls it slowly: the network (try `Light/`) or the player itself; then it recovers |
 | `…: the player receives 62% …, and only 0.5s of movie is ready ahead …` | the player is waiting for us: the disc or the decoding is slow there |
 | `…: the player waited 12s for the movie at 1:09:10 …` | one read waited that long for the pipeline: a damaged or dirty spot on the disc, a busy drive or CPU |
-| `…: no reads for 120s, stopping a pipeline` | the player stopped or paused for a long time |
+| `…: no reads for 120s, stopping a pipeline (started for …)` | the player stopped or paused for a long time |
 | `…: read at … failed` + traceback | a bug, or an unreadable disc: the player gets a read error, the program goes on |
 
 `--debug` adds:

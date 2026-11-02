@@ -129,7 +129,7 @@ Va nel terminale e in `~/.local/state/bluray3d-xr/bluray3d-xr.log`, con la data 
 | `/dev/sr0: disc inserted, opening it` / `disc ejected` | il lettore ha visto entrare o uscire un disco |
 | `+ Blu-ray 3D/ITA - Film - 3D SBS.ts (120 min, 24.0 Mbit/s, audio …)` | è comparso un file: durata, bitrate e tracce |
 | `- …` | un file è sparito (espulsione) |
-| `…: pipeline from 1234.5s (requested 1236.0s, offset …)` | un player ha letto lì: la decodifica parte dal fotogramma chiave prima dell'istante chiesto |
+| `…: pipeline from 1234.5s (requested 1236.0s, offset …) for 192.168.1.20` | un player ha letto lì: la decodifica parte dal fotogramma chiave prima dell'istante chiesto. `for` dice chi legge: l'IP del client via DLNA/HTTP, `pid N (smbd)` via Samba (un smbd per client: `sudo smbstatus` ne dà l'IP) |
 | `…: movie ready, 0.6s after the jump (…)` | dopo un salto, quanto è durata l'animazione di caricamento |
 | `…: ignoring the player's late reads for the position it left` | normale dopo un salto: per un attimo il player chiede ancora la posizione vecchia |
 | `…: stopping its pipeline, … is reading the same disc` | è partito un altro file dello stesso disco: un disco, una pipeline |
@@ -137,7 +137,7 @@ Va nel terminale e in `~/.local/state/bluray3d-xr/bluray3d-xr.log`, con la data 
 | `…: the player receives 87% of the data rate …, with 60s of movie ready ahead …` / `back to real time` | il film è pronto ma il player lo prende piano: la rete (prova `Light/`) o il player stesso; poi si riprende |
 | `…: the player receives 62% …, and only 0.5s of movie is ready ahead …` | il player aspetta noi: lì è lento il disco o la decodifica |
 | `…: the player waited 12s for the movie at 1:09:10 …` | una lettura ha aspettato tanto la pipeline: un punto rovinato o sporco del disco, il lettore o la CPU occupati |
-| `…: no reads for 120s, stopping a pipeline` | il player si è fermato o è in pausa da tempo |
+| `…: no reads for 120s, stopping a pipeline (started for …)` | il player si è fermato o è in pausa da tempo |
 | `…: read at … failed` + traceback | un bug, o un disco illeggibile: il player riceve un errore di lettura, il programma va avanti |
 
 `--debug` aggiunge:

@@ -31,6 +31,24 @@ class FileEntry(Protocol):
     def stop_if_idle(self) -> None: ...
 
 
+_reader = threading.local()
+
+
+def current_reader() -> str:
+    """Who is reading, for the log: the front end serving the read names it
+    (read_as); a client IP for HTTP/DLNA, the reading process for FUSE."""
+    return getattr(_reader, "name", "") or "an unknown reader"
+
+
+def read_as(reader: str, entry: FileEntry, offset: int, size: int) -> bytes:
+    """entry.read(offset, size) on behalf of reader (see current_reader)."""
+    _reader.name = reader
+    try:
+        return entry.read(offset, size)
+    finally:
+        _reader.name = ""
+
+
 class Folder:
     """A directory of the tree (the root has id ROOT_ID)."""
 
