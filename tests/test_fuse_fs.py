@@ -2,7 +2,9 @@
 getattr/lookup/readdir/open/read/statfs, and that a read failing on one file
 does not take the program down."""
 import os
+import subprocess
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -112,9 +114,25 @@ def test_a_read_names_the_process_that_opened_the_file(tmp_path: Path) -> None:
 
     # read in a worker thread: still named after the process, not the thread
     trio.run(check)
-    with open(f"/proc/{os.getpid()}/comm") as f:
-        assert seen == [f"pid {os.getpid()} ({f.read().strip()})"]
+    with open(f"/proc/{os.getpid()}/cmdline", "rb") as f:
+        title = " ".join(f.read().decode().replace("\0", " ").split())
+    assert seen == [f"pid {os.getpid()} ({title})"]
     assert current_reader() == "an unknown reader"
+
+
+def test_the_reader_keeps_the_whole_smbd_title() -> None:
+    # smbd's thread name stops at 15 characters, cutting the client's IP
+    title = "smbd: client [192.168.68.65]"
+    with subprocess.Popen(["bash", "-c", f'exec -a "{title}" cat'], stdin=subprocess.PIPE) as p:
+        try:
+            for _ in range(100):  # until bash has exec'd cat
+                with open(f"/proc/{p.pid}/comm") as f:
+                    if f.read().strip() == "cat":
+                        break
+                time.sleep(0.01)
+            assert fuse_fs._process(p.pid) == f"pid {p.pid} ({title})"  # pyright: ignore[reportPrivateUsage]
+        finally:
+            p.kill()
 
 
 def test_two_opens_of_a_file_have_their_own_handles(tmp_path: Path) -> None:
