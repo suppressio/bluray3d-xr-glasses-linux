@@ -33,7 +33,7 @@ from typing import Protocol, TextIO
 
 from pipeline import Quality, decode_command, encoder_args, quality_for
 from sources import Source, ffprobe_json
-from tree import ROOT_ID, FileEntry, Folder, Tree
+from tree import ROOT_ID, FileEntry, Folder, Tree, current_reader
 
 log = logging.getLogger("bd3d_fs")
 
@@ -157,6 +157,7 @@ class Generator:
         self.jump_at: int | None = None       # first offset the player read
         self.path, self.bytes_per_sec, self.is_loader = vf.path, vf.bytes_per_sec, loader
         self.slow_logged = 0.0
+        self.reader = current_reader()     # who made it start, for the log
 
         if loader and vf.loader:
             # same start, so the same timestamps and bytes <-> time mapping as the movie
@@ -170,8 +171,8 @@ class Generator:
                 f"{vf.encode_args} {COMMON_ARGS}"
                 f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {vf.muxrate} -",
             )
-            log.info("%s: pipeline from %.1fs (requested %.1fs, offset %d)",
-                     vf.path, start, seconds, self.base)
+            log.info("%s: pipeline from %.1fs (requested %.1fs, offset %d) for %s",
+                     vf.path, start, seconds, self.base, self.reader)
             if with_loader:
                 self.loader = Generator(vf, seconds, loader=True)
         log.debug("  %s", cmd)
@@ -572,7 +573,8 @@ class VirtualFile:
             for g in idle:
                 self.gens.remove(g)
         for g in idle:
-            log.info("%s: no reads for %ds, stopping a pipeline", self.name, IDLE_STOP)
+            log.info("%s: no reads for %ds, stopping a pipeline (started for %s)",
+                     self.name, IDLE_STOP, g.reader)
             g.stop()
 
     def stop(self) -> None:
