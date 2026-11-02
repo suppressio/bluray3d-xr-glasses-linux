@@ -178,10 +178,18 @@ def unmount() -> None:
 def _process(tid: int) -> str:
     """The process reading through FUSE, for the log: with Samba an smbd child,
     one per client (smbstatus maps it to an IP). FUSE gives the id of the
-    calling thread: its process (Tgid) is what smbstatus shows."""
+    calling thread: its process (Tgid) is what smbstatus shows. The name is the
+    process title ("smbd: client [192.168.68.65]"): Name in status is cut at 15
+    characters, which cuts the client's IP."""
     try:
         with open(f"/proc/{tid}/status") as f:
             fields = dict(line.split(":", 1) for line in f if ":" in line)
-        return f"pid {fields['Tgid'].strip()} ({fields['Name'].strip()})"
+        pid, name = fields["Tgid"].strip(), fields["Name"].strip()
     except (OSError, KeyError):
         return f"pid {tid}"
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            title = " ".join(f.read().decode(errors="replace").replace("\0", " ").split())
+    except OSError:
+        title = ""
+    return f"pid {pid} ({title or name})"

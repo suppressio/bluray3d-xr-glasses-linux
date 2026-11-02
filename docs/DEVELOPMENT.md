@@ -129,7 +129,7 @@ It goes to the terminal and to `~/.local/state/bluray3d-xr/bluray3d-xr.log`, wit
 | `/dev/sr0: disc inserted, opening it` / `disc ejected` | the drive saw a disc go in or out |
 | `+ Blu-ray 3D/ITA - Movie - 3D SBS.ts (120 min, 24.0 Mbit/s, audio …)` | a file appeared: its length, bitrate and tracks |
 | `- …` | a file went away (eject) |
-| `…: pipeline from 1234.5s (requested 1236.0s, offset …) for 192.168.1.20` | a player read there: decoding starts from the keyframe before the requested time. `for` names the reader: the client IP over DLNA/HTTP, `pid N (smbd)` over Samba (one smbd per client: `sudo smbstatus` gives its IP) |
+| `…: pipeline from 1234.5s (requested 1236.0s, offset …) for 192.168.1.20` | a player read there: decoding starts from the keyframe before the requested time. `for` names the reader: the client IP over DLNA/HTTP, `pid N (smbd: client [IP])` over Samba (one smbd per client) |
 | `…: movie ready, 0.6s after the jump (…)` | after a jump, how long the loading animation ran |
 | `…: ignoring the player's late reads for the position it left` | normal after a jump: the player still asks for the old position for a moment |
 | `…: stopping its pipeline, … is reading the same disc` | another file on the same disc started playing: one disc, one pipeline |
