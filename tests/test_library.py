@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterator, Sequence
 from datetime import timedelta
 from pathlib import Path
 from typing import Self, cast, override
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from hypothesis import given, settings
@@ -495,6 +495,22 @@ def test_a_closed_file_starts_no_pipeline(tmp_path: Path) -> None:
     vf.stop()                                   # stop() alone does not reopen it
     vf.read(far, 4096)
     assert vf.gens == []
+    # nor FFmpeg for the synthetic tail, if a late read wants the end
+    with patch.object(library.subprocess, "run") as run:
+        assert vf.read(vf.tail_start, 188) == library.null_padding(vf.tail_start, 188)
+    run.assert_not_called()
+
+
+def test_a_removed_file_starts_no_pipeline(tmp_path: Path) -> None:
+    # its disc was ejected: a read still in flight must not restart it
+    tree, lib = make_library(tmp_path, audio_files="single", sub_langs=[])
+    entries = lib.add(DiscSource(str(tmp_path / "d")))
+    movie = movies(tree)[0]
+    movie.read(0, 4096)
+    lib.remove(entries)
+    far = movie.size // 2 // library.TS_PACKET * library.TS_PACKET
+    movie.read(far, 4096)
+    assert movie.gens == [] and movie.closed
 
 
 def test_log_names_who_started_a_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
