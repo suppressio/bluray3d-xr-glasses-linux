@@ -332,9 +332,9 @@ def test_dlna_start_failure_hints_at_minidlna_on_port_8200(
 
 
 def test_dlna_only_does_not_need_fuse() -> None:
-    # without pyfuse3 the program still imports (--share dlna runs) ...
+    # without FUSE the program still imports (--share dlna runs) ...
     src = Path(bd3d_fs.__file__).parent
-    code = "import sys; sys.modules['pyfuse3'] = None; import bd3d_fs; print('ok')"
+    code = "import sys; sys.modules['mfusepy'] = None; import bd3d_fs; print('ok')"
     done = subprocess.run([sys.executable, "-c", code], cwd=src, capture_output=True,
                           text=True, check=False)
     assert done.stdout.strip() == "ok", done.stderr
@@ -382,7 +382,7 @@ def test_share_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
             assert "sudo apt install samba" in message
         else:
             assert "FUSE, which is not installed" in message
-            assert "install python3-pyfuse3 and fuse3" in message
+            assert "install fuse3, or use --share dlna" in message
         fuse.mount.assert_not_called()
         run.assert_not_called()
     else:

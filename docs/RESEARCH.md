@@ -1,8 +1,8 @@
 🌐 **English** | [Italiano](RESEARCH.it.md)
 
-# Blu-ray research: playlists and title selection
+# Research: Blu-ray playlists, title selection, FUSE adapter
 
-> Research notes, collected on 2026-10-10 and 2026-10-13 while building title selection for multi-episode Blu-rays. Facts on the Blu-ray playlist format and on how other tools pick titles, each with its source; the format itself is not public, so these come from reverse-engineered documentation, source code and forums. The *Summary* is the short version, the sections after it hold the full findings. Code that relies on a finding cites this file (e.g. `src/sources.py`, Q4).
+> Research notes, collected on 2026-10-10 and 2026-10-13 while building title selection for multi-episode Blu-rays. Facts on the Blu-ray playlist format and on how other tools pick titles, each with its source; the format itself is not public, so these come from reverse-engineered documentation, source code and forums. The *Summary* is the short version, the sections after it hold the full findings. Code that relies on a finding cites this file (e.g. `src/sources.py`, Q4). The last section, *FUSE adapter*, is a separate topic measured on 2026-11-03, with its own sources.
 
 ## Summary
 
@@ -612,3 +612,42 @@ Every link cited above, in order of first use.
 - [MakeMKV forum](https://forum.makemkv.com/forum/viewtopic.php?p=136962)
 - [bluback 0.7.1 crate docs](https://docs.rs/crate/bluback/0.7.1)
 - [libbluray navigation.h, code.videolan.org](https://code.videolan.org/videolan/libbluray/-/blob/8014175c0c0a450d93d710edf836ca30b5938502/src/libbdnav/navigation.c)
+
+## FUSE adapter: mfusepy on libfuse3
+
+> Measured on 2026-11-03 for [#129](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/129), the approach of [#7](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/7): can [mfusepy](https://github.com/mxmlnkn/mfusepy) 3.1.1 replace pyfuse3 on Linux? It is the adapter the macOS and Windows ports count on. On a Debian testing PC (Ryzen 9 5900X), libfuse 3.18.3, a fake `VirtualFile` from `tests/test_library.py` (no disc). `src/fuse_fs.py` relies on these findings.
+
+### Takeaway
+
+Yes: on libfuse3 mfusepy serves the files as pyfuse3 did, with nothing lost and nothing to tune. The one trap is the library it loads: with libfuse 2 also installed, mfusepy picks libfuse 2, where reads are capped at 128 KiB and come out of order. `fuse_fs.py` points it at libfuse3 (`FUSE_LIBRARY_PATH`).
+
+### Findings
+
+| | pyfuse3 (before) | mfusepy on libfuse3 |
+|---|---|---|
+| Sequential read, one reader | ~300 MB/s | ~290 MB/s |
+| Largest read the kernel sends | 1 MiB | 1 MiB |
+| Pipeline starts, 100 MB read in order (1 MiB and 8 MiB reads) | 1 | 1 |
+| Pipeline starts, 12 jumps with 8 MiB reads | — | 12 (one per jump) |
+| Two readers, two opens, backend at disc speed | in parallel | in parallel |
+| One open file read by two processes at once | one after the other | one after the other |
+| Who opened the file | thread id → `Tgid` in `/proc` | the same |
+
+- **The library mfusepy loads.** On Linux it looks for libfuse 2 first (`find_library("fuse")`), libfuse3 only if 2 is missing; `FUSE_LIBRARY_PATH` overrides it. The #129 spike ran on libfuse 2.9 without knowing it: reads stuck at 128 KiB (`max_read=` ignored) and, with the default multi-threaded loop, 32 pipeline restarts on 100 MB read in order, against 2 for pyfuse3. On libfuse3 neither happens (table above).
+- **Out-of-order reads are a known FUSE behaviour.** The kernel can send several reads of one file at once ([go-fuse commit](https://github.com/hanwen/go-fuse/commit/15a8bb029a4e1a51e10043c370970596b1fbb737)), and a multi-threaded file system can serve them out of order ([fuse-devel, 2011](https://sourceforge.net/p/fuse/mailman/message/27502648/)). The fix used elsewhere is to clear `FUSE_CAP_ASYNC_READ` and, for `direct_io` files like ours, `FUSE_CAP_ASYNC_DIO`: the kernel then keeps at most one pending read per file handle ([fuse_common.h](https://github.com/libfuse/libfuse/blob/master/include/fuse_common.h)). Measured with and without both: no difference at all on libfuse3, so they are left at libfuse's default, as pyfuse3 had them.
+- **`direct_io` is honoured** (from the #129 spike): five identical `pread()` at one offset reached the file system 5 times out of 5 with `direct_io`, once without (the page cache answered the rest). mfusepy sets it through `raw_fi=True`.
+- **Two reads of one open file wait for each other** with pyfuse3 and with mfusepy alike: it is the kernel, not the adapter. Two opens (two players, or Samba's opens) are served at once.
+- **Ending.** mfusepy runs libfuse's own loop (`fuse_main_real`), which mounts, serves and unmounts; `fuse_fs.py` runs it in a thread. It ends with `fuse_exit()` plus one request to wake the loop (a lookup of a name that does not exist), and libfuse unmounts lazily: a file Samba still holds open does not stop it. Checked: `SIGTERM` and `SIGINT` still reach the program's own handlers after the mount, and the program exits cleanly with a file open.
+- **Packaging.** Debian and Ubuntu have no `python3-mfusepy`; it is one pure-Python file (ISC license, only the standard library), vendored unchanged as `src/mfusepy.py` (sha256 `4edc270e…b9db67c7`). It needs the `fuse3` package (libfuse3), as pyfuse3 did. With pyfuse3 gone nothing imports trio any more, so `python3-trio` can leave the package; it is a hard `Depends` today even for `--share dlna`.
+
+### Gaps
+
+- Not yet tried with Samba and a player on real hardware, nor on Debian 13/Ubuntu 24.04 (libfuse 3.14, whose `fuse_config` layout mfusepy handles separately).
+- macOS (macFUSE, FUSE-T) and Windows (WinFsp): their own issues.
+
+### Sources
+
+- [libfuse: include/fuse_common.h](https://github.com/libfuse/libfuse/blob/master/include/fuse_common.h) (`FUSE_CAP_ASYNC_READ`, `FUSE_CAP_ASYNC_DIO`)
+- [go-fuse: SyncRead option, commit 15a8bb0](https://github.com/hanwen/go-fuse/commit/15a8bb029a4e1a51e10043c370970596b1fbb737)
+- [fuse-devel mailing list, 2011-05-14: reads handled out of order](https://sourceforge.net/p/fuse/mailman/message/27502648/)
+- [mfusepy on GitHub](https://github.com/mxmlnkn/mfusepy)

@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable
 from typing import Protocol
 
-# matches pyfuse3.ROOT_INODE: Bd3dFS reuses tree ids as FUSE inodes directly
+# matches FUSE's root inode: Bd3dFS reports tree ids as inode numbers
 ROOT_ID = 1
 
 

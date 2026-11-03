@@ -6,7 +6,7 @@ is the only platform implemented; a port adds branches here instead of
 touching every module that assumes Linux today.
 
 Named osplatform, not platform: the standard library already has a `platform`
-module (imported by trio's own dependencies), and a module of ours with that
+module (imported by mfusepy), and a module of ours with that
 name would shadow it for anything importing from src/.
 """
 from __future__ import annotations

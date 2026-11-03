@@ -5,7 +5,7 @@ feeds), SidecarFile (a plain passthrough, e.g. external subtitles), Library
 implements. Synchronous and thread-safe, like tree.py: bd3d_fs.py (the
 program: arguments, logging, drive watching) wires it to a front end
 (fuse_fs.py, http_server.py); this module imports neither of them, nor
-pyfuse3 nor trio.
+mfusepy.
 
 The trick behind VirtualFile is a constant-bitrate MPEG-TS (-muxrate): byte X
 of the file always matches second X / bytes_per_sec of the movie. So:
