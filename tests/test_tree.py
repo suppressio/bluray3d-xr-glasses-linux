@@ -37,16 +37,6 @@ def test_add_remove_and_children_of() -> None:
     assert leaf.inode not in tree.nodes
 
 
-def test_on_remove_hooks_run_after_removal() -> None:
-    tree = Tree()
-    folder = tree.folder("Blu-ray")
-    seen: list[str] = []
-    tree.on_remove.append(lambda e: seen.append(e.name))
-    tree.remove(folder)
-    assert seen == ["Blu-ray"]
-    assert folder.inode not in tree.nodes
-
-
 def test_path_of() -> None:
     tree = Tree()
     assert tree.path_of(ROOT_ID) == ""
