@@ -481,6 +481,22 @@ def test_stop_if_idle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert vf.gens == [] and gen.stopped
 
 
+def test_a_closed_file_starts_no_pipeline(tmp_path: Path) -> None:
+    # the program is ending: a read still served (one in flight retries once
+    # its pipeline stops) must not start a pipeline that outlives the program
+    vf = vfile(tmp_path)
+    vf.read(0, 4096)
+    gen = vf.gens[0]
+    vf.close()
+    assert gen.stopped and vf.gens == []
+    far = vf.size // 2 // library.TS_PACKET * library.TS_PACKET
+    assert vf.read(far, 4096) == library.null_padding(far, 4096)
+    assert vf.gens == []
+    vf.stop()                                   # stop() alone does not reopen it
+    vf.read(far, 4096)
+    assert vf.gens == []
+
+
 def test_log_names_who_started_a_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                          caplog: pytest.LogCaptureFixture) -> None:
     # pipeline start and idle stop name the reader (#78)

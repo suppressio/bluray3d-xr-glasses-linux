@@ -235,6 +235,18 @@ def test_an_open_file_keeps_its_own_attributes(tmp_path: Path) -> None:
     assert errno_of(lambda: fs.getattr(None)) == errno.ENOENT
 
 
+def test_serve_fails_when_libfuse_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    # libfuse ending on an error after the mount must fail the program, not
+    # look like an unmount from outside
+    m = fuse_fs._Mount(Bd3dFS(Tree()), "/nowhere")  # pyright: ignore[reportPrivateUsage]
+    m.error = RuntimeError(1)
+    monkeypatch.setattr(fuse_fs, "_mounted", m)    # its thread never started: not alive
+    with pytest.raises(RuntimeError):
+        fuse_fs.serve(threading.Event())
+    m.error = None
+    fuse_fs.serve(threading.Event())                # unmounted from outside: just returns
+
+
 def _fuse_usable() -> bool:
     # the program mounts with allow_other (smbd reads as another user), which
     # a normal user may only do with user_allow_other in /etc/fuse.conf

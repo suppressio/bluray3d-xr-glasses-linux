@@ -376,7 +376,7 @@ def main() -> None:
         pass
     finally:
         for f in tree.files():
-            f.stop()
+            f.close()
         if dlna is not None:
             dlna.stop()
         if use_fuse:

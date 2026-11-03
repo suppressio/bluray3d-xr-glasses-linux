@@ -55,6 +55,9 @@ class FakeFile:
     def stop(self) -> None:
         pass
 
+    def close(self) -> None:
+        pass
+
     def stop_if_idle(self) -> None:
         pass
 

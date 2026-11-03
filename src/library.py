@@ -332,6 +332,7 @@ class VirtualFile:
         self.stale: Generator | None = None
         self.stale_until = 0.0
         self.stale_logged = False
+        self.closed = False                      # the program is ending: no new pipeline
         self.head: bytes | None = None
         self.tail: bytes | None = None
         self.last_read = 0.0
@@ -388,6 +389,8 @@ class VirtualFile:
                          other.path, self.path)
                 other.stop()
         with self.lock:
+            if self.closed:
+                return None
             self.gens = [g for g in self.gens if not g.stopped]
             for g in self.gens:
                 if g.covers(offset):
@@ -592,6 +595,14 @@ class VirtualFile:
         for g in gens:
             g.stop()
 
+    def close(self) -> None:
+        """stop() for good, as the program ends: the front ends may still be
+        serving reads (one in flight retries once its pipeline stops), and a
+        pipeline started for them would outlive the program."""
+        with self.lock:
+            self.closed = True
+        self.stop()
+
 
 class SidecarFile:
     """A real file shown next to a virtual movie (external subtitles): plain passthrough."""
@@ -616,6 +627,9 @@ class SidecarFile:
         pass
 
     def stop(self) -> None:
+        pass
+
+    def close(self) -> None:
         pass
 
 
