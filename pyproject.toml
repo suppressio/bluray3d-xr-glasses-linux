@@ -16,6 +16,8 @@ markers = ["integration: needs a real disc, drive or movie file (run with -m int
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+# vendored as published (fuse_fs.py says why): not ours to restyle
+extend-exclude = ["src/mfusepy.py"]
 
 [tool.ruff.lint]
 select = [
@@ -42,6 +44,7 @@ max-returns = 6
 
 [tool.pyright]
 include = ["src", "tests"]
+exclude = ["src/mfusepy.py"]
 extraPaths = ["src", "tests"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"

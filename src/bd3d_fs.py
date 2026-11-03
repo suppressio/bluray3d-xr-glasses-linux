@@ -17,8 +17,8 @@ Usage:
     python3 bd3d_fs.py [--mount /srv/bd3d] ~/Videos/3D [more MKVs or folders...]
 Unmount: Ctrl+C (or fusermount3 -u /srv/bd3d)
 
-Requires: python3-trio, edge264mvc_test, ffmpeg, ffprobe; python3-pyfuse3 and fuse3
-for --share samba/both (fuse_fs.py)
+Requires: edge264mvc_test, ffmpeg, ffprobe; fuse3 (libfuse3) for --share samba/both
+(fuse_fs.py, through the vendored mfusepy.py)
 """
 from __future__ import annotations
 
@@ -170,8 +170,8 @@ def terminate_on_signal(stop: threading.Event, use_fuse: bool) -> None:
     # Ctrl+C (SIGINT), docker stop / systemctl stop (SIGTERM): unmount (if
     # mounted) and exit cleanly, instead of the traceback a signal leaves by
     # default. The handler only sets stop, and from a thread of its own: it can
-    # interrupt the main thread anywhere (before or after trio runs FUSE, or
-    # while it holds stop's lock); fuse_fs.serve() ends FUSE from trio itself.
+    # interrupt the main thread anywhere (before or while it waits in
+    # fuse_fs.serve(), or while it holds stop's lock); fuse_fs.unmount() ends FUSE.
     def handler(_signum: int, _frame: object) -> None:
         log.info("stopping%s", ": unmounting" if use_fuse else "")
         threading.Thread(target=stop.set).start()
@@ -226,13 +226,13 @@ def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] 
 
 def require_fuse(share: str) -> None:
     """fuse_fs is imported only when FUSE is used (here first): --share dlna
-    must start on a system without pyfuse3 and fuse3."""
+    must start on a system without fuse3."""
     try:
         importlib.import_module("fuse_fs")
     except ImportError as e:
         raise SystemExit(f"--share {share} mounts the files with FUSE, which is not installed "
                          f"({e}): run scripts/install.sh --share {share}, "
-                         "install python3-pyfuse3 and fuse3, or use --share dlna") from e
+                         "install fuse3, or use --share dlna") from e
 
 
 def require_samba(share: str) -> None:
@@ -326,7 +326,7 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     if args.debug:
-        log.setLevel(logging.DEBUG)      # ours only: pyfuse3's debug output is huge
+        log.setLevel(logging.DEBUG)      # ours only: libfuse's debug output is huge
     log_path: str = args.log
     log_to_file(log_path)
 
