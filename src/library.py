@@ -332,7 +332,7 @@ class VirtualFile:
         self.stale: Generator | None = None
         self.stale_until = 0.0
         self.stale_logged = False
-        self.closed = False                      # the program is ending: no new pipeline
+        self.closed = False                      # gone for good: no new pipeline
         self.head: bytes | None = None
         self.tail: bytes | None = None
         self.last_read = 0.0
@@ -506,6 +506,8 @@ class VirtualFile:
             return None
         with self.lock:
             if self.tail is None:
+                if self.closed:                  # no FFmpeg for it any more
+                    return null_padding(offset, size)
                 self.tail = self._synthetic_tail()
         if offset >= tail_start:
             return self.tail[offset - tail_start:offset - tail_start + size]
@@ -596,9 +598,10 @@ class VirtualFile:
             g.stop()
 
     def close(self) -> None:
-        """stop() for good, as the program ends: the front ends may still be
-        serving reads (one in flight retries once its pipeline stops), and a
-        pipeline started for them would outlive the program."""
+        """stop() for good, when the file leaves the tree (its disc ejected) or
+        the program ends: the front ends may still be serving reads of it (one
+        in flight retries once its pipeline stops), and a pipeline or FFmpeg
+        started for them would outlive the file and the program."""
         with self.lock:
             self.closed = True
         self.stop()
@@ -723,7 +726,7 @@ class Library:
 
     def remove(self, entries: Sequence[FileEntry]) -> None:
         for e in entries:
-            e.stop()
+            e.close()
             self.tree.remove(e)
             log.info("- %s", e.path)
         # folders left empty go too, deepest first (Multi-audio/, Light/, then the
