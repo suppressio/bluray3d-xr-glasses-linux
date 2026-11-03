@@ -210,10 +210,13 @@ def mount(tree: Tree, mount_point: str) -> None:
 
 def serve(stop: threading.Event) -> None:
     """Serves until stop is set, or until the file system is unmounted from
-    outside (the FUSE loop ends by itself)."""
+    outside (the FUSE loop ends by itself). libfuse failing raises here, so the
+    program fails too instead of ending as if unmounted."""
     m = _mounted
     while m is not None and m.thread.is_alive() and not stop.wait(1):
         pass
+    if m is not None and not m.thread.is_alive() and m.error is not None:
+        raise m.error
 
 
 def unmount() -> None:
