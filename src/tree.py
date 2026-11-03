@@ -11,7 +11,6 @@ nothing about FUSE or HTTP.
 """
 import threading
 import time
-from collections.abc import Callable
 from typing import Protocol
 
 # matches FUSE's root inode: Bd3dFS reports tree ids as inode numbers
@@ -77,10 +76,6 @@ class Tree:
         # bumped on every add/remove: DLNA's SystemUpdateID, so a renderer that
         # cached a listing sees that a disc went in or out
         self.revision = 0
-        # front ends that need to react to a removal (Bd3dFS: invalidate the
-        # kernel's cache of the name) subscribe here; Library itself only
-        # changes the tree, it does not know who else is serving it
-        self.on_remove: list[Callable[[Entry], None]] = []
 
     def new_id(self) -> int:
         with self.lock:
@@ -100,8 +95,6 @@ class Tree:
             self.children.get(e.parent, []).remove(e)
             self.by_name.pop((e.parent, e.name), None)
             self.revision += 1
-        for callback in self.on_remove:
-            callback(e)
 
     def folder(self, name: str, parent: int = ROOT_ID) -> Folder:
         """Sub-folder, created on first use."""

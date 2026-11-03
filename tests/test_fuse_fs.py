@@ -195,36 +195,44 @@ def test_init_sets_up_libfuse(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not fs.end_loop()                    # not mounted yet
     fs.init_with_config(None, config)
     assert fs.mounted.is_set()
-    assert (config.use_ino, config.entry_timeout, config.attr_timeout) == (1, 5, 300)
+    assert (config.use_ino, config.entry_timeout, config.attr_timeout) == (1, 5, 5)
     assert fs.end_loop() and exited == [1234]
     fs.destroy("/")
     assert not fs.end_loop() and exited == [1234]    # never after libfuse freed it
 
 
-def test_a_removed_file_is_invalidated_by_path(monkeypatch: pytest.MonkeyPatch,
-                                               tmp_path: Path) -> None:
-    # another disc's file with the same name must not show the old one's size
+@pytest.mark.usefixtures("context")
+def test_the_times_reach_libfuse(tmp_path: Path) -> None:
+    # mfusepy reads st_mtime & co. (in ns with use_ns): other keys are dropped
     tree, lib = make_library(tmp_path, audio_files="single", sub_langs=[])
     fs = Bd3dFS(tree)
     lib.add(DiscSource(str(tmp_path / "d")))
     movie = movies(tree)[0]
-    invalidated: list[bytes] = []
-    done = threading.Event()
+    movie.mtime_ns = 1_700_000_000_123_456_789
+    st = mfusepy.c_stat()
+    mfusepy.set_st_attrs(st, fs.getattr("/Blu-ray/Movie.ts"), use_ns=True)  # pyright: ignore[reportUnknownMemberType]
+    assert (st.st_mtimespec.tv_sec, st.st_mtimespec.tv_nsec) == (1_700_000_000, 123_456_789)
+    assert st.st_size == movie.size and st.st_ino == movie.inode
 
-    def invalidate(ptr: ctypes.c_void_p, path: bytes) -> int:
-        invalidated.append(path)
-        done.set()
-        return 0
 
-    monkeypatch.setattr(fuse_fs, "_libfuse", SimpleNamespace(fuse_invalidate_path=invalidate))
-    tree.remove(movie)                          # not mounted: nothing to tell libfuse
-    time.sleep(0.1)
-    assert invalidated == []
+@pytest.mark.usefixtures("context")
+def test_an_open_file_keeps_its_own_attributes(tmp_path: Path) -> None:
+    # the disc is swapped while Samba holds the old file open: fstat() on it
+    # must not describe the new disc's file at the same path
+    tree, lib = make_library(tmp_path, audio_files="single", sub_langs=[])
+    fs = Bd3dFS(tree)
     lib.add(DiscSource(str(tmp_path / "d")))
-    fs._fuse = 1234  # pyright: ignore[reportPrivateUsage]
-    tree.remove(movies(tree)[0])
-    assert done.wait(5)
-    assert invalidated == [b"/Blu-ray/Movie.ts"]
+    old = movies(tree)[0]
+    f = fi()
+    fs.open("/Blu-ray/Movie.ts", f)
+    assert fs.getattr("/Blu-ray/Movie.ts", f)["st_ino"] == old.inode
+    tree.remove(old)
+    lib.add(DiscSource(str(tmp_path / "d")))
+    new = movies(tree)[0]
+    assert new.inode != old.inode
+    assert errno_of(lambda: fs.getattr("/Blu-ray/Movie.ts", f)) == errno.ENOENT
+    assert fs.getattr("/Blu-ray/Movie.ts")["st_ino"] == new.inode     # by path: the new one
+    assert errno_of(lambda: fs.getattr(None)) == errno.ENOENT
 
 
 def _fuse_usable() -> bool:

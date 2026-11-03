@@ -35,8 +35,11 @@ log = logging.getLogger("bd3d_fs")
 # the loaded libfuse3 itself, for the calls mfusepy does not wrap
 _libfuse: Any = mfusepy._libfuse  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
-ENTRY_TIMEOUT = 5          # short: the tree changes when discs come and go
-ATTR_TIMEOUT = 300
+# short: the tree changes when discs come and go. Also how long the kernel may
+# show a removed file's size for another one at the same path (a disc swap
+# takes longer): libfuse is not told about removals, it frees its tables
+# before telling us it is gone, and a call racing with that would crash
+ENTRY_TIMEOUT = ATTR_TIMEOUT = 5
 EXIT_WAIT = 10             # seconds for the FUSE loop to end on unmount
 
 
@@ -52,12 +55,11 @@ class Bd3dFS(mfusepy.Operations):
         # file handle -> (entry, who opened it): read() gets no request context
         self._handles: dict[int, tuple[FileEntry, str]] = {}
         self._next_fh = itertools.count(1)
-        # libfuse's struct fuse, from init() to destroy(): for invalidations
-        # and for ending the loop. The lock keeps it from being freed under them.
+        # libfuse's struct fuse, from init() to destroy(): to end the loop.
+        # destroy() runs before libfuse frees it, and waits on the lock.
         self._fuse: int | None = None
         self._fuse_lock = threading.Lock()
         self.mounted = threading.Event()
-        tree.on_remove.append(self._invalidate)
 
     def init_with_config(self, conn_info: Any, config_3: Any) -> None:  # noqa: ANN401, ARG002
         with self._fuse_lock:
@@ -80,31 +82,25 @@ class Bd3dFS(mfusepy.Operations):
             _libfuse.fuse_exit(ctypes.c_void_p(self._fuse))
         return True
 
-    def _invalidate(self, e: Folder | FileEntry) -> None:
-        # drop what the kernel cached about the path (its size above all), or
-        # another disc's file with the same name would show the old one's. In a
-        # thread: the kernel may wait on a read of that file, and the caller
-        # (a drive watcher) must not wait with it.
-        path = self.tree.path_of(e.parent)
-        path = f"/{path}/{e.name}" if path else f"/{e.name}"
-
-        def invalidate() -> None:
-            with self._fuse_lock:
-                if self._fuse is not None:
-                    _libfuse.fuse_invalidate_path(ctypes.c_void_p(self._fuse), path.encode())
-
-        threading.Thread(target=invalidate, daemon=True, name="FUSE invalidate").start()
-
-    def _entry(self, path: str) -> Folder | FileEntry:
-        e = self.tree.lookup(path)
+    def _entry(self, path: str | None) -> Folder | FileEntry:
+        e = self.tree.lookup(path) if path is not None else None
         if e is None:
             raise mfusepy.FuseOSError(errno.ENOENT)
         return e
 
+    def _opened(self, fh: int) -> FileEntry | None:
+        """The file a handle opened, while it is still in the tree: the same
+        path may meanwhile be another disc's file."""
+        handle = self._handles.get(fh)
+        if handle is None or self.tree.nodes.get(handle[0].inode) is not handle[0]:
+            return None
+        return handle[0]
+
     def _attr(self, e: Folder | FileEntry) -> dict[str, int]:
+        # mfusepy takes st_*time in nanoseconds when use_ns is set
         a = {"st_ino": e.inode, "st_uid": os.getuid(), "st_gid": os.getgid(),
              "st_blksize": 1 << 20,
-             "st_atime_ns": e.mtime_ns, "st_mtime_ns": e.mtime_ns, "st_ctime_ns": e.mtime_ns}
+             "st_atime": e.mtime_ns, "st_mtime": e.mtime_ns, "st_ctime": e.mtime_ns}
         if isinstance(e, Folder):
             a |= {"st_mode": stat.S_IFDIR | 0o555, "st_nlink": 2, "st_size": 0}
         else:
@@ -112,7 +108,13 @@ class Bd3dFS(mfusepy.Operations):
         a["st_blocks"] = (a["st_size"] + 511) // 512
         return a
 
-    def getattr(self, path: str, fh: int | None = None) -> dict[str, int]:  # noqa: ARG002
+    def getattr(self, path: str | None, fh: Any = None) -> dict[str, int]:  # noqa: ANN401
+        # fstat() on an open file: that file, even if the path now shows another
+        if fh is not None and fh.fh in self._handles:
+            e = self._opened(fh.fh)
+            if e is None:
+                raise mfusepy.FuseOSError(errno.ENOENT)
+            return self._attr(e)
         return self._attr(self._entry(path))
 
     def readdir(self, path: str, fh: int) -> list[str]:  # noqa: ARG002
@@ -152,11 +154,10 @@ class Bd3dFS(mfusepy.Operations):
                 "f_namemax": 255}
 
     def read(self, path: str, size: int, offset: int, fh: Any) -> bytes:  # noqa: ARG002, ANN401
-        handle = self._handles.get(fh.fh)
-        # an unknown handle, or a file whose disc was ejected while playing
-        if handle is None or self.tree.nodes.get(handle[0].inode) is not handle[0]:
+        e = self._opened(fh.fh)
+        if e is None:        # an unknown handle, or a file whose disc was ejected while playing
             raise mfusepy.FuseOSError(errno.EIO)
-        e, reader = handle
+        reader = self._handles[fh.fh][1]
         try:
             return read_as(reader, e, offset, size)
         except OSError as err:
