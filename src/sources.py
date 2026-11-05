@@ -399,7 +399,7 @@ def _safe_name(name: str) -> str:
 # season markers in the disc name/label, one word per language (#27); the bare
 # "S1"/"S01" form last, so "Staffel 1" etc. are tried first
 _SEASON_PATTERNS = [re.compile(rf"\b{word}\s*0*(\d{{1,2}})\b", re.IGNORECASE) for word in
-                    ("staffel", "stagione", "saison", "season", "s")]
+                    ("staffel", "stagione", "saison", "season", "temporada", "s")]
 # a disc that names itself "Disc 2", "Vol. 1", "Teil 2"... is only part of a season:
 # its first episode number cannot be known offline (#27)
 _DISC_PART_PATTERN = re.compile(
@@ -447,16 +447,25 @@ def _parse_disc_part(*names: str) -> tuple[str, str] | None:
 def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool
                   ) -> tuple[str, str]:
     """An episode's file name and subfolder: extras (#39) are numbered apart and go
-    in Extra/; an episode gets S<season>E<episode> first when the season is known
-    and reliable (#27). Otherwise (#80) "E<episode> - <name>", with the disc/volume
-    marker in parentheses when the disc's name carries one (e.g. "Disco 1")."""
-    if extra:
-        return f"{name} - Extra {episode}", "Extra"
+    in Extra/, named after the show like episodes are (#81); an episode gets
+    S<season>E<episode> first when the season is known and reliable (#27).
+    Otherwise (#80) "E<episode> - <name>", with the disc/volume marker in
+    parentheses when the disc's name carries one (e.g. "Disco 1"). The raw disc
+    name/label may have underscores instead of spaces (#81): cleaned up already by
+    _parse_season/_parse_disc_part, or here for the fallback with no marker at all."""
     season_show = _parse_season(*raw_names)
+    disc_part = _parse_disc_part(*raw_names) if season_show is None else None
+    if extra:
+        if season_show is not None:
+            show = season_show[1]
+        elif disc_part is not None:
+            show = disc_part[1]
+        else:
+            show = name.replace("_", " ")
+        return f"{_safe_name(show)} - Extra {episode}", "Extra"
     if season_show is not None:
         season, show = season_show
         return f"S{season:02d}E{episode:02d} - {_safe_name(show)}", ""
-    disc_part = _parse_disc_part(*raw_names)
     if disc_part is not None:
         marker, show = disc_part
         return f"E{episode:02d} - {_safe_name(show)} ({marker})", ""
