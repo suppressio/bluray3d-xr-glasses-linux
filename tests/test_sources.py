@@ -61,6 +61,7 @@ def test_safe_name(name: str, expected: str) -> None:
     ("Westworld Season 2", (2, "Westworld")),
     ("Il Trono Di Spade Stagione 3", (3, "Il Trono Di Spade")),
     ("Dix Pour Cent Saison 1", (1, "Dix Pour Cent")),
+    ("Serie_Temporada_2", (2, "Serie")),
     ("Show Season 1 Disc 2", None),           # split over discs: unreliable
     ("Show Vol. 2 Season 1", None),
     ("Show Stagione 1 Disco 2", None),
@@ -329,15 +330,15 @@ def test_bluray_all_on_dedup_and_audio_fallback(
     assert [s.playlist for s in found] == ["00001", "00002", "00021", "00022"]
     assert [s.audio_langs for s in found] == [["ita"], ["ita"], ["eng"], ["eng"]]
     assert caplog.text.count("no ita audio track, using eng") == 2
-    assert "Rick and Morty Staffel1 - Extra 1: no ita audio track, using eng" in caplog.text
-    assert "Rick and Morty Staffel1 - Extra 2: no ita audio track, using eng" in caplog.text
+    assert "Rick and Morty - Extra 1: no ita audio track, using eng" in caplog.text
+    assert "Rick and Morty - Extra 2: no ita audio track, using eng" in caplog.text
     # #27: the season from the disc name ("Staffel1"), episodes in play-all order;
-    # #39: the eng-only titles are the disc's extras, numbered apart in Extra/, and
-    # keep today's naming (no episode number applies to them)
+    # #39: the eng-only titles are the disc's extras, numbered apart in Extra/;
+    # #81: named after the show like the episodes, no episode number applies to them
     assert [(s.name, s.subfolder) for s in found] == [
         ("S01E01 - Rick and Morty", ""), ("S01E02 - Rick and Morty", ""),
-        ("Rick and Morty Staffel1 - Extra 1", "Extra"),
-        ("Rick and Morty Staffel1 - Extra 2", "Extra")]
+        ("Rick and Morty - Extra 1", "Extra"),
+        ("Rick and Morty - Extra 2", "Extra")]
     # the same split whatever language is asked for (#39: eng would number them 3, 4)
     for langs in (["eng"], None):
         again = BlurayDiscSource.all_on(str(iso), langs)
@@ -750,6 +751,22 @@ def test_bluray_uniform_lang_label_episode_without_audio(
 ])
 def test_parse_disc_part(name: str, expected: tuple[str, str] | None) -> None:
     assert sources._parse_disc_part(name) == expected
+
+
+@pytest.mark.parametrize(("name", "raw_names", "expected"), [
+    # #81: a recognised season names the extra after the show, not the raw disc name
+    ("Rick_and_Morty_Staffel1", ["Rick_and_Morty_Staffel1", "RICK AND MORTY STAFFEL1"],
+     ("Rick and Morty - Extra 1", "Extra")),
+    # a disc-part marker still gives the cleaned show name (no marker for extras)
+    ("Il_Prigioniero_Disco_1", ["Il_Prigioniero_Disco_1", "IL PRIGIONIERO DISCO 1"],
+     ("Il Prigioniero - Extra 2", "Extra")),
+    # neither recognised: underscores in the fallback name become spaces
+    ("Firefly_Bonus", ["Firefly_Bonus", "FIREFLY BONUS"], ("Firefly Bonus - Extra 3", "Extra")),
+])
+def test_episode_name_extra(name: str, raw_names: list[str],
+                            expected: tuple[str, str]) -> None:
+    episode = int(expected[0].rsplit(" ", 1)[1])
+    assert sources._episode_name(name, raw_names, episode, True) == expected
 
 
 NO_EXTRAS: list[str] = []
