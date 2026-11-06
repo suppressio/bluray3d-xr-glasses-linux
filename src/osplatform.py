@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
-import fcntl
 import glob
 import os
 import sys
@@ -22,6 +21,12 @@ from pathlib import Path
 
 LINUX = sys.platform == "linux"
 MACOS = sys.platform == "darwin"
+
+# fcntl is POSIX only: importing it unconditionally would crash this module (and
+# everything that imports it, down to bd3d_fs.py) on Windows before drive_status()
+# below even gets a chance to say "not Linux" (#10 gives Windows its own drive check)
+if sys.platform != "win32":
+    import fcntl
 
 
 class DriveStatus(Enum):

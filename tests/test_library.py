@@ -34,6 +34,11 @@ from pipeline import Quality
 from sources import Source, SubTrack
 from tree import ROOT_ID, Folder, Tree, read_as
 
+# real pipelines here run through bash -o pipefail and are stopped with
+# os.killpg: neither exists on native Windows until #103 replaces them
+pytestmark = pytest.mark.skipif(sys.platform == "win32",
+                                reason="bash pipelines and os.killpg, POSIX only until #103")
+
 PPS = 500                                  # TS packets per second of movie
 BPS = PPS * TS_PACKET                      # bytes per second
 QUALITY = Quality("normal", 1, BPS * 8)
