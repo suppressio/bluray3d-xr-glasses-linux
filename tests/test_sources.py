@@ -2,6 +2,7 @@ import logging
 import os
 import shlex
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -194,6 +195,8 @@ def test_bluray_keyframe_within_its_clip(monkeypatch: pytest.MonkeyPatch, tmp_pa
     within_clip()
 
 
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="3D audio uses os.mkfifo, POSIX only until #103")
 def test_bluray_3d_commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     s = bluray(monkeypatch, tmp_path, FakeBluray(), ["ita"],
                env={"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"})
