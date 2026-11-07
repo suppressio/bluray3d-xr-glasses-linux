@@ -23,7 +23,7 @@ RUN git -c safe.directory='*' -C /repo describe --tags --always > /version 2>/de
 FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ffmpeg python3 python3-pyfuse3 fuse3 samba tini libbluray2 libaacs0 libbdplus0 libdvdread8 \
+      ffmpeg python3 fuse3 samba tini libbluray2 libaacs0 libbdplus0 libdvdread8 \
  && rm -rf /var/lib/apt/lists/*
 # edge264mvc_test finds libedge264mvc.so.2 next to itself (rpath $ORIGIN)
 COPY --from=edge264 /edge264/edge264mvc_test /edge264/libedge264mvc.so.2 /usr/local/bin/
