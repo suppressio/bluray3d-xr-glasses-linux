@@ -41,9 +41,10 @@ from typing import Any, Protocol, Self, cast, override
 
 import bluray
 import dvd
+import lookup
 from bdmv import Clip, PlayItem, m2ts_seek, parse_clpi, parse_mpls, ssif_seek
 from langs import lang as to_lang
-from osplatform import has_library
+from osplatform import default_cache_dir, has_library
 
 log = logging.getLogger("bd3d_fs")
 
@@ -448,15 +449,16 @@ def _parse_disc_part(*names: str) -> tuple[str, str] | None:
     return None
 
 
-def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool
-                  ) -> tuple[str, str]:
+def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool,
+                  online_title: str | None = None) -> tuple[str, str]:
     """An episode's file name and subfolder: extras (#39) are numbered apart and go
     in Extra/, named after the show like episodes are (#81); an episode gets
     S<season>E<episode> first when the season is known and reliable (#27).
     Otherwise (#80) "E<episode> - <name>", with the disc/volume marker in
-    parentheses when the disc's name carries one (e.g. "Disco 1"). The raw disc
-    name/label may have underscores instead of spaces (#81): cleaned up already by
-    _parse_season/_parse_disc_part, or here for the fallback with no marker at all."""
+    parentheses when the disc's name carries one (e.g. "Disco 1"). Either way, its
+    real title from --lookup (#84) is appended when one was found online. The raw
+    disc name/label may have underscores instead of spaces (#81): cleaned up already
+    by _parse_season/_parse_disc_part, or here for the fallback with no marker at all."""
     season_show = _parse_season(*raw_names)
     disc_part = _parse_disc_part(*raw_names) if season_show is None else None
     if extra:
@@ -469,11 +471,53 @@ def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool
         return f"{_safe_name(show)} - Extra {episode}", "Extra"
     if season_show is not None:
         season, show = season_show
-        return f"S{season:02d}E{episode:02d} - {_safe_name(show)}", ""
-    if disc_part is not None:
+        base = f"S{season:02d}E{episode:02d} - {_safe_name(show)}"
+    elif disc_part is not None:
         marker, show = disc_part
-        return f"E{episode:02d} - {_safe_name(show)} ({marker})", ""
-    return f"E{episode:02d} - {name}", ""
+        base = f"E{episode:02d} - {_safe_name(show)} ({marker})"
+    else:
+        base = f"E{episode:02d} - {name}"
+    if online_title:
+        base = f"{base} - {_safe_name(online_title)}"
+    return base, ""
+
+
+def _content_hash(disc: bluray.Disc) -> str | None:
+    """TheDiscDB's disc fingerprint (#84): MD5 of the size of every .m2ts file
+    directly in BDMV/STREAM, one 8-byte little-endian integer per file in name
+    order, hex uppercase (TheDiscDb/web: DiscScanner.cs picks the files,
+    ClientApiController.Hash sorts them by name, HashingExtensions.cs hashes).
+    Every stream file counts, menus and extras included, not only the clips of
+    the episodes. Each size is read from the clip's CLPI (packets x 192 bytes,
+    equal to the file size on every clip of the real disc tried) rather than from
+    the stream itself. None if the folder or a clip cannot be read, so the
+    caller skips TheDiscDB instead of failing the disc over it."""
+    try:
+        names = sorted(n for n in disc.list_dir("BDMV/STREAM") if n.lower().endswith(".m2ts"))
+        digest = hashlib.md5(usedforsecurity=False)
+        for name in names:
+            clpi = disc.read_file(f"BDMV/CLIPINF/{name[:-5]}.clpi")
+            digest.update((parse_clpi(clpi).num_packets * 192).to_bytes(8, "little"))
+        return digest.hexdigest().upper() if names else None
+    except (OSError, ValueError, IndexError) as e:
+        log.info("content hash failed, skipping TheDiscDB: %s", e)
+        return None
+
+
+def _online_episode_titles(path: str, disc: bluray.Disc,
+                           episodes: list[bluray.Title]) -> list[str | None]:
+    """Episode titles for --lookup (#84), one per `episodes`, from TheDiscDB by
+    the disc's content hash. None for every episode on no match or any problem:
+    the offline naming (#27) keeps going either way, logged here once instead
+    of failing the disc over it."""
+    content_hash = _content_hash(disc)
+    titles: list[str | None] = [None] * len(episodes)
+    if content_hash:
+        titles = lookup.episode_titles(os.path.join(default_cache_dir(), "lookup"),
+                                       content_hash, [t.playlist for t in episodes])
+    log.info("%s: %s", path, "episode titles found online" if any(titles) else
+             "no online episode titles, using the offline names")
+    return titles
 
 
 AUDIO_PREFERENCE = ["dts-hd ma", "dts-hd", "dts", "ac3", "eac3", "lpcm", "truehd"]
@@ -653,12 +697,16 @@ class BlurayDiscSource(DiscSource):
     """
 
     @classmethod
-    def all_on(cls, path: str, audio_langs: list[str] | None = None) -> list[Source]:
+    def all_on(cls, path: str, audio_langs: list[str] | None = None, *,
+              lookup_enabled: bool = False) -> list[Source]:
         """One source per episode when the disc holds a TV series; one source otherwise.
 
         A single bd_open (+ AACS handshake) for the whole disc, kept open while every
         episode source is built from it (see the `_disc` parameter of __init__), instead
         of each one reopening the disc on its own.
+
+        `lookup_enabled` (--lookup, #84): episode titles from TheDiscDB, see
+        _online_episode_titles(); off by default, so no network is touched unless asked.
         """
         disc, info, env = _open_disc(path)
         try:
@@ -727,7 +775,11 @@ class BlurayDiscSource(DiscSource):
                     play_all_order = _play_all_order(play_alls, items_by_playlist, episodes, sigs)
                     if play_all_order is not None:
                         episodes = play_all_order
+                    online_titles: list[str | None] = [None] * len(episodes)
+                    if lookup_enabled:
+                        online_titles = _online_episode_titles(path, disc, episodes)
                     found: list[Source] = [cls(path, audio_langs, _title=t, _episode=i,
+                                               _online_title=online_titles[i - 1],
                                                _disc=disc, _info=info, _env=env)
                                            for i, t in enumerate(episodes, 1)]
                     found += [cls(path, audio_langs, _title=t, _episode=i, _extra=True,
@@ -741,6 +793,7 @@ class BlurayDiscSource(DiscSource):
 
     def __init__(self, path: str, audio_langs: list[str] | None = None,
                  _title: bluray.Title | None = None, _episode: int = 0, _extra: bool = False,
+                 _online_title: str | None = None,
                  _disc: bluray.Disc | None = None, _info: bluray.DiscInfo | None = None,
                  _env: dict[str, str] | None = None) -> None:
         self.path = path
@@ -780,7 +833,7 @@ class BlurayDiscSource(DiscSource):
         self.name = _safe_name(info.name or label)
         if _episode:  # extras (#39) are numbered apart and go in Extra/
             self.name, self.subfolder = _episode_name(self.name, [info.name, label],
-                                                      _episode, _extra)
+                                                      _episode, _extra, _online_title)
         self.duration = sum(it.duration for it in items)
         self.starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
         st = Path(path).stat()
@@ -951,11 +1004,12 @@ class DvdSource(DiscSource):
         return super().audio_map(input_index)
 
 
-def open_disc(path: str, audio_langs: list[str] | None = None) -> list[Source]:
+def open_disc(path: str, audio_langs: list[str] | None = None, *,
+              lookup_enabled: bool = False) -> list[Source]:
     """What the drive/ISO/folder holds: a Blu-ray (3D or 2D), or a DVD (its
-    movie, or its episodes)."""
+    movie, or its episodes). `lookup_enabled`: --lookup (#84), Blu-ray only."""
     try:
-        return BlurayDiscSource.all_on(path, audio_langs)
+        return BlurayDiscSource.all_on(path, audio_langs, lookup_enabled=lookup_enabled)
     except OSError as bd_error:
         try:
             return list(DvdSource.all_on(path, audio_langs))
@@ -1114,7 +1168,8 @@ def is_bluray(path: Path) -> bool:
             or (path.is_dir() and (path / "BDMV" / "index.bdmv").exists()))
 
 
-def discover(paths: list[str], audio_langs: list[str] | None = None) -> list[Source]:
+def discover(paths: list[str], audio_langs: list[str] | None = None, *,
+            lookup_enabled: bool = False) -> list[Source]:
     """Turn command line arguments (files, folders) into sources."""
     candidates: list[Path] = []
     for s in paths:
@@ -1136,7 +1191,7 @@ def discover(paths: list[str], audio_langs: list[str] | None = None) -> list[Sou
     for p in candidates:
         if is_bluray(p) or is_dvd(p):
             try:
-                sources += open_disc(str(p), audio_langs)
+                sources += open_disc(str(p), audio_langs, lookup_enabled=lookup_enabled)
             except OSError as e:
                 # some errors already start with the path: keep it once
                 log.info("%s: skipped: %s", p, str(e).removeprefix(f"{p}: "))

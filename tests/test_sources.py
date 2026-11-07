@@ -42,6 +42,8 @@ from sources import (
     DvdSource,
     MkvSource,
     SubTrack,
+    _content_hash,
+    _episode_name,
     _first_per_lang,
     _parse_season,
     _pick_audio,
@@ -101,6 +103,32 @@ def test_parse_season(name: str, expected: tuple[int, str] | None) -> None:
 def test_parse_season_name_and_label(names: tuple[str, str],
                                      expected: tuple[int, str] | None) -> None:
     assert _parse_season(*names) == expected
+
+
+@pytest.mark.parametrize(("raw_names", "online_title", "expected"), [
+    # #84: a title from --lookup is appended to whichever name #27 already picked
+    (["Rick_and_Morty_Staffel1", "RICK_AND_MORTY_S1"], "Pilot",
+     ("S01E01 - Rick and Morty - Pilot", "")),
+    (["Firefly", "FIREFLY"], "Serenity",
+     ("E01 - Firefly - Serenity", "")),
+    (["Il Prigioniero Disco 1", "IL_PRIGIONIERO_D1"], "Arrivo",
+     ("E01 - Il Prigioniero (Disco 1) - Arrivo", "")),
+    # no online title: today's naming, unchanged
+    (["Rick_and_Morty_Staffel1", "RICK_AND_MORTY_S1"], None,
+     ("S01E01 - Rick and Morty", "")),
+    # SMB-forbidden characters in the online title are stripped like everywhere else
+    (["Firefly", "FIREFLY"], 'The Train Job: Part "2"',
+     ("E01 - Firefly - The Train Job - Part - 2", "")),
+])
+def test_episode_name_online_title(raw_names: list[str], online_title: str | None,
+                                   expected: tuple[str, str]) -> None:
+    assert _episode_name("Firefly", raw_names, 1, False, online_title) == expected
+
+
+def test_episode_name_extra_ignores_online_title() -> None:
+    """An extra's online title, if any, is not used: extras keep #39's own naming."""
+    assert _episode_name("Show", ["Show"], 2, True, "Behind the Scenes") == \
+        ("Show - Extra 2", "Extra")
 
 
 A = [AudioStream(1, "truehd", "eng"), AudioStream(2, "dts-hd ma", "eng"),
@@ -317,6 +345,12 @@ class MultiEpisodeBluray:
         dep = any(name in clips for clips in self.dep_clips.values())
         return clpi(3_000_000, EPS, extents=list(range(0, 3_000_000, 50_000)),
                     pid=0x1012 if dep else 0x1011)
+
+    def list_dir(self, path: str) -> list[str]:
+        assert path == "BDMV/STREAM"
+        clips = {it.clip for items in self.playlists.values() for it in items}
+        clips |= {c for deps in self.dep_clips.values() for c in deps}
+        return [f"{c}.m2ts" for c in clips] + ["SSIF"]
 
     def close(self) -> None:
         self.closed = True
@@ -798,6 +832,143 @@ def test_episode_name_extra(name: str, raw_names: list[str],
                             expected: tuple[str, str]) -> None:
     episode = int(expected[0].rsplit(" ", 1)[1])
     assert sources._episode_name(name, raw_names, episode, True) == expected
+
+
+def test_bluray_lookup_disabled_by_default_touches_no_lookup(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#84: --lookup is opt-in. Without it, lookup.episode_titles() (and so any
+    network access) is never called, even on a multi-episode disc."""
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+    disc = _two_episode_disc("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1")
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("lookup.episode_titles() must not be called")
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    monkeypatch.setattr(sources.lookup, "episode_titles", fail)
+    found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
+    assert [s.name for s in found] == ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
+
+
+def test_bluray_lookup_enabled_appends_online_titles(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """--lookup on: the per-episode title lookup.episode_titles() returns is appended
+    to the offline name, and it is called with this disc's content hash and
+    playlists."""
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+    disc = _two_episode_disc("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1")
+    seen: dict[str, object] = {}
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    def fake_episode_titles(cache_dir: str, content_hash: str, playlists: list[str]
+                            ) -> list[str | None]:
+        seen.update(cache_dir=cache_dir, content_hash=content_hash, playlists=playlists)
+        return ["Pilot", "Lawnmower Dog"]
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    monkeypatch.setattr(sources.lookup, "episode_titles", fake_episode_titles)
+    found = [s for s in BlurayDiscSource.all_on(str(iso), lookup_enabled=True)
+            if isinstance(s, BlurayDiscSource)]
+
+    assert [s.name for s in found] == \
+        ["S01E01 - Rick and Morty - Pilot", "S01E02 - Rick and Morty - Lawnmower Dog"]
+    assert seen["playlists"] == ["00001", "00002"]
+    assert seen["content_hash"]            # computed from the clips just read
+
+
+def test_bluray_lookup_no_titles_found_keeps_offline_naming(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        ) -> None:
+    """lookup.episode_titles() returning nothing (no match / network error, already
+    logged there) must not break naming: the offline S01E.. names are kept, with
+    one more log line here."""
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+    disc = _two_episode_disc("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1")
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    def no_titles(cache_dir: str, content_hash: str, playlists: list[str]
+                 ) -> list[str | None]:
+        return [None, None]
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    monkeypatch.setattr(sources.lookup, "episode_titles", no_titles)
+    caplog.set_level(logging.INFO, logger="bd3d_fs")
+    found = [s for s in BlurayDiscSource.all_on(str(iso), lookup_enabled=True)
+            if isinstance(s, BlurayDiscSource)]
+
+    assert [s.name for s in found] == ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
+    assert "no online episode titles" in caplog.text
+
+
+# the real Rick_Morty_S1 disc (#94): size of each BDMV/STREAM/000NN.m2ts, from
+# stat() on the mounted disc, and the hash TheDiscDB's algorithm gives for them
+RICK_MORTY_S1_SIZES = [
+    4804608, 4866048, 1026048, 69826560, 552960, 523714560, 523714560, 2470379520,
+    2461925376, 2455695360, 2368714752, 2376744960, 2452801536, 2466834432, 2551855104,
+    2502463488, 2566785024, 2503913472, 732162048, 467828736, 464904192, 460517376,
+    449009664, 457365504, 463251456, 470151168, 490199040, 479956992, 522608640, 55283712,
+    8761344, 17491968, 20428800, 21983232, 25823232, 11569152, 18149376, 26480640, 11630592,
+    268953600, 423751680, 229890048, 240175104, 1552078848, 2359296, 2383872, 380928,
+    36526080, 2537472, 4190208, 511954944]
+RICK_MORTY_S1_HASH = "B3A2F27396C687706049262309771947"
+
+
+class StreamDirBluray:
+    """Only what _content_hash() reads: the BDMV/STREAM listing (in disc order,
+    not sorted) and a CLPI per clip with its packet count."""
+
+    def __init__(self, sizes: dict[str, int], extra_names: list[str] | None = None) -> None:
+        self.sizes = sizes
+        self.extra_names = extra_names or []
+
+    def list_dir(self, path: str) -> list[str]:
+        assert path == "BDMV/STREAM"
+        return list(reversed(self.sizes)) + self.extra_names
+
+    def read_file(self, path: str) -> bytes:
+        assert path.startswith("BDMV/CLIPINF/") and path.endswith(".clpi")
+        clip = path.removeprefix("BDMV/CLIPINF/").removesuffix(".clpi")
+        name = next(n for n in self.sizes if n[:-5] == clip)
+        return clpi(self.sizes[name] // 192, [(0, 0)])
+
+
+def test_content_hash_matches_thediscdb_on_a_real_disc() -> None:
+    """#94: every .m2ts in BDMV/STREAM counts, menus and extras no playlist
+    title uses included, sorted by name: the hash TheDiscDB's own scanner gives
+    for the real Rick_Morty_S1 disc. SSIF (a folder) is not a stream file."""
+    sizes = {f"{i:05d}.m2ts": size for i, size in enumerate(RICK_MORTY_S1_SIZES)}
+    disc = StreamDirBluray(sizes, extra_names=["SSIF"])
+    assert _content_hash(disc) == RICK_MORTY_S1_HASH  # type: ignore[arg-type]
+    del sizes["00000.m2ts"]                           # one menu clip less: another disc
+    assert _content_hash(disc) != RICK_MORTY_S1_HASH  # type: ignore[arg-type]
+
+
+def test_content_hash_none_without_stream_files() -> None:
+    assert _content_hash(StreamDirBluray({}, extra_names=["SSIF"])) is None  # type: ignore[arg-type]
+
+
+def test_content_hash_none_on_read_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A clip or the folder that cannot be read (disc problem) must not fail the
+    disc over the hash: None, so the caller just skips TheDiscDB (#84)."""
+    disc = _two_episode_disc("Show", "SHOW")
+
+    def fail(path: str) -> bytes:
+        raise OSError(f"cannot read {path}")
+
+    monkeypatch.setattr(disc, "read_file", fail)
+    assert _content_hash(disc) is None  # type: ignore[arg-type]
+    monkeypatch.setattr(disc, "list_dir", fail)
+    assert _content_hash(disc) is None  # type: ignore[arg-type]
 
 
 NO_EXTRAS: list[str] = []
@@ -1434,7 +1605,8 @@ def test_discover_logs_the_failed_candidate(monkeypatch: pytest.MonkeyPatch, tmp
     iso = tmp_path / "broken.iso"
     iso.write_text("")
 
-    def fails(path: str, audio_langs: list[str] | None = None) -> list[sources.Source]:
+    def fails(path: str, audio_langs: list[str] | None = None, *,
+             lookup_enabled: bool = False) -> list[sources.Source]:
         # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
         prefix = f"{path}: " if prefixed else ""
         raise OSError(prefix + "cannot read the disc (AACS error -1): drive or media problem")

@@ -90,7 +90,9 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
                                                        OSError("read error"),
                                                        DiscSource(str(tmp_path / "d"))])
 
-    def open_disc(device: str, langs: list[str] | None) -> list[Source]:
+    def open_disc(device: str, langs: list[str] | None, *,
+                  lookup_enabled: bool = False) -> list[Source]:
+        assert lookup_enabled                    # --lookup reaches every open (#84)
         item = next(opened)
         if isinstance(item, Exception):
             raise item
@@ -111,7 +113,7 @@ def test_watch_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     fake_stop = FakeStop()
     monkeypatch.setattr(bd3d_fs.time, "monotonic", lambda: fake_stop.now)
     with pytest.raises(NoMoreStatusError):
-        bd3d_fs.watch_drive("/dev/sr0", Lib(), None, cast("threading.Event", fake_stop))
+        bd3d_fs.watch_drive("/dev/sr0", Lib(), None, True, cast("threading.Event", fake_stop))
     # 1st disc: cannot be opened, retried twice, then not again while it stays in;
     # a busy drive and a single "no disc" are not an eject; two in a row are;
     # the 2nd disc opens; the 3rd fails once (a read error) and opens on the retry
@@ -140,7 +142,8 @@ def test_watch_drive_does_not_retry_a_definitive_rejection(
     opened = iter([UnsupportedDiscError("BD+ disc: not decrypted"),
                    DiscSource(str(tmp_path / "d"))])
 
-    def open_disc(device: str, langs: list[str] | None) -> list[Source]:
+    def open_disc(device: str, langs: list[str] | None, *,
+                  lookup_enabled: bool = False) -> list[Source]:
         item = next(opened)
         if isinstance(item, Exception):
             raise item
@@ -163,7 +166,7 @@ def test_watch_drive_does_not_retry_a_definitive_rejection(
     monkeypatch.setattr(bd3d_fs.time, "monotonic", lambda: fake_stop.now)
     with caplog.at_level(logging.INFO, logger=bd3d_fs.log.name), \
             pytest.raises(NoMoreStatusError):
-        bd3d_fs.watch_drive("/dev/sr0", Lib(), None, cast("threading.Event", fake_stop))
+        bd3d_fs.watch_drive("/dev/sr0", Lib(), None, False, cast("threading.Event", fake_stop))
     assert events == ["remove 0", "add"]
     assert next(opened, None) is None            # open_disc called exactly twice: no retry
     messages = [r.getMessage() for r in caplog.records]
@@ -187,7 +190,8 @@ def test_watch_drive_logs_the_device_once(monkeypatch: pytest.MonkeyPatch,
         except StopIteration:
             raise NoMoreStatusError from None
 
-    def open_disc(dev: str, langs: list[str] | None) -> list[Source]:
+    def open_disc(dev: str, langs: list[str] | None, *,
+                  lookup_enabled: bool = False) -> list[Source]:
         # pathless (AACS) and path-bearing ("no title found", CSS) errors alike
         prefix = f"{dev}: " if prefixed else ""
         raise OSError(prefix + "no title found")
@@ -205,7 +209,7 @@ def test_watch_drive_logs_the_device_once(monkeypatch: pytest.MonkeyPatch,
     fake_stop = FakeStop()
     monkeypatch.setattr(bd3d_fs.time, "monotonic", lambda: fake_stop.now)
     with caplog.at_level(logging.INFO, logger=bd3d_fs.log.name), pytest.raises(NoMoreStatusError):
-        bd3d_fs.watch_drive(device, Lib(), None, cast("threading.Event", fake_stop))
+        bd3d_fs.watch_drive(device, Lib(), None, False, cast("threading.Event", fake_stop))
     messages = [r.getMessage() for r in caplog.records]
     assert f"{device}: no title found" in messages              # the device, exactly once
     assert f"{device}: {device}: no title found" not in messages
@@ -228,7 +232,8 @@ def test_run_fails_when_a_watcher_dies(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(bd3d_fs, "watch_drive", broken)
     with pytest.raises(OSError, match="drive gone"):
-        bd3d_fs.run(Tree(), cast("Library", Mock()), ["/dev/sr0"], None, use_fuse=False)
+        bd3d_fs.run(Tree(), cast("Library", Mock()), ["/dev/sr0"], None, use_fuse=False,
+                    lookup_enabled=False)
 
 
 @pytest.mark.skipif(sys.platform == "win32",
@@ -258,7 +263,8 @@ def test_stop_while_a_disc_is_loaded(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         def __exit__(self, *exc: object) -> None:
             self.lock.release()
 
-    def open_disc(device: str, langs: list[str] | None) -> list[Source]:
+    def open_disc(device: str, langs: list[str] | None, *,
+                  lookup_enabled: bool = False) -> list[Source]:
         if busy_in == "open_disc":
             busy.set()
             assert release.wait(5)
@@ -286,7 +292,8 @@ def test_stop_while_a_disc_is_loaded(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     helper = threading.Thread(target=terminate)
     helper.start()
     try:
-        bd3d_fs.run(Tree(), cast("Library", Lib()), ["/dev/sr0"], None, use_fuse=False)
+        bd3d_fs.run(Tree(), cast("Library", Lib()), ["/dev/sr0"], None, use_fuse=False,
+                    lookup_enabled=False)
         done_before_return = list(added)
         watcher = [t for t in threading.enumerate() if t.name == "/dev/sr0"]
     finally:
@@ -334,6 +341,14 @@ def test_dlna_start_failure_hints_at_minidlna_on_port_8200(
     message = str(error.value)
     assert f"cannot start on port {port}" in message
     assert ("minidlna" in message) == hint_expected
+
+
+def test_lookup_off_by_default() -> None:
+    assert bd3d_fs.build_parser().parse_args(["x.mkv"]).lookup is False
+
+
+def test_lookup_flag() -> None:
+    assert bd3d_fs.build_parser().parse_args(["--lookup", "x.mkv"]).lookup is True
 
 
 def test_dlna_only_does_not_need_fuse() -> None:
