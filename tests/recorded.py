@@ -98,7 +98,7 @@ class RecordedSource:
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        return cls(json.loads(path.read_text()))
+        return cls(json.loads(path.read_text(encoding="utf-8")))
 
     def sources(self, monkeypatch: pytest.MonkeyPatch, folder: Path,
                 audio_langs: list[str] | None = None) -> list[Source]:

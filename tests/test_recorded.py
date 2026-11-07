@@ -33,6 +33,19 @@ from sources import BlurayDiscSource, DvdSource, Source, dump_structure, open_di
 from test_library import QUALITY, assert_movie, fake_decode, fake_filler
 from tree import ROOT_ID, Tree
 
+
+@pytest.fixture(autouse=True)
+def windows_default_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Windows reads text as cp1252 unless told otherwise: here Linux does too,
+    so a recording read without encoding="utf-8" fails on both."""
+    read_text = Path.read_text
+
+    def cp1252_by_default(self: Path, encoding: str | None = None,
+                          errors: str | None = None) -> str:
+        return read_text(self, encoding or "cp1252", errors)
+    monkeypatch.setattr(Path, "read_text", cp1252_by_default)
+
+
 # --- synthetic discs: the sources of tests/discs/SYNTHETIC_*.json ---------------
 
 def eps(seconds: int) -> list[tuple[int, int]]:
@@ -241,7 +254,7 @@ def test_replay_finds_what_the_disc_holds(monkeypatch: pytest.MonkeyPatch, tmp_p
     if disc in FIXTURES:
         data = recorded.data
         stem = data["volume_id"] or f"DVD-{data['fingerprint']}"
-        assert (DISCS / f"{stem}.json").read_text() == text, \
+        assert (DISCS / f"{stem}.json").read_text(encoding="utf-8") == text, \
             "the fixture is not this disc's dump: write it again from dump_structure()"
 
 
@@ -266,7 +279,7 @@ def test_every_recorded_disc_has_expected_results() -> None:
 
 
 def expected_of(path: Path) -> dict[str, Any]:
-    result: dict[str, Any] = json.loads((EXPECTED / path.name).read_text())
+    result: dict[str, Any] = json.loads((EXPECTED / path.name).read_text(encoding="utf-8"))
     return result
 
 
