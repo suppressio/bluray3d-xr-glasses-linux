@@ -215,6 +215,15 @@ def test_bluray_3d_commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     assert fifo2 != fifo and not os.path.exists(fifo) and Path(fifo2).is_fifo()
 
 
+def test_bluray_3d_audio_fifo_is_posix_only(monkeypatch: pytest.MonkeyPatch,
+                                            tmp_path: Path) -> None:
+    # Windows has no os.mkfifo: a clear error, not an AttributeError (#103)
+    s = bluray(monkeypatch, tmp_path, FakeBluray(), ["ita"])
+    monkeypatch.setattr(sources.sys, "platform", "win32")
+    with pytest.raises(NotImplementedError, match=r"os\.mkfifo"):
+        s.video_command(100.0)
+
+
 def test_bluray_2d(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     disc = FakeBluray(three_d=False, name="", volume_id="READY_PLAYER_ONE")
     s = bluray(monkeypatch, tmp_path, disc,

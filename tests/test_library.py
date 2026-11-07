@@ -639,6 +639,13 @@ def test_slow_pipeline_is_logged(monkeypatch: pytest.MonkeyPatch,
 
 
 
+def test_no_pipeline_without_killpg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Windows: stop() could not kill the pipeline's process group, so none starts (#103)
+    monkeypatch.delattr(library.os, "killpg")
+    with pytest.raises(NotImplementedError, match=r"os\.killpg"):
+        library.Generator(vfile(tmp_path), 0.0)
+
+
 def test_stop_does_not_hang_on_a_stuck_pipeline(monkeypatch: pytest.MonkeyPatch,
                                                 caplog: pytest.LogCaptureFixture) -> None:
     """A pipeline stuck on the drive survives SIGKILL: stop() returns all the same."""
@@ -653,7 +660,8 @@ def test_stop_does_not_hang_on_a_stuck_pipeline(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setattr(library.os, "killpg", killpg)
     caplog.set_level(logging.INFO, logger="bd3d_fs")
     gen.stop()
-    killpg.assert_called_once_with(4242, library.signal.SIGKILL)
+    if sys.platform != "win32":                  # for pyright: pytestmark skips Windows
+        killpg.assert_called_once_with(4242, library.signal.SIGKILL)
     proc.wait.assert_called_once_with(library.KILL_WAIT)
     assert gen.stopped
     assert "did not exit 5s after SIGKILL" in caplog.text

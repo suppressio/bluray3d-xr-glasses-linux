@@ -76,7 +76,7 @@ scripts/check.sh --integration    # also the tests on the disc in the drive
 - **shellcheck**: the scripts in `scripts/` and `docker/`;
 - **the unit tests**.
 
-The first run creates `.venv` with the pinned tools from `requirements-dev.txt`. The program's own dependencies come from the system. GitHub runs the same script on Ubuntu 24.04, macOS and Windows (`.github/workflows/check.yml`): the unit tests, ruff and pyright stay green on all three while the v1.3 refactor makes the core portable; macOS and Windows skip whatever still needs Linux only (FUSE, the drive ioctl, `os.killpg`/`os.mkfifo`) and run no integration tests (no disc, no FUSE there).
+The first run creates `.venv` with the pinned tools from `requirements-dev.txt`. The program's own dependencies come from the system. GitHub runs the same script on Ubuntu 24.04, macOS and Windows (`.github/workflows/check.yml`): the unit tests, ruff and pyright stay green on all three while the v1.3 refactor makes the core portable; macOS and Windows skip whatever still needs Linux only (FUSE, the drive ioctl, `os.killpg`/`os.mkfifo`, the SIGTERM shutdown test; `dpkg` for the Debian version checks) and run no integration tests (no disc, no FUSE there). A pytest skip does not hide code from pyright: a POSIX-only call sits behind `if sys.platform != "win32"` (or after `if sys.platform == "win32": raise ...`), which pyright reads as a platform boundary.
 
 ### Unit tests (`tests/`)
 

@@ -76,7 +76,7 @@ scripts/check.sh --integration    # anche i test sul disco nel lettore
 - **shellcheck**: gli script in `scripts/` e `docker/`;
 - **gli unit test**.
 
-Al primo avvio crea `.venv` con gli strumenti alle versioni fissate in `requirements-dev.txt`. Le dipendenze del programma vengono dal sistema. GitHub esegue lo stesso script su Ubuntu 24.04, macOS e Windows (`.github/workflows/check.yml`): gli unit test, ruff e pyright restano verdi su tutti e tre mentre il refactor v1.3 rende portabile il nucleo; su macOS e Windows si saltano le parti ancora legate a Linux (FUSE, l'ioctl del lettore, `os.killpg`/`os.mkfifo`) e non girano i test di integrazione (lì niente disco, niente FUSE).
+Al primo avvio crea `.venv` con gli strumenti alle versioni fissate in `requirements-dev.txt`. Le dipendenze del programma vengono dal sistema. GitHub esegue lo stesso script su Ubuntu 24.04, macOS e Windows (`.github/workflows/check.yml`): gli unit test, ruff e pyright restano verdi su tutti e tre mentre il refactor v1.3 rende portabile il nucleo; su macOS e Windows si saltano le parti ancora legate a Linux (FUSE, l'ioctl del lettore, `os.killpg`/`os.mkfifo`, il test di arresto con SIGTERM; `dpkg` per i controlli sulla versione Debian) e non girano i test di integrazione (lì niente disco, niente FUSE). Uno skip di pytest non nasconde il codice a pyright: una chiamata solo POSIX sta dietro `if sys.platform != "win32"` (o dopo `if sys.platform == "win32": raise ...`), che pyright legge come confine di piattaforma.
 
 ### Unit test (`tests/`)
 

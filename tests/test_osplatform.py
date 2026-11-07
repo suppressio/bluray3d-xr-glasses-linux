@@ -3,6 +3,7 @@ default temp dir and log path) behind a platform-independent interface."""
 import ctypes
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -32,7 +33,7 @@ def test_drive_status_maps_the_ioctl_result(monkeypatch: pytest.MonkeyPatch, tmp
     device.touch()
     # the ioctl mapping is Linux's own, tested regardless of where this runs
     monkeypatch.setattr(osplatform, "LINUX", True)
-    monkeypatch.setattr(osplatform.fcntl, "ioctl", ioctl)
+    monkeypatch.setattr(osplatform, "fcntl", SimpleNamespace(ioctl=ioctl))
     assert drive_status(str(device)) == expected
 
 
@@ -46,7 +47,7 @@ def test_drive_status_ioctl_failure_is_unknown(monkeypatch: pytest.MonkeyPatch,
     device = tmp_path / "sr0"
     device.touch()
     monkeypatch.setattr(osplatform, "LINUX", True)
-    monkeypatch.setattr(osplatform.fcntl, "ioctl", fail)
+    monkeypatch.setattr(osplatform, "fcntl", SimpleNamespace(ioctl=fail))
     assert drive_status(str(device)) == DriveStatus.UNKNOWN
 
 
@@ -55,6 +56,20 @@ def test_drive_status_not_linux_is_unknown(monkeypatch: pytest.MonkeyPatch,
     device = tmp_path / "sr0"
     device.touch()
     monkeypatch.setattr(osplatform, "LINUX", False)
+    assert drive_status(str(device)) == DriveStatus.UNKNOWN
+
+
+def test_drive_status_on_windows_is_unknown(monkeypatch: pytest.MonkeyPatch,
+                                            tmp_path: Path) -> None:
+    # no fcntl ioctl there (#10): UNKNOWN, never the Linux call
+    def ioctl(fd: int, request: int, arg: int) -> int:
+        return 4                                          # CDS_DISC_OK
+
+    device = tmp_path / "sr0"
+    device.touch()
+    monkeypatch.setattr(osplatform, "LINUX", True)
+    monkeypatch.setattr(osplatform, "fcntl", SimpleNamespace(ioctl=ioctl), raising=False)
+    monkeypatch.setattr(osplatform.sys, "platform", "win32")
     assert drive_status(str(device)) == DriveStatus.UNKNOWN
 
 
@@ -138,7 +153,7 @@ def test_has_library_falls_back_to_the_known_path(monkeypatch: pytest.MonkeyPatc
         return None
 
     def exists(self: Path) -> bool:
-        return str(self) == known
+        return self == Path(known)
 
     # the /usr/lib fallback and its .so name are Linux's own, tested regardless
     # of where this runs

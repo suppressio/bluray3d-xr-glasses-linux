@@ -42,7 +42,7 @@ _CDS_NO_DISC, _CDS_TRAY_OPEN, _CDS_DISC_OK = 1, 2, 4
 def drive_status(device: str) -> DriveStatus:
     """Ask the drive whether a disc is in, without reading it. A busy drive can
     answer "not ready" or fail the call: that is not an eject (UNKNOWN)."""
-    if not LINUX:
+    if sys.platform == "win32" or not LINUX:   # win32 first: pyright skips the POSIX calls
         return DriveStatus.UNKNOWN
     try:
         fd = os.open(device, os.O_RDONLY | os.O_NONBLOCK)
