@@ -387,19 +387,36 @@ class Nav:
     cell: int           # index of the title's cell it belongs to
 
 
-def read_nav(vobs: SectorReader, title: DvdTitle, sector: int,
-             cell: int | None = None) -> Nav | None:
-    """The navigation pack at `sector`, or None if there is none (or it is not ours).
-    `cell`: the title's cell being read, for cells the title plays more than once."""
-    s = vobs.read(sector, 1)
+@dataclass
+class NavPack:
+    """The fields of a navigation pack the seek needs, before matching a title."""
+    vob_id: int
+    cell_id: int
+    cell_time: float    # seconds elapsed in the VOB cell
+    pts: int            # 90 kHz PTS of the VOBU's first frame
+
+
+def parse_nav(s: bytes) -> NavPack | None:
+    """A sector read at a VOBU start, or None if it is no navigation pack."""
     if len(s) < SECTOR or s[0x26:0x2A] != b"\x00\x00\x01\xbf" or s[0x2C] != 0 \
             or s[0x400:0x404] != b"\x00\x00\x01\xbf" or s[0x406] != 1:
         return None
     dsi = 0x407
-    i = title.cell_index(_u16(s, dsi + 0x18), s[dsi + 0x1B], cell)
+    return NavPack(_u16(s, dsi + 0x18), s[dsi + 0x1B], _dvd_time(s, dsi + 0x1C),
+                   _u32(s, 0x2D + 0x0C))
+
+
+def read_nav(vobs: SectorReader, title: DvdTitle, sector: int,
+             cell: int | None = None) -> Nav | None:
+    """The navigation pack at `sector`, or None if there is none (or it is not ours).
+    `cell`: the title's cell being read, for cells the title plays more than once."""
+    nav = parse_nav(vobs.read(sector, 1))
+    if nav is None:
+        return None
+    i = title.cell_index(nav.vob_id, nav.cell_id, cell)
     if i < 0:
         return None
-    return Nav(title.cells[i].start + _dvd_time(s, dsi + 0x1C), _u32(s, 0x2D + 0x0C), sector, i)
+    return Nav(title.cells[i].start + nav.cell_time, nav.pts, sector, i)
 
 
 def seek(vobs: SectorReader, title: DvdTitle, seconds: float) -> Nav:

@@ -27,6 +27,7 @@ The defaults work: you only need this page to change what the share offers (lang
 | [Program log file](#logs) | — | `--log path` or `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
 | [Pipeline log](#logs) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 | [Jump log](#logs) | — | `--debug` | off |
+| [Write a disc's structure and exit](#a-discs-structure) | — | `--dump-structure file.json` | off |
 
 ---
 
@@ -138,3 +139,17 @@ The animations shipped (`loaders/retrowave.mp4`, 1 MB, side by side; `loaders/si
 - The program's log says which movies appear, which pipeline starts where, and whether the network and the disc keep up. It goes to the terminal and is also saved, with the date, in `~/.local/state/bluray3d-xr/bluray3d-xr.log` (up to 5 MB, then three older copies `.1` `.2` `.3`); `--log` saves it elsewhere, `--log none` not at all. With Docker: `docker compose logs`.
 - `--log-file` is FFmpeg's and the decoders' output, one section per pipeline (the older one moves to `.1` beyond 10 MB): the first place to look when the picture is wrong.
 - `--debug` also logs every jump and the player's reads in the 20 seconds after it: how long it waited, and whether it looked paused. Also the full command of each pipeline, to run it by hand ([DEVELOPMENT.md](DEVELOPMENT.md#taking-a-pipeline-apart)).
+
+## A disc's structure
+
+`--dump-structure FILE` reads one disc (a drive with the disc in it, an ISO, a BDMV or VIDEO_TS folder), writes its structure to `FILE` as JSON and exits: nothing is shared, mounted or encoded.
+
+```console
+bluray3d-xr --dump-structure tron.json /dev/sr0
+```
+
+- **What it holds:** what the program picks the movie or the episodes from and seeks with, as read from the disc's navigation files, before any choice. Blu-ray: every title libbluray lists, with its play items (clip, in and out time, audio and subtitle tracks and their languages), and the keyframe map (EP_map) and extents of every clip they use. DVD: every title, with its cells, tracks and languages, and for each title set the start of every VOBU with the time its navigation pack gives. Times keep the disc's own precision. The file starts with its format version (`"format": 1`).
+- **What it does not hold:** video, audio or subtitle data, keys or anything else of the decryption, the path of the disc on your computer, commands. The disc's own name and volume label are in it.
+- **One disc at a time:** more than one source is an error, not a choice. A Blu-ray must open as it does for playing (see [Decryption](../README.md#decryption-bring-your-own-keys) in the README). On a DVD it reads the first sector of every VOBU, so it takes longer than opening the disc to play it.
+
+Attach the file to a bug report about how a disc is shown (the wrong title, episodes in the wrong order, a jump landing in the wrong place): it describes how the disc is built, without the disc.

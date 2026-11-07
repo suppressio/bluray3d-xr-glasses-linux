@@ -27,6 +27,7 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 | [File di log del programma](#log) | — | `--log percorso` o `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
 | [Log della pipeline](#log) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 | [Log dei salti](#log) | — | `--debug` | spento |
+| [Scrivere la struttura di un disco e uscire](#la-struttura-di-un-disco) | — | `--dump-structure file.json` | spento |
 
 ---
 
@@ -138,3 +139,17 @@ Le animazioni incluse (`loaders/retrowave.mp4`, 1 MB, affiancata; `loaders/simpl
 - Il log del programma dice quali film compaiono, da dove parte ogni pipeline e se la rete e il disco reggono. Va nel terminale ed è anche salvato, con la data, in `~/.local/state/bluray3d-xr/bluray3d-xr.log` (fino a 5 MB, poi tre copie vecchie `.1` `.2` `.3`); `--log` lo salva altrove, `--log none` per niente. Con Docker: `docker compose logs`.
 - `--log-file` è l'output di FFmpeg e dei decoder, una sezione per pipeline (oltre i 10 MB la parte vecchia passa in `.1`): il primo posto dove guardare se l'immagine è sbagliata.
 - `--debug` registra anche ogni salto e le letture del player nei 20 secondi successivi: quanto ha aspettato e se sembrava in pausa. Anche il comando completo di ogni pipeline, per rilanciarlo a mano ([DEVELOPMENT.it.md](DEVELOPMENT.it.md#smontare-una-pipeline)).
+
+## La struttura di un disco
+
+`--dump-structure FILE` legge un disco (un lettore con il disco dentro, una ISO, una cartella BDMV o VIDEO_TS), ne scrive la struttura in `FILE` come JSON ed esce: non condivide, non monta e non codifica niente.
+
+```console
+bluray3d-xr --dump-structure tron.json /dev/sr0
+```
+
+- **Cosa contiene:** ciò da cui il programma sceglie il film o gli episodi e su cui fa i salti, come lo leggono dai file di navigazione del disco, prima di ogni scelta. Blu-ray: tutti i titoli che libbluray elenca, con i loro play item (clip, tempo di inizio e di fine, tracce audio e sottotitoli con le lingue), e la mappa dei keyframe (EP_map) e gli extent di ogni clip che usano. DVD: tutti i titoli, con celle, tracce e lingue, e per ogni title set l'inizio di ogni VOBU con il tempo dato dal suo navigation pack. I tempi mantengono la precisione del disco. Il file comincia con la versione del formato (`"format": 1`).
+- **Cosa non contiene:** dati video, audio o dei sottotitoli, chiavi o altro della decifratura, il percorso del disco sul tuo computer, comandi. Il nome del disco e l'etichetta del volume invece ci sono.
+- **Un disco alla volta:** più di una sorgente è un errore, non una scelta. Un Blu-ray deve aprirsi come per guardarlo (vedi [Decifratura](../README.it.md#decifratura-le-chiavi-le-porti-tu) nel README). Su un DVD legge il primo settore di ogni VOBU, quindi ci mette più che ad aprire il disco per guardarlo.
+
+Allega il file a una segnalazione di bug su come viene mostrato un disco (il titolo sbagliato, episodi in ordine sbagliato, un salto che arriva nel punto sbagliato): descrive com'è fatto il disco, senza il disco.

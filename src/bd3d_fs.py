@@ -41,7 +41,7 @@ from langs import lang_list
 from library import LIGHT_DIR, MULTI_AUDIO_DIR, Library, Shelf
 from osplatform import DriveStatus, default_program_log, default_temp_dir, drive_status
 from pipeline import ENCODERS, pick_encoder
-from sources import Source, UnsupportedDiscError, discover, open_disc
+from sources import Source, UnsupportedDiscError, discover, dump_structure, open_disc
 from tree import FileEntry, Tree
 
 log = logging.getLogger("bd3d_fs")
@@ -310,7 +310,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log", default=str(default_program_log()),
                         help="the program's log is also saved here (default "
                              "~/.local/state/bluray3d-xr/bluray3d-xr.log), or none")
+    parser.add_argument("--dump-structure", metavar="FILE",
+                        help="write the structure of the one disc given (drive, ISO, BDMV or "
+                             "VIDEO_TS folder) to FILE as JSON and exit: titles, play items, "
+                             "keyframe maps, tracks; no video, keys or paths")
     return parser
+
+
+def write_structure(sources_args: list[str], out: str) -> None:
+    """--dump-structure: one disc only, nothing started (no encoder, mount, server,
+    watcher). A drive is read once, so it must hold the disc already."""
+    if len(sources_args) != 1:
+        raise SystemExit(f"--dump-structure takes one disc, drive, ISO or folder, "
+                         f"not {len(sources_args)}: {' '.join(sources_args)}")
+    source = str(Path(sources_args[0]).expanduser())
+    if not Path(source).exists():
+        raise SystemExit(f"not found: {source}")
+    try:
+        text = dump_structure(source)
+    except OSError as e:
+        raise SystemExit(f"{source}: {str(e).removeprefix(f'{source}: ')}") from e
+    try:
+        Path(out).write_text(text, encoding="utf-8")
+    except OSError as e:
+        raise SystemExit(f"--dump-structure: cannot write {out}: {e}") from e
+    log.info("%s: structure written to %s", source, out)
 
 
 def main() -> None:
@@ -333,6 +357,8 @@ def main() -> None:
     log.info("bluray3d-xr %s", program_version())
     if log_path != "none":
         log.info("log saved in %s", log_path)
+    if args.dump_structure is not None:     # one disc, written out: nothing else starts
+        return write_structure(sources_args, args.dump_structure)
     encoder = pick_encoder(args.encoder)
     log.info("video encoder: %s", encoder)
     audio_langs = None if audio_lang.strip().lower() in ("", "all") else lang_list(audio_lang)
