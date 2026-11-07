@@ -1,7 +1,9 @@
+import hashlib
 import itertools
 import json
 import logging
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -1452,40 +1454,12 @@ class UnlabeledDvd(NavDvd):
         return ""
 
 
-def library_paths(source_paths: list[str], tmp_path: Path) -> list[str]:
-    tree = Tree()
-    lib = Library(tree, "x264", str(tmp_path / "log"), "per-language", False, [])
-    for p in source_paths:
-        for s in DvdSource.all_on(p):
-            lib.add(s)
-    return sorted(f.path for f in tree.files())
+class UnlabeledTwoLanguages(FakeDvd):
+    """FakeDvd (ita and eng, subtitles) with no volume label: another disc."""
 
-
-def test_dvd_without_label_is_named_after_the_disc_alone(monkeypatch: pytest.MonkeyPatch,
-                                                         tmp_path: Path) -> None:
-    """The same unlabeled DVD read from two differently named places: the same
-    dump, without either name, and the same neutral name in the library, as
-    the replay of that dump will give."""
-    no_bluray = Mock(side_effect=OSError("cannot open Blu-ray"))
-    monkeypatch.setattr(sources, "_open_disc", no_bluray)
-    monkeypatch.setattr(dvd, "Dvd", UnlabeledDvd)
-    places = [tmp_path / "Holiday Rips 2019", tmp_path / "bttf-copy"]
-    dumps: list[str] = []
-    for place in places:
-        place.mkdir()
-        monkeypatch.setattr(NavDvd, "vobs", {})
-        dumps.append(sources.dump_structure(str(place)))
-    assert no_bluray.call_count == 2
-    assert dumps[0] == dumps[1]
-    assert json.loads(dumps[0])["volume_id"] == ""
-    assert not any(p.name in dumps[0] for p in places)
-
-    first, second = (DvdSource(str(p)) for p in places)
-    assert first.name == second.name == "DVD"
-    for t in (0.0, 2999.0, 3000.5, 4600.0):
-        assert first.keyframe_at_or_before(t) == second.keyframe_at_or_before(t)
-    paths = [library_paths([str(p)], tmp_path) for p in places]
-    assert paths[0] == paths[1] == ["DVD/DVD.ts"]     # one language: no prefix
+    @override
+    def volume_id(self) -> str:
+        return ""
 
 
 class UnlabeledSeries(FakeDvd):
@@ -1503,96 +1477,192 @@ class UnlabeledSeries(FakeDvd):
         return ""
 
 
-def test_dvd_series_without_label_numbers_neutral_names(monkeypatch: pytest.MonkeyPatch,
-                                                        tmp_path: Path) -> None:
+def fingerprint(disc: dvd.IfoReader) -> str:
+    return sources._dvd_fingerprint(*sources._dvd_titles(disc))
+
+
+def library_paths(source_paths: list[str], tmp_path: Path) -> list[str]:
+    tree = Tree()
+    lib = Library(tree, "x264", str(tmp_path / "log"), "per-language", False, [])
+    for p in source_paths:
+        for s in DvdSource.all_on(p):
+            lib.add(s)
+    paths = sorted(f.path for f in tree.files())
+    for f in tree.files():
+        f.close()
+    return paths
+
+
+def test_dvd_fingerprint_is_its_navigation(monkeypatch: pytest.MonkeyPatch,
+                                           tmp_path: Path) -> None:
+    """Exactly what the fingerprint is made of: the dump's titles and the VOBU
+    map of each title set (not the navigation packs, nor the label), as canonical
+    JSON: a replay recomputes it from the dump, however the dump is formatted."""
+    data = json.loads(dumped_dvd(monkeypatch, tmp_path)[1])
+    vobus = {vts: s["vobus"] for vts, s in data["title_sets"].items()}
+    for text in (json.dumps(data), json.dumps(data, indent=4, sort_keys=True)):
+        again = json.loads(text)
+        canonical = json.dumps({"titles": again["titles"], "vobus": vobus},
+                               sort_keys=True, separators=(",", ":"))
+        assert hashlib.sha256(canonical.encode()).hexdigest()[:12] == data["fingerprint"]
+    assert re.fullmatch(r"[0-9a-f]{12}", data["fingerprint"])
+    assert data["fingerprint"] == fingerprint(NavDvd())          # the same, live
+    # other navigation, another fingerprint: one cell ends a sector earlier
+    other = NavDvd()
+    other.movie = vts_ifo(
+        [DvdCell(3000.0, 0, 99_998, 1, 1), DvdCell(3000.0, 100_000, 199_999, 2, 1)],
+        [DvdAudioAttr(0, "it", 1, 0), DvdAudioAttr(0, "en", 3, 1)],
+        [DvdSubAttr("it", 1, wide=0), DvdSubAttr("en", 9, wide=1)],
+        palette=[(235, 128, 128)] * 16, pgcn=2, vobus=[0, 50_000, 100_000, 150_000])
+    assert fingerprint(other) != data["fingerprint"]
+    # the label is not part of it: it only names discs that have none
+    assert fingerprint(UnlabeledDvd()) == data["fingerprint"]
+
+
+def test_dvd_without_label_is_named_after_the_disc_alone(monkeypatch: pytest.MonkeyPatch,
+                                                         tmp_path: Path) -> None:
+    """The same unlabeled DVD read from two differently named places: the same
+    dump, without either name, and the same name in the library, the one the
+    dump's fingerprint gives."""
+    no_bluray = Mock(side_effect=OSError("cannot open Blu-ray"))
+    monkeypatch.setattr(sources, "_open_disc", no_bluray)
+    monkeypatch.setattr(dvd, "Dvd", UnlabeledDvd)
+    places = [tmp_path / "Holiday Rips 2019", tmp_path / "bttf-copy"]
+    dumps: list[str] = []
+    for place in places:
+        place.mkdir()
+        monkeypatch.setattr(NavDvd, "vobs", {})
+        dumps.append(sources.dump_structure(str(place)))
+    assert no_bluray.call_count == 2
+    assert dumps[0] == dumps[1]
+    data = json.loads(dumps[0])
+    assert data["volume_id"] == ""
+    assert not any(p.name in dumps[0] for p in places)
+
+    monkeypatch.setattr(NavDvd, "vobs", {})
+    first, second = (DvdSource(str(p)) for p in places)
+    name = f"DVD-{data['fingerprint']}"
+    assert first.name == second.name == name
+    assert first.fallback_name and second.fallback_name
+    # naming it read the IFO files only: the one VOB read is the CSS check
+    assert NavDvd.vobs[2].reads == [(0, 16), (0, 16)]
+    for t in (0.0, 2999.0, 3000.5, 4600.0):
+        assert first.keyframe_at_or_before(t) == second.keyframe_at_or_before(t)
+    paths = [library_paths([str(p)], tmp_path) for p in places]
+    assert paths[0] == paths[1] == [f"DVD/{name}.ts"]     # one language: no prefix
+
+
+def test_dvd_with_label_is_named_as_before(monkeypatch: pytest.MonkeyPatch,
+                                           tmp_path: Path) -> None:
+    # no fingerprint work for a disc that names itself
+    monkeypatch.setattr(sources, "_dvd_titles", Mock(side_effect=AssertionError("fingerprint")))
+    s = dvd_source(monkeypatch, tmp_path)
+    assert (s.name, s.fallback_name) == ("Back To The Future", False)
+
+
+def test_dvd_series_without_label(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(dvd, "Dvd", UnlabeledSeries)
     place = tmp_path / "My Series Folder"
     place.mkdir()
-    assert [s.name for s in DvdSource.all_on(str(place))] == ["DVD - 1", "DVD - 2"]
-    assert library_paths([str(place)], tmp_path) == ["DVD/DVD - 1.ts", "DVD/DVD - 2.ts"]
+    disc = f"DVD-{fingerprint(UnlabeledSeries())}"
+    # one name for the disc, the episode numbers after it as before
+    assert [s.name for s in DvdSource.all_on(str(place))] == [f"{disc} - 1", f"{disc} - 2"]
+    assert library_paths([str(place)], tmp_path) == [f"DVD/{disc} - 1.ts", f"DVD/{disc} - 2.ts"]
 
 
-class UnlabeledTwoLanguages(FakeDvd):
-    """FakeDvd (ita and eng, subtitles) with no volume label."""
-
-    @override
-    def volume_id(self) -> str:
-        return ""
-
-
-def unlabeled_dvds(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, count: int
-                   ) -> tuple[Tree, Library, list[str]]:
-    """A real Library with Light/ copies and the given number of folders, each
-    holding the same kind of DVD without a label."""
-    monkeypatch.setattr(dvd, "Dvd", UnlabeledTwoLanguages)
-    places: list[str] = []
-    for n in range(count):
-        place = tmp_path / f"disc {n}"
-        place.mkdir()
-        places.append(str(place))
-    tree = Tree()
-    return tree, Library(tree, "x264", str(tmp_path / "log"), "per-language", True, ["eng"]), places
+def disc_files(name: str) -> list[str]:
+    """UnlabeledTwoLanguages' files in a Library with Light/ and English subtitles."""
+    return sorted(f"DVD/{d}{v}" for d in ("", "Light/") for v in (
+        f"ENG - {name}.ts", f"ENGsubENG - {name}.ts", f"ITA - {name}.ts",
+        f"ITAsubENG - {name}.ts"))
 
 
 def files_of(tree: Tree, place: str) -> list[str]:
-    """Paths of the files read from `place`, as the tree finds them by name."""
+    """Paths of the files read from `place`, each checked to be found by its path."""
     paths = sorted(f.path for f in tree.files()
                    if isinstance(f, VirtualFile) and f.source.path == place)
-    for p in paths:                    # each one found by its path, as a player does
+    for p in paths:
         found = tree.lookup(p)
         assert isinstance(found, VirtualFile) and found.source.path == place, p
     return paths
 
 
-def disc_files(name: str) -> list[str]:
-    return [f"DVD/{d}{v}" for d in ("", "Light/") for v in (
-        f"ENG - {name}.ts", f"ENGsubENG - {name}.ts", f"ITA - {name}.ts",
-        f"ITAsubENG - {name}.ts")]
+def unlabeled_library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                      discs: list[type[FakeDvd]]) -> tuple[Tree, Library, list[str]]:
+    """A real Library with Light/ copies, and one folder per disc of `discs`."""
+    places = [str(tmp_path / f"disc {n}") for n in range(len(discs))]
+    kind = dict(zip(places, discs, strict=True))
+    for p in places:
+        Path(p).mkdir()
+
+    def open_dvd(path: str) -> FakeDvd:
+        return kind[path](path)
+
+    monkeypatch.setattr(dvd, "Dvd", open_dvd)
+    monkeypatch.setattr(NavDvd, "vobs", {})
+    tree = Tree()
+    return tree, Library(tree, "x264", str(tmp_path / "log"), "per-language", True, ["eng"]), places
 
 
 @pytest.mark.parametrize("removed", [0, 1])
-def test_two_unlabeled_dvds_in_one_library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-                                           removed: int) -> None:
-    tree, lib, places = unlabeled_dvds(monkeypatch, tmp_path, 2)
+def test_unlabeled_dvds_in_one_library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                       removed: int) -> None:
+    """Two copies of one unlabeled DVD and a different one, in one library: the
+    different one has its own name, the second copy is numbered; whichever copy
+    goes, the others are still found under their names."""
+    tree, lib, places = unlabeled_library(
+        monkeypatch, tmp_path, [UnlabeledTwoLanguages, UnlabeledTwoLanguages, UnlabeledDvd])
     entries = [[e for s in DvdSource.all_on(p) for e in lib.add(s)] for p in places]
-    # the first keeps the neutral name; every file of the second, Light/ and the
-    # subtitle versions included, gets the same number: no file takes another's place
-    assert files_of(tree, places[0]) == sorted(disc_files("DVD"))
-    assert files_of(tree, places[1]) == sorted(disc_files("DVD (2)"))
-    assert len(tree.files()) == 16
-    # one goes (ejected): the other is still found under its own name
+    copy_name, other = (f"DVD-{fingerprint(d())}" for d in (UnlabeledTwoLanguages, UnlabeledDvd))
+    assert copy_name != other
+    assert files_of(tree, places[0]) == disc_files(copy_name)
+    assert files_of(tree, places[1]) == disc_files(f"{copy_name} (2)")
+    assert files_of(tree, places[2]) == [f"DVD/{other}.ts", f"DVD/Light/{other}.ts"]
+    assert len(tree.files()) == 18
+
     lib.remove(entries[removed])
     kept = 1 - removed
-    assert files_of(tree, places[kept]) == sorted(disc_files("DVD" if kept == 0 else "DVD (2)"))
-    assert len(tree.files()) == 8
+    assert files_of(tree, places[kept]) == disc_files(copy_name if kept == 0
+                                                      else f"{copy_name} (2)")
+    assert files_of(tree, places[2]) == [f"DVD/{other}.ts", f"DVD/Light/{other}.ts"]
     lib.remove(entries[kept])
+    lib.remove(entries[2])
     assert tree.files() == []
 
 
-def test_unlabeled_dvd_names_count_up_and_are_reused(monkeypatch: pytest.MonkeyPatch,
-                                                     tmp_path: Path) -> None:
-    tree, lib, places = unlabeled_dvds(monkeypatch, tmp_path, 4)
+def test_unlabeled_dvd_copies_count_up_and_reuse(monkeypatch: pytest.MonkeyPatch,
+                                                 tmp_path: Path) -> None:
+    tree, lib, places = unlabeled_library(monkeypatch, tmp_path, [UnlabeledTwoLanguages] * 4)
+    name = f"DVD-{fingerprint(UnlabeledTwoLanguages())}"
     entries = [[e for s in DvdSource.all_on(p) for e in lib.add(s)] for p in places[:3]]
     assert [files_of(tree, p)[0] for p in places[:3]] == \
-        ["DVD/ENG - DVD.ts", "DVD/ENG - DVD (2).ts", "DVD/ENG - DVD (3).ts"]
+        [f"DVD/ENG - {name}.ts", f"DVD/ENG - {name} (2).ts", f"DVD/ENG - {name} (3).ts"]
     lib.remove(entries[0])
-    # the others keep their names; a disc inserted now takes the free one
+    # the others keep their names; a copy inserted now takes the free one
     entries.append([e for s in DvdSource.all_on(places[3]) for e in lib.add(s)])
     assert [files_of(tree, p)[0] for p in places[1:]] == \
-        ["DVD/ENG - DVD (2).ts", "DVD/ENG - DVD (3).ts", "DVD/ENG - DVD.ts"]
+        [f"DVD/ENG - {name} (2).ts", f"DVD/ENG - {name} (3).ts", f"DVD/ENG - {name}.ts"]
     for e in entries[1:]:
         lib.remove(e)
     assert tree.files() == []
 
 
-def test_same_name_in_another_folder_is_no_collision(monkeypatch: pytest.MonkeyPatch,
-                                                     tmp_path: Path) -> None:
-    # a series' extra named like a movie lives in Extra/: nothing to number
-    tree, lib, places = unlabeled_dvds(monkeypatch, tmp_path, 2)
+def test_unlabeled_name_in_another_folder_is_no_collision(monkeypatch: pytest.MonkeyPatch,
+                                                          tmp_path: Path) -> None:
+    tree, lib, places = unlabeled_library(monkeypatch, tmp_path, [UnlabeledTwoLanguages] * 2)
     movie, extra = DvdSource(places[0]), DvdSource(places[1])
     extra.subfolder = "Extra"
-    lib.add(movie)
-    lib.add(extra)
-    assert "DVD/Extra/ENG - DVD.ts" in files_of(tree, places[1])
-    for f in tree.files():
-        f.close()
+    added = lib.add(movie) + lib.add(extra)
+    assert f"DVD/Extra/ENG - {extra.name}.ts" in files_of(tree, places[1])
+    lib.remove(added)
+
+
+def test_names_a_disc_gives_itself_are_not_numbered(monkeypatch: pytest.MonkeyPatch,
+                                                    tmp_path: Path) -> None:
+    # only names the program made up are numbered (the maintainer's scope for #134)
+    _, lib, places = unlabeled_library(monkeypatch, tmp_path, [FakeDvd, FakeDvd])
+    first = DvdSource(places[0])
+    added = lib.add(first)
+    second = DvdSource(places[1])
+    assert lib._unique(second) is second
+    lib.remove(added)

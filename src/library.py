@@ -730,10 +730,14 @@ class Library:
         return added
 
     def _unique(self, source: Source) -> Source:
-        """The source, or a copy named "<name> (2)", "(3)"... when another one in the
-        tree already has its name in the same folder (two DVDs without a label, two
-        copies of a disc): its files would take the others' names. The name is fixed
-        for as long as the source is in the tree, and comes from no path."""
+        """A source named by the program (a DVD without a label), or a copy of it
+        named "<name> (2)", "(3)"... when another movie in the same folder already
+        has its name (two copies of one disc): its files would take the others'
+        names. The name is fixed for as long as the source is in the tree, and comes
+        from no path. Names the disc gives itself are left as they are."""
+        if not source.fallback_name:
+            return source
+
         def taken(name: str) -> bool:
             return any(isinstance(f, VirtualFile) and (f.source.name, f.source.category,
                        f.source.subfolder) == (name, source.category, source.subfolder)
