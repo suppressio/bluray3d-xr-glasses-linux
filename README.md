@@ -123,7 +123,7 @@ cd bluray3d-xr-glasses-linux
 ./scripts/install.sh
 ```
 
-`scripts/install.sh --share dlna` skips Samba and FUSE entirely and sets up [DLNA/UPnP](docs/OPTIONS.md#dlnaupnp-instead-of-samba) instead; `--share samba` installs system `fuse3` and Samba for the vendored `mfusepy.py` adapter, and `--share both` installs all three modes (default: `samba`).
+`scripts/install.sh --share dlna` skips Samba and FUSE entirely and sets up [DLNA/UPnP](docs/OPTIONS.md#dlnaupnp-instead-of-samba) instead; `--share samba` installs system `fuse3` for the vendored `mfusepy.py` adapter and Samba for the network share, while `--share both` installs both paths (default: `samba`).
 
 #### Docker
 
