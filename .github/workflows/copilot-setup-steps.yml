@@ -21,6 +21,6 @@ jobs:
       - name: System packages the program uses
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends python3-pyfuse3 python3-trio python3-venv ffmpeg
+          sudo apt-get install -y --no-install-recommends fuse3 python3-venv ffmpeg
       - name: Tools in .venv and a first run of the checks
         run: scripts/check.sh

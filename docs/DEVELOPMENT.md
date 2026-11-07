@@ -11,7 +11,7 @@ How to run the program from a clone, where things are in the code, what the test
 ## Setting up
 
 1. Run the native install once (the [native script](../README.md#native-script-from-a-clone) in the README), including the Samba share. It installs everything a clone needs as well:
-   - the system packages (FFmpeg, libbluray, libdvdread, pyfuse3, trio);
+   - the system packages (FFmpeg, libbluray, libdvdread, fuse3; Samba when using the Samba share);
    - the edge264 decoder in `/opt/bluray3d-xr/bin`;
    - the mount point `/srv/bd3d`;
    - `user_allow_other` in `/etc/fuse.conf`.
@@ -36,7 +36,7 @@ How to run the program from a clone, where things are in the code, what the test
 | File | What it does |
 |---|---|
 | `src/bd3d_fs.py` | The program: the command line, the program's log file, the drive watcher, and wiring `library.py` to a front end (`fuse_fs.py`, `http_server.py`/`dlna.py`). |
-| `src/library.py` | The library of virtual files: `VirtualFile` (the constant-bitrate `.ts`), `Generator` (a running pipeline: start, jump, pause, stop, the loading picture), `SidecarFile` (external subtitles, passthrough) and `Library`/`Shelf` (turns a disc's sources into files of the `Tree`). Synchronous and thread-safe; imports neither `bd3d_fs.py` nor a front end, pyfuse3 or trio. |
+| `src/library.py` | The library of virtual files: `VirtualFile` (the constant-bitrate `.ts`), `Generator` (a running pipeline: start, jump, pause, stop, the loading picture), `SidecarFile` (external subtitles, passthrough) and `Library`/`Shelf` (turns a disc's sources into files of the `Tree`). Synchronous and thread-safe; imports neither `bd3d_fs.py` nor a front end, `mfusepy` or a FUSE runtime. |
 | `src/sources.py` | What a movie is made of: `BlurayDiscSource`, `DvdSource`, `MkvSource`. Each one says how to read its video from a given time (`video_command`), and gives its audio, subtitles and keyframes. |
 | `src/pipeline.py` | The decode chain: reader → decoder → FFmpeg encoder at constant bitrate. Also the encoder choice (NVENC or x264) and the quality. |
 | `src/bluray.py` | A small ctypes binding to libbluray: it opens a disc, ISO or folder, and reads its files decrypted. |
@@ -47,15 +47,15 @@ How to run the program from a clone, where things are in the code, what the test
 | `src/dvd.py` | libdvdread through ctypes, the IFO files, the choice of the main title or the episodes, and the exact seek. |
 | `src/dvd_reader.py` | Reads a DVD title from a given time as an MPEG program stream for FFmpeg. It runs as its own process. |
 | `src/langs.py` | One spelling per language (ISO 639-2). |
-| `src/tree.py` | The tree of folders and files Library builds, independent of how it is served: ids, not pyfuse3 inodes, though Bd3dFS reuses them as such. |
-| `src/fuse_fs.py` | The FUSE front end (`--share samba`/`both`): Bd3dFS mounts the tree for Samba. The only module importing pyfuse3, loaded only when FUSE is used, so `--share dlna` runs without it. |
+| `src/tree.py` | The tree of folders and files Library builds, independent of how it is served: ids, not FUSE inodes, though Bd3dFS reuses them as such. |
+| `src/fuse_fs.py` | The FUSE front end (`--share samba`/`both`): Bd3dFS mounts the tree for Samba through vendored `mfusepy`. The only module loading the adapter, loaded only when FUSE is used, so `--share dlna` runs without it. |
 | `src/http_server.py` | The same tree over plain HTTP: a byte Range maps straight onto a `FileEntry.read()`, like a FUSE read. Used standalone (`--share dlna`/`both`) and as the transport dlna.py's endpoints ride on. |
 | `src/didl.py` | DIDL-Lite (the XML listing media) and the SOAP envelopes of ContentDirectory (Browse) and ConnectionManager: pure string building, no XML parser on untrusted input. |
 | `src/ssdp.py` | SSDP: answers M-SEARCH and sends NOTIFY ssdp:alive/byebye, so DLNA renderers find the server without being told its address. |
 | `src/dlna.py` | Wires http_server.py, didl.py and ssdp.py into one MediaServer: the device description, ContentDirectory/ConnectionManager control endpoints, and the SSDP responder's start/stop. |
 | `loaders/` | The loading animations shipped with the program. The Blender scripts that render them are in [bluray3d-xr-loaders](https://github.com/suppressio/bluray3d-xr-loaders). |
 | `tools/bdprobe.c` | The first probe of the project (roadmap phase 0): it opens a disc with libbluray and dumps the start of the 3D stream. |
-| `typings/pyfuse3/` | Type stubs for pyfuse3: its versions 3.3, 3.4 and 3.5 declare their types differently. |
+| `src/mfusepy.py` | Vendored FUSE adapter used only by the Samba/both path; it is loaded conditionally and talks to the system libfuse3 runtime. |
 
 The path of a piece of the file, from the player to the disc: the player reads bytes from a file in `/srv/bd3d` → `fuse_fs.py` hands the read to `VirtualFile.read()` (`library.py`), which turns the byte into a time (the bitrate is constant) → if no pipeline is at that time, it starts one: the source's reader (`disc_reader.py`, `dvd_reader.py` or FFmpeg for MKV), then the decoder (edge264 for 3D, FFmpeg otherwise), then FFmpeg encoding the `.ts` → the bytes go back to the player. `--share dlna` takes the same tree and the same `VirtualFile.read()` (`FileEntry` in `tree.py`), through `http_server.py`'s Range handling instead of a FUSE read; `dlna.py` only adds the UPnP description and discovery on top.
 
