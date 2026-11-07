@@ -5,13 +5,13 @@
 #
 # Usage: install.sh [--share samba|dlna|both]   (default: samba)
 #   samba (default): Samba only, as before.
-#   dlna: skips the Samba/pyfuse3/fuse3 packages, the FUSE mount and smb.conf.
+#   dlna: skips the FUSE/Samba packages, the FUSE mount and smb.conf.
 #   both: installs everything.
 #
 # What it changes on the system (undo with scripts/uninstall.sh):
-#   - apt packages: ffmpeg python3-trio libbluray libaacs libbdplus libdvdread
+#   - apt packages: ffmpeg python3 libbluray libaacs libbdplus libdvdread
 #                   (+ build tools for edge264), and with --share samba/both:
-#                   python3-pyfuse3 fuse3 samba
+#                   fuse3 samba
 #   - /opt/bluray3d-xr            edge264 decoder + the program
 #   - /usr/local/bin/bluray3d-xr  command to start it
 #   - /srv/bd3d                   mount point of the virtual files (--share samba/both)
@@ -55,8 +55,8 @@ libbluray=libbluray2
 apt-cache show libbluray4 >/dev/null 2>&1 && libbluray=libbluray4
 libdvdread=libdvdread8
 apt-cache show libdvdread8t64 >/dev/null 2>&1 && libdvdread=libdvdread8t64
-packages=(ffmpeg python3 python3-trio "$libbluray" libaacs0 libbdplus0 "$libdvdread" git build-essential ca-certificates)
-case "$SHARE" in samba|both) packages+=(python3-pyfuse3 fuse3 samba) ;; esac
+packages=(ffmpeg python3 "$libbluray" libaacs0 libbdplus0 "$libdvdread" git build-essential ca-certificates)
+case "$SHARE" in samba|both) packages+=(fuse3 samba) ;; esac
 sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
 step "2/5 edge264-mvc decoder (MVC 3D)"
