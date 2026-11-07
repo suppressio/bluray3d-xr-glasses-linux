@@ -34,7 +34,7 @@ from builders import (
     vts_ifo,
 )
 from fakes import EPS, FakeBluray, FakeDvd, mkv_probe, opener, pack
-from library import Library
+from library import Library, VirtualFile
 from sources import (
     BlurayDiscSource,
     DvdSource,
@@ -1510,3 +1510,89 @@ def test_dvd_series_without_label_numbers_neutral_names(monkeypatch: pytest.Monk
     place.mkdir()
     assert [s.name for s in DvdSource.all_on(str(place))] == ["DVD - 1", "DVD - 2"]
     assert library_paths([str(place)], tmp_path) == ["DVD/DVD - 1.ts", "DVD/DVD - 2.ts"]
+
+
+class UnlabeledTwoLanguages(FakeDvd):
+    """FakeDvd (ita and eng, subtitles) with no volume label."""
+
+    @override
+    def volume_id(self) -> str:
+        return ""
+
+
+def unlabeled_dvds(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, count: int
+                   ) -> tuple[Tree, Library, list[str]]:
+    """A real Library with Light/ copies and the given number of folders, each
+    holding the same kind of DVD without a label."""
+    monkeypatch.setattr(dvd, "Dvd", UnlabeledTwoLanguages)
+    places: list[str] = []
+    for n in range(count):
+        place = tmp_path / f"disc {n}"
+        place.mkdir()
+        places.append(str(place))
+    tree = Tree()
+    return tree, Library(tree, "x264", str(tmp_path / "log"), "per-language", True, ["eng"]), places
+
+
+def files_of(tree: Tree, place: str) -> list[str]:
+    """Paths of the files read from `place`, as the tree finds them by name."""
+    paths = sorted(f.path for f in tree.files()
+                   if isinstance(f, VirtualFile) and f.source.path == place)
+    for p in paths:                    # each one found by its path, as a player does
+        found = tree.lookup(p)
+        assert isinstance(found, VirtualFile) and found.source.path == place, p
+    return paths
+
+
+def disc_files(name: str) -> list[str]:
+    return [f"DVD/{d}{v}" for d in ("", "Light/") for v in (
+        f"ENG - {name}.ts", f"ENGsubENG - {name}.ts", f"ITA - {name}.ts",
+        f"ITAsubENG - {name}.ts")]
+
+
+@pytest.mark.parametrize("removed", [0, 1])
+def test_two_unlabeled_dvds_in_one_library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                           removed: int) -> None:
+    tree, lib, places = unlabeled_dvds(monkeypatch, tmp_path, 2)
+    entries = [[e for s in DvdSource.all_on(p) for e in lib.add(s)] for p in places]
+    # the first keeps the neutral name; every file of the second, Light/ and the
+    # subtitle versions included, gets the same number: no file takes another's place
+    assert files_of(tree, places[0]) == sorted(disc_files("DVD"))
+    assert files_of(tree, places[1]) == sorted(disc_files("DVD (2)"))
+    assert len(tree.files()) == 16
+    # one goes (ejected): the other is still found under its own name
+    lib.remove(entries[removed])
+    kept = 1 - removed
+    assert files_of(tree, places[kept]) == sorted(disc_files("DVD" if kept == 0 else "DVD (2)"))
+    assert len(tree.files()) == 8
+    lib.remove(entries[kept])
+    assert tree.files() == []
+
+
+def test_unlabeled_dvd_names_count_up_and_are_reused(monkeypatch: pytest.MonkeyPatch,
+                                                     tmp_path: Path) -> None:
+    tree, lib, places = unlabeled_dvds(monkeypatch, tmp_path, 4)
+    entries = [[e for s in DvdSource.all_on(p) for e in lib.add(s)] for p in places[:3]]
+    assert [files_of(tree, p)[0] for p in places[:3]] == \
+        ["DVD/ENG - DVD.ts", "DVD/ENG - DVD (2).ts", "DVD/ENG - DVD (3).ts"]
+    lib.remove(entries[0])
+    # the others keep their names; a disc inserted now takes the free one
+    entries.append([e for s in DvdSource.all_on(places[3]) for e in lib.add(s)])
+    assert [files_of(tree, p)[0] for p in places[1:]] == \
+        ["DVD/ENG - DVD (2).ts", "DVD/ENG - DVD (3).ts", "DVD/ENG - DVD.ts"]
+    for e in entries[1:]:
+        lib.remove(e)
+    assert tree.files() == []
+
+
+def test_same_name_in_another_folder_is_no_collision(monkeypatch: pytest.MonkeyPatch,
+                                                     tmp_path: Path) -> None:
+    # a series' extra named like a movie lives in Extra/: nothing to number
+    tree, lib, places = unlabeled_dvds(monkeypatch, tmp_path, 2)
+    movie, extra = DvdSource(places[0]), DvdSource(places[1])
+    extra.subfolder = "Extra"
+    lib.add(movie)
+    lib.add(extra)
+    assert "DVD/Extra/ENG - DVD.ts" in files_of(tree, places[1])
+    for f in tree.files():
+        f.close()

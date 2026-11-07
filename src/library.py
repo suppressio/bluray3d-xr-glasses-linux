@@ -720,6 +720,7 @@ class Library:
     def add(self, source: Source) -> list[FileEntry]:
         """Files go in the folder of their kind: Blu-ray 3D/, Blu-ray/ ... (a series'
         bonus titles in its Extra/ sub-folder)."""
+        source = self._unique(source)
         category = self.tree.folder(source.category).inode
         if source.subfolder:
             category = self.tree.folder(source.subfolder, category).inode
@@ -727,6 +728,27 @@ class Library:
         if self.light:
             added += self._add_set(source, self.tree.folder(LIGHT_DIR, category).inode, "light")
         return added
+
+    def _unique(self, source: Source) -> Source:
+        """The source, or a copy named "<name> (2)", "(3)"... when another one in the
+        tree already has its name in the same folder (two DVDs without a label, two
+        copies of a disc): its files would take the others' names. The name is fixed
+        for as long as the source is in the tree, and comes from no path."""
+        def taken(name: str) -> bool:
+            return any(isinstance(f, VirtualFile) and (f.source.name, f.source.category,
+                       f.source.subfolder) == (name, source.category, source.subfolder)
+                       for f in self.tree.files())
+
+        if not taken(source.name):
+            return source
+        n = 2
+        while taken(f"{source.name} ({n})"):
+            n += 1
+        unique = copy.copy(source)
+        unique.name = f"{source.name} ({n})"
+        log.info("%s: another movie has the name %s, shown as %s", source.path, source.name,
+                 unique.name)
+        return unique
 
     def remove(self, entries: Sequence[FileEntry]) -> None:
         for e in entries:
