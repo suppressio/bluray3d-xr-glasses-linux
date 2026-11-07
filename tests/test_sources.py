@@ -346,6 +346,12 @@ class MultiEpisodeBluray:
         return clpi(3_000_000, EPS, extents=list(range(0, 3_000_000, 50_000)),
                     pid=0x1012 if dep else 0x1011)
 
+    def list_dir(self, path: str) -> list[str]:
+        assert path == "BDMV/STREAM"
+        clips = {it.clip for items in self.playlists.values() for it in items}
+        clips |= {c for deps in self.dep_clips.values() for c in deps}
+        return [f"{c}.m2ts" for c in clips] + ["SSIF"]
+
     def close(self) -> None:
         self.closed = True
 
@@ -904,32 +910,65 @@ def test_bluray_lookup_no_titles_found_keeps_offline_naming(
     assert "no online episode titles" in caplog.text
 
 
-def test_content_hash_stable_and_order_independent() -> None:
-    """The hash only depends on which clips are referenced and their size, not on
-    the order items_by_playlist is given in, or which playlist a clip came from."""
-    disc = _two_episode_disc("Show", "SHOW")
-    items_by_playlist = {"00001": [PlayItem("00010", 0, 45_000 * 1200)],
-                         "00002": [PlayItem("00020", 0, 45_000 * 1200)]}
-    a = _content_hash(disc, items_by_playlist)  # type: ignore[arg-type]
-    b = _content_hash(disc, dict(reversed(items_by_playlist.items())))  # type: ignore[arg-type]
-    assert a == b
-    assert isinstance(a, str) and a == a.upper()
+# the real Rick_Morty_S1 disc (#94): size of each BDMV/STREAM/000NN.m2ts, from
+# stat() on the mounted disc, and the hash TheDiscDB's algorithm gives for them
+RICK_MORTY_S1_SIZES = [
+    4804608, 4866048, 1026048, 69826560, 552960, 523714560, 523714560, 2470379520,
+    2461925376, 2455695360, 2368714752, 2376744960, 2452801536, 2466834432, 2551855104,
+    2502463488, 2566785024, 2503913472, 732162048, 467828736, 464904192, 460517376,
+    449009664, 457365504, 463251456, 470151168, 490199040, 479956992, 522608640, 55283712,
+    8761344, 17491968, 20428800, 21983232, 25823232, 11569152, 18149376, 26480640, 11630592,
+    268953600, 423751680, 229890048, 240175104, 1552078848, 2359296, 2383872, 380928,
+    36526080, 2537472, 4190208, 511954944]
+RICK_MORTY_S1_HASH = "B3A2F27396C687706049262309771947"
 
-    smaller = {"00001": [PlayItem("00010", 0, 45_000 * 1200)]}
-    assert _content_hash(disc, smaller) != a  # type: ignore[arg-type]
+
+class StreamDirBluray:
+    """Only what _content_hash() reads: the BDMV/STREAM listing (in disc order,
+    not sorted) and a CLPI per clip with its packet count."""
+
+    def __init__(self, sizes: dict[str, int], extra_names: list[str] | None = None) -> None:
+        self.sizes = sizes
+        self.extra_names = extra_names or []
+
+    def list_dir(self, path: str) -> list[str]:
+        assert path == "BDMV/STREAM"
+        return list(reversed(self.sizes)) + self.extra_names
+
+    def read_file(self, path: str) -> bytes:
+        assert path.startswith("BDMV/CLIPINF/") and path.endswith(".clpi")
+        clip = path.removeprefix("BDMV/CLIPINF/").removesuffix(".clpi")
+        name = next(n for n in self.sizes if n[:-5] == clip)
+        return clpi(self.sizes[name] // 192, [(0, 0)])
+
+
+def test_content_hash_matches_thediscdb_on_a_real_disc() -> None:
+    """#94: every .m2ts in BDMV/STREAM counts, menus and extras no playlist
+    title uses included, sorted by name: the hash TheDiscDB's own scanner gives
+    for the real Rick_Morty_S1 disc. SSIF (a folder) is not a stream file."""
+    sizes = {f"{i:05d}.m2ts": size for i, size in enumerate(RICK_MORTY_S1_SIZES)}
+    disc = StreamDirBluray(sizes, extra_names=["SSIF"])
+    assert _content_hash(disc) == RICK_MORTY_S1_HASH  # type: ignore[arg-type]
+    del sizes["00000.m2ts"]                           # one menu clip less: another disc
+    assert _content_hash(disc) != RICK_MORTY_S1_HASH  # type: ignore[arg-type]
+
+
+def test_content_hash_none_without_stream_files() -> None:
+    assert _content_hash(StreamDirBluray({}, extra_names=["SSIF"])) is None  # type: ignore[arg-type]
 
 
 def test_content_hash_none_on_read_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A clip that cannot be read (disc problem) must not fail the disc over the
-    hash: None, so the caller just skips TheDiscDB (#84)."""
+    """A clip or the folder that cannot be read (disc problem) must not fail the
+    disc over the hash: None, so the caller just skips TheDiscDB (#84)."""
     disc = _two_episode_disc("Show", "SHOW")
 
     def fail(path: str) -> bytes:
         raise OSError(f"cannot read {path}")
 
     monkeypatch.setattr(disc, "read_file", fail)
-    items_by_playlist = {"00001": [PlayItem("00010", 0, 45_000 * 1200)]}
-    assert _content_hash(disc, items_by_playlist) is None  # type: ignore[arg-type]
+    assert _content_hash(disc) is None  # type: ignore[arg-type]
+    monkeypatch.setattr(disc, "list_dir", fail)
+    assert _content_hash(disc) is None  # type: ignore[arg-type]
 
 
 NO_EXTRAS: list[str] = []
