@@ -479,37 +479,35 @@ def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool,
     return base, ""
 
 
-def _content_hash(disc: bluray.Disc, items_by_playlist: dict[str, list[PlayItem]]
-                  ) -> str | None:
-    """TheDiscDB's disc fingerprint (#84): MD5 of the size of every BDMV/STREAM
-    file, one 8-byte little-endian integer per file in filename order, hex
-    uppercase (TheDiscDb/web: DiscScanner.cs + HashingExtensions.cs). Built from
-    the clips already read for this disc's playlists (base + MVC dependent view)
-    rather than a fresh directory listing, which this binding has no call for:
-    the same set on every disc where every stream file belongs to some playlist,
-    true so far of every disc tried. None if a clip cannot be read, so the
+def _content_hash(disc: bluray.Disc) -> str | None:
+    """TheDiscDB's disc fingerprint (#84): MD5 of the size of every .m2ts file
+    directly in BDMV/STREAM, one 8-byte little-endian integer per file in name
+    order, hex uppercase (TheDiscDb/web: DiscScanner.cs picks the files,
+    ClientApiController.Hash sorts them by name, HashingExtensions.cs hashes).
+    Every stream file counts, menus and extras included, not only the clips of
+    the episodes. Each size is read from the clip's CLPI (packets x 192 bytes,
+    equal to the file size on every clip of the real disc tried) rather than from
+    the stream itself. None if the folder or a clip cannot be read, so the
     caller skips TheDiscDB instead of failing the disc over it."""
-    clip_ids = {clip for items in items_by_playlist.values() for it in items
-               for clip in (it.clip, it.dep_clip) if clip}
     try:
+        names = sorted(n for n in disc.list_dir("BDMV/STREAM") if n.lower().endswith(".m2ts"))
         digest = hashlib.md5(usedforsecurity=False)
-        for clip in sorted(clip_ids):
-            size = parse_clpi(disc.read_file(f"BDMV/CLIPINF/{clip}.clpi")).num_packets * 192
-            digest.update(size.to_bytes(8, "little"))
-        return digest.hexdigest().upper()
+        for name in names:
+            clpi = disc.read_file(f"BDMV/CLIPINF/{name[:-5]}.clpi")
+            digest.update((parse_clpi(clpi).num_packets * 192).to_bytes(8, "little"))
+        return digest.hexdigest().upper() if names else None
     except (OSError, ValueError, IndexError) as e:
         log.info("content hash failed, skipping TheDiscDB: %s", e)
         return None
 
 
 def _online_episode_titles(path: str, disc: bluray.Disc,
-                           items_by_playlist: dict[str, list[PlayItem]],
                            episodes: list[bluray.Title]) -> list[str | None]:
     """Episode titles for --lookup (#84), one per `episodes`, from TheDiscDB by
     the disc's content hash. None for every episode on no match or any problem:
     the offline naming (#27) keeps going either way, logged here once instead
     of failing the disc over it."""
-    content_hash = _content_hash(disc, items_by_playlist)
+    content_hash = _content_hash(disc)
     titles: list[str | None] = [None] * len(episodes)
     if content_hash:
         titles = lookup.episode_titles(os.path.join(default_cache_dir(), "lookup"),
@@ -776,8 +774,7 @@ class BlurayDiscSource(DiscSource):
                         episodes = play_all_order
                     online_titles: list[str | None] = [None] * len(episodes)
                     if lookup_enabled:
-                        online_titles = _online_episode_titles(
-                            path, disc, items_by_playlist, episodes)
+                        online_titles = _online_episode_titles(path, disc, episodes)
                     found: list[Source] = [cls(path, audio_langs, _title=t, _episode=i,
                                                _online_title=online_titles[i - 1],
                                                _disc=disc, _info=info, _env=env)

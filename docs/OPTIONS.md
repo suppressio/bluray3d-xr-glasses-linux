@@ -68,7 +68,7 @@ By default an episode's file name only has its season/episode numbers, read offl
 bluray3d-xr --lookup /dev/sr0
 ```
 
-- **[TheDiscDB](https://thediscdb.com)** is the source: it identifies the disc by its content (a fingerprint of its stream files, no title or label involved) and, when the disc is in its community database, maps each playlist straight to its episode title. No API key, no setup.
+- **[TheDiscDB](https://thediscdb.com)** is the source: it identifies the disc by its content (a fingerprint of its stream files, no title or label involved) and, when the disc is in its community database, maps each playlist straight to its episode title. No API key, no setup. Only the same edition matches: the season disc of a box set and the stand-alone release of that season are different discs to TheDiscDB, so one can be found and the other not.
 - **Nothing is looked up again**: a disc's result (including "nothing found", but not a network error, retried on the next insert) is cached in `~/.cache/bluray3d-xr/lookup/` (Docker: the `LOOKUP_CACHE_DIR` volume, so it survives a container rebuild), keyed by its content hash.
 - **Never breaks playback**: no match, an unknown disc, or a network problem all fall back silently to the offline name (`S01E05 - Show`, or `E05 - Show (Disc 1)` when the disc names no season), with one line in the log; `--lookup` queries TheDiscDB only for a Blu-ray read as a series and not already in the cache, never for a single movie.
 - Blu-ray only, like the season detection above; a DVD's episodes keep their current naming regardless of `--lookup`.

@@ -29,22 +29,29 @@ TIMEOUT = 8.0  # seconds: a small JSON request on the LAN's uplink
 
 # what a failed request or a malformed answer raises: a dropped connection
 # (OSError), a response cut short (http.client.IncompleteRead), bad JSON
-# (ValueError), an answer missing the expected fields (KeyError, TypeError)
-LOOKUP_ERRORS = (OSError, http.client.HTTPException, ValueError, KeyError, TypeError)
+# (ValueError), an answer missing the expected fields or of another shape: a
+# KeyError, TypeError or AttributeError
+LOOKUP_ERRORS = (OSError, http.client.HTTPException, ValueError, KeyError, TypeError,
+                 AttributeError)
 
 THEDISCDB_URL = "https://thediscdb.com/graphql"
 # who is asking, so TheDiscDB can tell this project's traffic apart and reach us
 USER_AGENT = "bluray3d-xr (+https://github.com/suppressio/bluray3d-xr-glasses-linux)"
-# TheDiscDB's schema (thediscdb.com): discs are looked up by their content hash,
-# each title carries the clip it is played from (sourceFile, e.g. "00070.mpls")
-# and, when catalogued, its season/episode/title.
+# TheDiscDB's schema (https://thediscdb.com/graphql, checked by introspection):
+# no root field for discs, they hang off mediaItems -> releases -> discs. The
+# same filter on every level keeps the answer to the matching disc only, instead
+# of every release of the show. Each title carries the file it is played from
+# (sourceFile: "00070.mpls" for a playlist, "00040.m2ts" for a bare clip) and,
+# when catalogued, the item it is (episode, extra) with its title.
 THEDISCDB_QUERY = """
 query DiscByHash($hash: String!) {
-  discs(where: { contentHash: { eq: $hash } }) {
+  mediaItems(where: { releases: { some: { discs: { some: { contentHash: { eq: $hash } } } } } }) {
     nodes {
-      titles {
-        sourceFile
-        item { title type }
+      releases(where: { discs: { some: { contentHash: { eq: $hash } } } }) {
+        discs(where: { contentHash: { eq: $hash } }) {
+          contentHash
+          titles { sourceFile item { title } }
+        }
       }
     }
   }
@@ -64,26 +71,31 @@ def _post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
 def _thediscdb_titles(content_hash: str, playlists: list[str]) -> dict[str, str] | None:
     """playlist -> episode title for a disc TheDiscDB knows; empty when it is not
     catalogued or has no title for any of our playlists; None on a network/data
-    problem, so the caller does not cache it."""
+    problem, so the caller does not cache it. The same disc can be catalogued in
+    more than one release (a box set and a single season): a playlist they name
+    differently is left without a title rather than given a guess."""
     try:
         data = _post_json(THEDISCDB_URL,
                           {"query": THEDISCDB_QUERY, "variables": {"hash": content_hash}})
-        nodes: list[dict[str, Any]] = data["data"]["discs"]["nodes"]
+        if data.get("errors"):  # GraphQL reports errors with HTTP 200 too
+            raise ValueError(f"GraphQL errors: {data['errors']}")
+        nodes: list[dict[str, Any]] = data["data"]["mediaItems"]["nodes"]
+        discs = [disc for node in nodes for release in node["releases"]
+                 for disc in release["discs"]
+                 if str(disc["contentHash"]).upper() == content_hash.upper()]
+        names: dict[str, set[str]] = {}
+        for disc in discs:
+            for title in disc["titles"]:
+                source = Path(str(title.get("sourceFile") or ""))
+                item: dict[str, Any] = title.get("item") or {}
+                name: Any = item.get("title")
+                # a bare .m2ts clip (an extra) may share its number with a playlist
+                if source.suffix.lower() == ".mpls" and isinstance(name, str) and name:
+                    names.setdefault(source.stem, set()).add(name)
     except LOOKUP_ERRORS as e:
         log.info("TheDiscDB: lookup failed: %s", e)
         return None
-    if not nodes:
-        return {}
-    wanted = set(playlists)
-    titles: dict[str, str] = {}
-    disc_titles: list[dict[str, Any]] = nodes[0].get("titles") or []
-    for title in disc_titles:
-        playlist = Path(str(title.get("sourceFile", ""))).stem
-        item: dict[str, Any] = title.get("item") or {}
-        name: str | None = item.get("title")
-        if playlist in wanted and name:
-            titles[playlist] = name
-    return titles
+    return {p: next(iter(names[p])) for p in playlists if len(names.get(p, ())) == 1}
 
 
 def _cache_path(cache_dir: str, content_hash: str) -> Path:

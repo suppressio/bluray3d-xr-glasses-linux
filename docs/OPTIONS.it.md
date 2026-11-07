@@ -68,7 +68,7 @@ Per default il nome di un episodio ha solo il numero di stagione/episodio, letto
 bluray3d-xr --lookup /dev/sr0
 ```
 
-- **[TheDiscDB](https://thediscdb.com)** è la fonte: identifica il disco dal suo contenuto (un'impronta dei file video, senza nome o etichetta) e, quando il disco è nel suo database comunitario, mappa ogni playlist direttamente al titolo del suo episodio. Nessuna chiave API, nessuna configurazione.
+- **[TheDiscDB](https://thediscdb.com)** è la fonte: identifica il disco dal suo contenuto (un'impronta dei file video, senza nome o etichetta) e, quando il disco è nel suo database comunitario, mappa ogni playlist direttamente al titolo del suo episodio. Nessuna chiave API, nessuna configurazione. Vale solo la stessa edizione: il disco di una stagione in un cofanetto e l'edizione singola di quella stagione sono dischi diversi per TheDiscDB, quindi uno può essere trovato e l'altro no.
 - **Niente viene cercato due volte**: il risultato per un disco (anche "nessuna corrispondenza", ma non un errore di rete, riprovato al prossimo inserimento) resta in cache in `~/.cache/bluray3d-xr/lookup/` (Docker: il volume `LOOKUP_CACHE_DIR`, così sopravvive alla ricreazione del container), identificato dall'impronta del contenuto.
 - **Non blocca mai la riproduzione**: nessuna corrispondenza, un disco non conosciuto o un problema di rete tornano tutti, in silenzio, al nome offline (`S01E05 - Serie`, oppure `E05 - Serie (Disco 1)` quando il disco non indica la stagione), con una riga nel log; `--lookup` interroga TheDiscDB solo per un Blu-ray letto come serie e non già in cache, mai per un film singolo.
 - Solo Blu-ray, come il riconoscimento della stagione sopra; gli episodi di un DVD mantengono la nomenclatura attuale indipendentemente da `--lookup`.
