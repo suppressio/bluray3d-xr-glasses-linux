@@ -21,6 +21,7 @@ import os
 import signal
 import stat
 import subprocess
+import sys
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -32,6 +33,11 @@ from library import VirtualFile
 from osplatform import DriveStatus, drive_status
 from pipeline import pick_encoder, quality_for
 from sources import BlurayDiscSource, MkvSource, Source, open_disc
+
+# real bash pipelines stopped with os.killpg, POSIX only until #103: a raise, not
+# pytest.skip(), so pyright leaves the module out on Windows too
+if sys.platform == "win32":
+    raise pytest.skip.Exception("POSIX only until #103", allow_module_level=True)
 
 pytestmark = pytest.mark.integration
 

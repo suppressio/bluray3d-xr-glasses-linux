@@ -1,9 +1,12 @@
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "deb-version.sh"
+# the ordering checks ask Debian's own dpkg: absent on macOS and Windows
+needs_dpkg = pytest.mark.skipif(shutil.which("dpkg") is None, reason="needs dpkg")
 
 
 @pytest.mark.parametrize(("app_version", "expected"), [
@@ -27,6 +30,7 @@ def test_deb_package_version(app_version: str, expected: str) -> None:
     assert result.stdout.strip() == expected
 
 
+@needs_dpkg
 def test_digit_starting_hash_version_sorts_before_release() -> None:
     result = subprocess.run(
         ["bash", "-c", 'source "$1"; deb_package_version "$2"', "_", str(SCRIPT), "20811e4"],
@@ -41,6 +45,7 @@ def test_digit_starting_hash_version_sorts_before_release() -> None:
     )
 
 
+@needs_dpkg
 def test_prerelease_version_sorts_before_release() -> None:
     result = subprocess.run(
         ["bash", "-c", 'source "$1"; deb_package_version "$2"', "_", str(SCRIPT), "v1.2.0-rc.1"],
@@ -65,6 +70,7 @@ def _version(app_version: str) -> str:
     return result.stdout.strip()
 
 
+@needs_dpkg
 @pytest.mark.parametrize(("lower", "higher"), [
     ("v1.2.0", "v1.2.0-3-gabc1234"),
     ("v1.2.0-3-gabc1234", "v1.2.1"),

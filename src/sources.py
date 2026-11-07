@@ -817,6 +817,9 @@ class BlurayDiscSource(DiscSource):
         # 3D: one FIFO per pipeline start, disc_reader writes the audio TS into it
         if self._fifo and os.path.exists(self._fifo):
             os.unlink(self._fifo)
+        if sys.platform == "win32":
+            raise NotImplementedError("3D audio goes through a FIFO (os.mkfifo): POSIX only "
+                                      "until #103")
         self._fifo = _temp_file("audio.ts")
         os.mkfifo(self._fifo)
         return f"{cmd} --audio-out {shlex.quote(self._fifo)}".strip()

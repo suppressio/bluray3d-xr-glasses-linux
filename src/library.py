@@ -25,6 +25,7 @@ import os
 import shlex
 import signal
 import subprocess
+import sys
 import threading
 import time
 import weakref
@@ -181,6 +182,8 @@ class Generator:
             if with_loader:
                 self.loader = Generator(vf, seconds, loader=True)
         log.debug("  %s", cmd)
+        if not hasattr(os, "killpg"):    # Windows: stop() could not kill the pipeline
+            raise NotImplementedError("pipelines need os.killpg, POSIX only until #103")
         with open_pipeline_log(vf.log_path, f"{vf.path}: {'loader' if loader else 'pipeline'} "
                                f"from {start:.1f}s") as stderr:
             self.proc = subprocess.Popen(
@@ -282,7 +285,8 @@ class Generator:
         with self.cond:
             self.stopped = True
             self.cond.notify_all()
-        if self.proc.poll() is None:
+        # never started without os.killpg (__init__): Windows, until #103
+        if sys.platform != "win32" and self.proc.poll() is None:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(self.proc.pid, signal.SIGKILL)
         # SIGKILL waits for a process stuck in the kernel (a drive that does not

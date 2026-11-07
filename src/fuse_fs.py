@@ -17,6 +17,7 @@ import logging
 import os
 import stat
 import subprocess
+import sys
 import threading
 import uuid
 from typing import Any
@@ -97,6 +98,8 @@ class Bd3dFS(mfusepy.Operations):
         return handle[0]
 
     def _attr(self, e: Folder | FileEntry) -> dict[str, int]:
+        if sys.platform == "win32":   # never imported there: no libfuse3 (WinFsp: #7)
+            raise NotImplementedError("FUSE is POSIX only until #7")
         # mfusepy takes st_*time in nanoseconds when use_ns is set
         a = {"st_ino": e.inode, "st_uid": os.getuid(), "st_gid": os.getgid(),
              "st_blksize": 1 << 20,
