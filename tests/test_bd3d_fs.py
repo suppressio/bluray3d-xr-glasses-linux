@@ -232,7 +232,8 @@ def test_run_fails_when_a_watcher_dies(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32",
-                    reason="os.kill(SIGTERM) terminates the process on Windows, no handler runs")
+                    reason="os.kill(SIGTERM) terminates the process on Windows, no handler runs"
+                           " (SPN#10)")
 @pytest.mark.usefixtures("signal_handlers")
 @pytest.mark.parametrize("busy_in", ["open_disc", "add"])
 def test_stop_while_a_disc_is_loaded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
