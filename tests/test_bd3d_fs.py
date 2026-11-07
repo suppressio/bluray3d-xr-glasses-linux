@@ -10,7 +10,7 @@ import sys
 import threading
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import cast
+from typing import Self, cast
 from unittest.mock import Mock
 
 import pytest
@@ -470,3 +470,82 @@ def test_dump_structure_unwritable_file(monkeypatch: pytest.MonkeyPatch, tmp_pat
                                       str(tmp_path)])
     with pytest.raises(SystemExit, match="--dump-structure: cannot write"):
         bd3d_fs.main()
+
+
+def link_to(kind: str, target: Path, link: Path) -> None:
+    """`link` as the same file as `target`: itself, a symlink or a hard link."""
+    try:
+        if kind == "symlink":
+            link.symlink_to(target)
+        elif kind == "hardlink":
+            link.hardlink_to(target)
+    except (OSError, NotImplementedError) as e:
+        pytest.skip(f"no {kind} here: {e}")
+
+
+@pytest.mark.parametrize("kind", ["same", "symlink", "hardlink"])
+def test_dump_structure_never_overwrites_the_source(monkeypatch: pytest.MonkeyPatch,
+                                                    tmp_path: Path, kind: str) -> None:
+    iso = tmp_path / "Tron.iso"
+    iso.write_bytes(b"ISO BYTES")
+    out = iso if kind == "same" else tmp_path / "out.json"
+    link_to(kind, iso, out)
+    dump = Mock(return_value="{}\n")
+    monkeypatch.setattr(bd3d_fs, "dump_structure", dump)
+    with pytest.raises(SystemExit, match="exists already, give the name of a new file"):
+        bd3d_fs.write_structure([str(iso)], str(out))
+    dump.assert_not_called()                    # refused before the disc is read
+    assert iso.read_bytes() == b"ISO BYTES"
+
+
+def test_dump_structure_keeps_an_existing_file(monkeypatch: pytest.MonkeyPatch,
+                                               tmp_path: Path) -> None:
+    out = tmp_path / "out.json"
+    out.write_text("an older dump")
+    monkeypatch.setattr(bd3d_fs, "dump_structure", Mock(return_value="{}\n"))
+    with pytest.raises(SystemExit, match="exists already"):
+        bd3d_fs.write_structure([str(tmp_path)], str(out))
+    assert out.read_text() == "an older dump"
+
+
+def test_dump_structure_keeps_a_file_created_while_reading(monkeypatch: pytest.MonkeyPatch,
+                                                          tmp_path: Path) -> None:
+    # it appeared after the first check, while the disc was read: still not ours
+    out = tmp_path / "out.json"
+
+    def dump_structure(path: str) -> str:
+        out.write_text("someone else's")
+        return "{}\n"
+
+    monkeypatch.setattr(bd3d_fs, "dump_structure", dump_structure)
+    with pytest.raises(SystemExit, match="exists already"):
+        bd3d_fs.write_structure([str(tmp_path)], str(out))
+    assert out.read_text() == "someone else's"
+
+
+def test_dump_structure_removes_its_half_written_file(monkeypatch: pytest.MonkeyPatch,
+                                                     tmp_path: Path) -> None:
+    out = tmp_path / "out.json"
+    real_open = open
+
+    class DiskFull:
+        def __init__(self, path: str, mode: str, encoding: str) -> None:
+            self.f = real_open(path, mode, encoding=encoding)
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self.f.close()
+
+        def write(self, text: str) -> int:
+            self.f.write(text[:len(text) // 2])
+            self.f.flush()
+            assert out.stat().st_size > 0        # half of it is on disk
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(bd3d_fs, "open", DiskFull, raising=False)
+    monkeypatch.setattr(bd3d_fs, "dump_structure", Mock(return_value='{"format": 1}\n'))
+    with pytest.raises(SystemExit, match=r"cannot write .*No space left on device"):
+        bd3d_fs.write_structure([str(tmp_path)], str(out))
+    assert not out.exists()

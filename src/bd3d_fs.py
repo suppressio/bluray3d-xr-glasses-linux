@@ -312,8 +312,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "~/.local/state/bluray3d-xr/bluray3d-xr.log), or none")
     parser.add_argument("--dump-structure", metavar="FILE",
                         help="write the structure of the one disc given (drive, ISO, BDMV or "
-                             "VIDEO_TS folder) to FILE as JSON and exit: titles, play items, "
-                             "keyframe maps, tracks; no video, keys or paths")
+                             "VIDEO_TS folder) to FILE, a new file, as JSON and exit: titles, "
+                             "play items, keyframe maps, tracks; no video, keys or paths")
     return parser
 
 
@@ -326,13 +326,25 @@ def write_structure(sources_args: list[str], out: str) -> None:
     source = str(Path(sources_args[0]).expanduser())
     if not Path(source).exists():
         raise SystemExit(f"not found: {source}")
+    # never overwrite: FILE may be the source itself (or a link to it), or a
+    # file worth keeping. Checked before the disc is read, and again on creation
+    exists = f"--dump-structure: {out} exists already, give the name of a new file"
+    if os.path.lexists(out):
+        raise SystemExit(exists)
     try:
         text = dump_structure(source)
     except OSError as e:
         raise SystemExit(f"{source}: {str(e).removeprefix(f'{source}: ')}") from e
+    created = False
     try:
-        Path(out).write_text(text, encoding="utf-8")
+        with open(out, "x", encoding="utf-8") as f:
+            created = True
+            f.write(text)
+    except FileExistsError:
+        raise SystemExit(exists) from None
     except OSError as e:
+        if created:                  # ours, half written: not left behind
+            Path(out).unlink(missing_ok=True)
         raise SystemExit(f"--dump-structure: cannot write {out}: {e}") from e
     log.info("%s: structure written to %s", source, out)
 
