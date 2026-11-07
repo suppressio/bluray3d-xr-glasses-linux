@@ -19,6 +19,7 @@ Implemented:
 import atexit
 import copy
 import functools
+import hashlib
 import itertools
 import json
 import logging
@@ -98,6 +99,9 @@ class Source(ABC):
     sub: SubtitleTrack | None = None  # the track drawn into this file, if any
     forced_only: bool = False       # draw only its forced subtitles (foreign-language parts)
     sub_depth: int = 8              # 3D: pixels each eye's copy is moved inward
+    # named by the program, not by the disc (a DVD without a label): copies of one
+    # disc share that name, so the Library numbers the ones that come after
+    fallback_name: bool = False
     # Pipelines that may run at once on this source. A disc is one optical drive:
     # two pipelines reading far-apart places make its head jump back and forth
     # on every read and both crawl.
@@ -863,6 +867,9 @@ class DvdSource(DiscSource):
         try:
             self.title = title or dvd.main_titles(self._dvd)[0]
             label = self._dvd.volume_id()
+            # no label: named after its navigation, never its file or folder name,
+            # so the name depends on the disc alone (and a --dump-structure replays it)
+            fingerprint = "" if label else _dvd_fingerprint(*_dvd_titles(self._dvd))
         except OSError:
             self._dvd.close()
             raise
@@ -877,9 +884,8 @@ class DvdSource(DiscSource):
                      if dvd.has_dvdcss() else "DVD not encrypted")
         self._lock = threading.Lock()
         self._ifo_copy: str | None = None
-        # no label: a neutral name, never the file or folder name, so the name
-        # depends on the disc alone (and a --dump-structure replays it)
-        self.name = _safe_name(label.replace("_", " ").title() if label else "DVD")
+        self.fallback_name = not label
+        self.name = _safe_name(label.replace("_", " ").title()) if label else f"DVD-{fingerprint}"
         if episode:
             self.name = f"{self.name} - {episode}"
         self.duration = self.title.duration
@@ -1017,34 +1023,52 @@ def _nav_structure(disc: dvd.Dvd, vts: int, vobus: list[int]) -> dict[str, list[
             "pts": [n.pts if n else None for n in navs]}
 
 
+def _dvd_titles(disc: dvd.IfoReader) -> tuple[list[dict[str, object]], dict[int, list[int]]]:
+    """Every title of VIDEO_TS.IFO as parse_title() reads it, before any choice,
+    and the VOBU address map (ADMAP) of each title set: the IFO files only."""
+    ifos: dict[int, bytes] = {}
+    vobus: dict[int, list[int]] = {}
+    titles: list[dict[str, object]] = []
+    for number, vts, ttn in dvd.titles(disc.ifo(0)):
+        if vts not in ifos:
+            ifos[vts] = disc.ifo(vts)
+        entry: dict[str, object] = {"number": number, "vts": vts, "ttn": ttn}
+        try:
+            t = dvd.parse_title(ifos[vts], number, vts, ttn)
+        except (IndexError, ValueError) as e:  # main_titles() skips these too
+            entry["error"] = type(e).__name__
+        else:
+            # not the palette: main_titles() and the seek do not use it
+            entry |= {"duration": t.duration, "frame_size": t.frame_size,
+                      "frame_rate": t.frame_rate,
+                      "cells": [asdict(c) for c in t.cells],
+                      "audio": [asdict(a) for a in t.audio],
+                      "subs": [asdict(s) for s in t.subs]}
+            vobus[vts] = t.vobus
+        titles.append(entry)
+    return titles, vobus
+
+
+def _dvd_fingerprint(titles: list[dict[str, object]], vobus: dict[int, list[int]]) -> str:
+    """12 hex digits of SHA-256 over _dvd_titles() as canonical JSON: names a DVD
+    without a volume label after its navigation alone (no path, no stream data),
+    so every copy of it, and a replay of its dump, gets the same one. Short:
+    two different discs may share it, as two copies of one disc always do."""
+    canonical = json.dumps({"titles": titles, "vobus": {str(v): s for v, s in vobus.items()}},
+                           sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:12]
+
+
 def _dvd_structure(path: str) -> dict[str, object]:
-    """Every title of VIDEO_TS.IFO as parse_title() reads it, and per title set
-    its VOBU map with the navigation pack of each VOBU."""
+    """_dvd_titles(), its fingerprint, and per title set its VOBU map with the
+    navigation pack of each VOBU."""
     with dvd.Dvd(path) as disc:
-        ifos: dict[int, bytes] = {}
-        vobus: dict[int, list[int]] = {}
-        titles: list[dict[str, object]] = []
-        for number, vts, ttn in dvd.titles(disc.ifo(0)):
-            if vts not in ifos:
-                ifos[vts] = disc.ifo(vts)
-            entry: dict[str, object] = {"number": number, "vts": vts, "ttn": ttn}
-            try:
-                t = dvd.parse_title(ifos[vts], number, vts, ttn)
-            except (IndexError, ValueError) as e:  # main_titles() skips these too
-                entry["error"] = type(e).__name__
-            else:
-                # not the palette: main_titles() and the seek do not use it
-                entry |= {"duration": t.duration, "frame_size": t.frame_size,
-                          "frame_rate": t.frame_rate,
-                          "cells": [asdict(c) for c in t.cells],
-                          "audio": [asdict(a) for a in t.audio],
-                          "subs": [asdict(s) for s in t.subs]}
-                vobus[vts] = t.vobus
-            titles.append(entry)
+        titles, vobus = _dvd_titles(disc)
         title_sets = {str(vts): {"vobus": sectors, "navs": _nav_structure(disc, vts, sectors)}
                       for vts, sectors in sorted(vobus.items())}
         volume_id = disc.volume_id()
     return {"format": STRUCTURE_FORMAT, "kind": "dvd", "volume_id": volume_id,
+            "fingerprint": _dvd_fingerprint(titles, vobus),
             "titles": titles, "title_sets": title_sets}
 
 
