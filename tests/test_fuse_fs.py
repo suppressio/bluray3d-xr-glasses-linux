@@ -17,9 +17,11 @@ from typing import Any
 import pytest
 
 if sys.platform != "linux":
-    # fuse_fs.py raises ImportError without libfuse3; macOS/Windows backends for
-    # mfusepy aren't wired in yet (#7), so there is nothing to test there
-    pytest.skip("fuse_fs.py needs libfuse3, Linux only until #7", allow_module_level=True)
+    # fuse_fs.py raises ImportError without libfuse3; the macOS (SPN#100) and
+    # Windows (SPN#106) backends for mfusepy aren't wired in yet, so there is
+    # nothing to test there
+    pytest.skip("fuse_fs.py needs libfuse3, Linux only until SPN#100 (macOS) "
+                "and SPN#106 (Windows)", allow_module_level=True)
 
 import fuse_fs
 from fuse_fs import Bd3dFS
