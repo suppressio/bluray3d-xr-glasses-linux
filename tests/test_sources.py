@@ -9,6 +9,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, override
+from unittest.mock import Mock
 
 import pytest
 from hypothesis import given, settings
@@ -29,9 +30,11 @@ from builders import (
     clpi,
     mpls,
     nav_pack,
+    vmg_ifo,
     vts_ifo,
 )
 from fakes import EPS, FakeBluray, FakeDvd, mkv_probe, opener, pack
+from library import Library
 from sources import (
     BlurayDiscSource,
     DvdSource,
@@ -47,6 +50,7 @@ from sources import (
     is_dvd,
     open_disc,
 )
+from tree import Tree
 
 
 @pytest.fixture(autouse=True)
@@ -1438,3 +1442,71 @@ def test_discover_logs_the_failed_candidate(monkeypatch: pytest.MonkeyPatch, tmp
         assert discover([str(tmp_path)]) == []
     assert f"{iso}: skipped: cannot read the disc" in caplog.text   # the path, exactly once
     assert caplog.text.count(str(iso)) == 1
+
+
+class UnlabeledDvd(NavDvd):
+    """NavDvd with no volume label."""
+
+    @override
+    def volume_id(self) -> str:
+        return ""
+
+
+def library_paths(source_paths: list[str], tmp_path: Path) -> list[str]:
+    tree = Tree()
+    lib = Library(tree, "x264", str(tmp_path / "log"), "per-language", False, [])
+    for p in source_paths:
+        for s in DvdSource.all_on(p):
+            lib.add(s)
+    return sorted(f.path for f in tree.files())
+
+
+def test_dvd_without_label_is_named_after_the_disc_alone(monkeypatch: pytest.MonkeyPatch,
+                                                         tmp_path: Path) -> None:
+    """The same unlabeled DVD read from two differently named places: the same
+    dump, without either name, and the same neutral name in the library, as
+    the replay of that dump will give."""
+    no_bluray = Mock(side_effect=OSError("cannot open Blu-ray"))
+    monkeypatch.setattr(sources, "_open_disc", no_bluray)
+    monkeypatch.setattr(dvd, "Dvd", UnlabeledDvd)
+    places = [tmp_path / "Holiday Rips 2019", tmp_path / "bttf-copy"]
+    dumps: list[str] = []
+    for place in places:
+        place.mkdir()
+        monkeypatch.setattr(NavDvd, "vobs", {})
+        dumps.append(sources.dump_structure(str(place)))
+    assert no_bluray.call_count == 2
+    assert dumps[0] == dumps[1]
+    assert json.loads(dumps[0])["volume_id"] == ""
+    assert not any(p.name in dumps[0] for p in places)
+
+    first, second = (DvdSource(str(p)) for p in places)
+    assert first.name == second.name == "DVD"
+    for t in (0.0, 2999.0, 3000.5, 4600.0):
+        assert first.keyframe_at_or_before(t) == second.keyframe_at_or_before(t)
+    paths = [library_paths([str(p)], tmp_path) for p in places]
+    assert paths[0] == paths[1] == ["DVD/DVD.ts"]     # one language: no prefix
+
+
+class UnlabeledSeries(FakeDvd):
+    """Two 25-minute episodes, in VTS 1 and 2, and no volume label."""
+
+    @override
+    def ifo(self, vts: int) -> bytes:
+        if vts == 0:
+            return vmg_ifo([(1, 1), (2, 1)])
+        first = (vts - 1) * 10_000
+        return vts_ifo([DvdCell(1500.0, first, first + 9_999)], [DvdAudioAttr(0, "en")], [])
+
+    @override
+    def volume_id(self) -> str:
+        return ""
+
+
+def test_dvd_series_without_label_numbers_neutral_names(monkeypatch: pytest.MonkeyPatch,
+                                                        tmp_path: Path) -> None:
+    monkeypatch.setattr(dvd, "Dvd", UnlabeledSeries)
+    place = tmp_path / "My Series Folder"
+    place.mkdir()
+    assert [s.name for s in DvdSource.all_on(str(place))] == ["DVD - 1", "DVD - 2"]
+    assert library_paths([str(place)], tmp_path) == ["DVD/DVD - 1.ts", "DVD/DVD - 2.ts"]

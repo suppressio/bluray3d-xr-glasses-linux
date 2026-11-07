@@ -877,7 +877,9 @@ class DvdSource(DiscSource):
                      if dvd.has_dvdcss() else "DVD not encrypted")
         self._lock = threading.Lock()
         self._ifo_copy: str | None = None
-        self.name = _safe_name(label.replace("_", " ").title() if label else Path(path).stem)
+        # no label: a neutral name, never the file or folder name, so the name
+        # depends on the disc alone (and a --dump-structure replays it)
+        self.name = _safe_name(label.replace("_", " ").title() if label else "DVD")
         if episode:
             self.name = f"{self.name} - {episode}"
         self.duration = self.title.duration
