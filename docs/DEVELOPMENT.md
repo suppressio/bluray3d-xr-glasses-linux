@@ -88,6 +88,36 @@ They need no disc and no drive, and take a few seconds.
 
 One test file per module: `test_bdmv.py` for `bdmv.py`, and so on. A fix comes with the test that would have caught the bug.
 
+### Recorded discs (`tests/discs/`)
+
+A disc's structure, written by [`--dump-structure`](OPTIONS.md#a-discs-structure), replays in the unit tests as if the disc were in the drive. `tests/recorded.py` (`RecordedSource`) answers the program's readers of playlists, clips, IFO files and navigation packs from the JSON; everything above them is the program's own: the choice of titles, their names, the files the library shows, the keyframes a jump lands on. No drive, libbluray, libdvdread, decoder or FFmpeg is involved.
+
+For every file in `tests/discs/`, `test_recorded.py` checks:
+- the titles the program takes and the files it shows (names, languages, extras), against `tests/discs/expected/` with the same file name;
+- the pipeline invariants of `test_library.py` on the disc's own keyframes, with the stand-in for FFmpeg: the head of the file is cached, a pipeline starts on a packet boundary at or before the read and covers it, the same read again starts nothing.
+
+To add a disc:
+
+1. Record it: `python3 src/bd3d_fs.py --dump-structure tests/discs/NAME.json /dev/sr0`. Name the file after the disc's volume label (an unlabelled DVD: `DVD-<fingerprint>`, as the program names it). The dump holds no path, key or stream content.
+2. Write `tests/discs/expected/NAME.json` by hand, from what the disc really holds:
+
+   ```json
+   {
+    "titles": [
+     ["00002", "S01E01 - Show", 1450.0]
+    ],
+    "tree": [
+     "Blu-ray",
+     "Blu-ray/ITA - S01E01 - Show.ts"
+    ]
+   }
+   ```
+
+   `titles`: one `[title, name, duration]` per source, in the program's order; the title is the playlist (Blu-ray) or the title number (DVD). `tree`: every folder and file the library shows, sorted, with one file per audio language and per subtitle language.
+3. Run `scripts/check.sh`. Nothing else changes.
+
+The `SYNTHETIC_*` and `DVD-7b90ebcd29ee` files are no real discs: they are the dumps of the synthetic discs in `test_recorded.py`, and a test checks that they still are. When the dump format changes, write them again from `dump_structure()`.
+
 ### Integration tests (`tests/integration/`)
 
 They run on the disc in the drive (`BD3D_TEST_DRIVE`, default `/dev/sr0`) or on a 3D MKV (`BD3D_TEST_MKV=~/Videos/movie.mkv`). They check:

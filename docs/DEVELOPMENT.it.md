@@ -88,6 +88,36 @@ Non serve né un disco né un lettore, e durano pochi secondi.
 
 Un file di test per modulo: `test_bdmv.py` per `bdmv.py`, e così via. Una correzione arriva con il test che avrebbe trovato il bug.
 
+### Dischi registrati (`tests/discs/`)
+
+La struttura di un disco, scritta da [`--dump-structure`](OPTIONS.it.md#la-struttura-di-un-disco), si riproduce negli unit test come se il disco fosse nel lettore. `tests/recorded.py` (`RecordedSource`) risponde dal JSON ai lettori di playlist, clip, file IFO e navigation pack del programma; tutto quello che sta sopra è del programma: la scelta dei titoli, i loro nomi, i file che la libreria mostra, i keyframe su cui atterra un salto. Non entrano in gioco né lettore, né libbluray, né libdvdread, né decoder, né FFmpeg.
+
+Per ogni file in `tests/discs/`, `test_recorded.py` controlla:
+- i titoli che il programma prende e i file che mostra (nomi, lingue, extra), confrontandoli con `tests/discs/expected/` con lo stesso nome di file;
+- gli invarianti delle pipeline di `test_library.py` sui keyframe del disco stesso, con il sostituto di FFmpeg: l'inizio del file va in cache, una pipeline parte su un confine di pacchetto, prima o alla lettura, e la copre, e la stessa lettura ripetuta non avvia niente.
+
+Per aggiungere un disco:
+
+1. Registralo: `python3 src/bd3d_fs.py --dump-structure tests/discs/NOME.json /dev/sr0`. Dai al file il nome dell'etichetta di volume del disco (un DVD senza etichetta: `DVD-<impronta>`, come lo chiama il programma). Il dump non contiene percorsi, chiavi né contenuto dei flussi.
+2. Scrivi a mano `tests/discs/expected/NOME.json`, da quello che il disco contiene davvero:
+
+   ```json
+   {
+    "titles": [
+     ["00002", "S01E01 - Show", 1450.0]
+    ],
+    "tree": [
+     "Blu-ray",
+     "Blu-ray/ITA - S01E01 - Show.ts"
+    ]
+   }
+   ```
+
+   `titles`: un `[titolo, nome, durata]` per sorgente, nell'ordine del programma; il titolo è la playlist (Blu-ray) o il numero del titolo (DVD). `tree`: ogni cartella e file che la libreria mostra, in ordine, con un file per lingua audio e per lingua dei sottotitoli.
+3. Lancia `scripts/check.sh`. Non cambia nient'altro.
+
+I file `SYNTHETIC_*` e `DVD-7b90ebcd29ee` non sono dischi veri: sono i dump dei dischi sintetici di `test_recorded.py`, e un test controlla che lo siano ancora. Quando il formato del dump cambia, riscrivili da `dump_structure()`.
+
 ### Test di integrazione (`tests/integration/`)
 
 Girano sul disco nel lettore (`BD3D_TEST_DRIVE`, predefinito `/dev/sr0`) o su un MKV 3D (`BD3D_TEST_MKV=~/Video/film.mkv`). Controllano:
