@@ -4,6 +4,13 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+  # changes to what goes into the package: build and install-test, never publish
+  pull_request:
+    paths:
+      - src/**
+      - scripts/build-deb.sh
+      - scripts/deb-*
+      - .github/workflows/deb.yml
 
 permissions:
   contents: read
@@ -32,28 +39,17 @@ jobs:
       fail-fast: false
       matrix:
         container: [debian:trixie, ubuntu:24.04]
+        recommends: [recommends, no-recommends]
     container:
       image: ${{ matrix.container }}
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           name: bluray3d-xr-deb
           path: dist
       - name: Install, verify, remove
-        shell: bash
-        run: |
-          set -euo pipefail
-          apt-get update
-          apt-get install -y ./dist/*.deb
-          bluray3d-xr --version
-          testparm -s | grep -q '^\[Disks\]$'
-          grep -qxF user_allow_other /etc/fuse.conf
-          apt-get remove -y bluray3d-xr
-          ! grep -qF '# >>> bluray3d-xr >>>' /etc/samba/smb.conf
-          test ! -e /srv/bd3d
-          grep -qxF user_allow_other /etc/fuse.conf
-          apt-get purge -y bluray3d-xr
-          ! getent group bluray3d-xr
+        run: bash scripts/deb-install-test.sh dist/*.deb ${{ matrix.recommends }}
 
   publish:
     if: github.event_name == 'release' && github.event.action == 'published'
