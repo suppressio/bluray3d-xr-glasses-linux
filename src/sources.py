@@ -34,9 +34,9 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Protocol, Self, override
+from typing import Any, Protocol, Self, cast, override
 
 import bluray
 import dvd
@@ -953,6 +953,125 @@ def open_disc(path: str, audio_langs: list[str] | None = None) -> list[Source]:
             return list(DvdSource.all_on(path, audio_langs))
         except OSError:
             raise bd_error from None
+
+
+# --dump-structure: what the selection, the naming and the keyframes are computed
+# from, as parsed by the readers above, before any choice is made. Bump the format
+# when a field changes meaning. Left out on purpose: the source's path, the
+# decryption backend, raw files, audio/video/subtitle payload, commands.
+STRUCTURE_FORMAT = 1
+
+
+def _clip_structure(disc: bluray.Disc, clip: str, pid: int) -> dict[str, object]:
+    try:
+        return {"video_pid": pid, **asdict(parse_clpi(
+            disc.read_file(f"BDMV/CLIPINF/{clip}.clpi"), pid=pid))}
+    except Exception as e:  # noqa: BLE001  recorded: only the title using it would fail
+        return {"video_pid": pid, "error": type(e).__name__}
+
+
+def _bluray_structure(path: str) -> dict[str, object]:
+    """Every title libbluray lists, in its order, with its play items, and the
+    EP_map/extents of every clip they use (base view 0x1011, MVC view 0x1012)."""
+    disc, info, _ = _open_disc(path)
+    try:
+        titles: list[dict[str, object]] = []
+        clips: dict[str, object] = {}
+        for t in disc.titles():
+            entry: dict[str, object] = {"playlist": t.playlist, "duration": t.duration}
+            try:
+                items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{t.playlist}.mpls"))
+            except Exception as e:  # noqa: BLE001  recorded: all_on() skips it too (#63)
+                entry["error"] = type(e).__name__
+                items = []
+            else:
+                entry["items"] = [asdict(it) for it in items]
+            for it in items:
+                for clip, pid in ((it.clip, 0x1011), (it.dep_clip, 0x1012)):
+                    if clip and clip not in clips:
+                        clips[clip] = _clip_structure(disc, clip, pid)
+            titles.append(entry)
+    finally:
+        disc.close()
+    return {"format": STRUCTURE_FORMAT, "kind": "bluray", "name": info.name,
+            "volume_id": info.volume_id, "has_3d": info.has_3d,
+            "titles": titles, "clips": clips}
+
+
+def _nav_structure(disc: dvd.Dvd, vts: int, vobus: list[int]) -> dict[str, list[object]] | None:
+    """The navigation pack at every VOBU start of a title set, as parallel lists
+    (None where a sector is unreadable or holds none): what dvd.seek() reads."""
+    try:
+        vobs = disc.title_vobs(vts)
+    except OSError:
+        return None
+    try:
+        navs = [dvd.parse_nav(vobs.read(sector, 1)) for sector in vobus]
+    finally:
+        vobs.close()
+    return {"vob_id": [n.vob_id if n else None for n in navs],
+            "cell_id": [n.cell_id if n else None for n in navs],
+            "cell_time": [n.cell_time if n else None for n in navs],
+            "pts": [n.pts if n else None for n in navs]}
+
+
+def _dvd_structure(path: str) -> dict[str, object]:
+    """Every title of VIDEO_TS.IFO as parse_title() reads it, and per title set
+    its VOBU map with the navigation pack of each VOBU."""
+    with dvd.Dvd(path) as disc:
+        ifos: dict[int, bytes] = {}
+        vobus: dict[int, list[int]] = {}
+        titles: list[dict[str, object]] = []
+        for number, vts, ttn in dvd.titles(disc.ifo(0)):
+            if vts not in ifos:
+                ifos[vts] = disc.ifo(vts)
+            entry: dict[str, object] = {"number": number, "vts": vts, "ttn": ttn}
+            try:
+                t = dvd.parse_title(ifos[vts], number, vts, ttn)
+            except (IndexError, ValueError) as e:  # main_titles() skips these too
+                entry["error"] = type(e).__name__
+            else:
+                # not the palette: main_titles() and the seek do not use it
+                entry |= {"duration": t.duration, "frame_size": t.frame_size,
+                          "frame_rate": t.frame_rate,
+                          "cells": [asdict(c) for c in t.cells],
+                          "audio": [asdict(a) for a in t.audio],
+                          "subs": [asdict(s) for s in t.subs]}
+                vobus[vts] = t.vobus
+            titles.append(entry)
+        title_sets = {str(vts): {"vobus": sectors, "navs": _nav_structure(disc, vts, sectors)}
+                      for vts, sectors in sorted(vobus.items())}
+        volume_id = disc.volume_id()
+    return {"format": STRUCTURE_FORMAT, "kind": "dvd", "volume_id": volume_id,
+            "titles": titles, "title_sets": title_sets}
+
+
+def _json(value: object, indent: str = "") -> str:
+    """JSON with one line per field, but lists of numbers on one line: an EP_map
+    or a VOBU map of thousands of entries stays one line of the diff."""
+    inner = indent + " "
+    if isinstance(value, dict) and value:
+        fields = cast(dict[str, object], value)
+        return "{\n" + ",\n".join(f"{inner}{json.dumps(k)}: {_json(v, inner)}"
+                                  for k, v in fields.items()) + f"\n{indent}}}"
+    if isinstance(value, list) and any(isinstance(v, dict | list) for v in
+                                       cast(list[object], value)):
+        return "[\n" + ",\n".join(inner + _json(v, inner) for v in cast(list[object], value)) \
+            + f"\n{indent}]"
+    return json.dumps(value, ensure_ascii=False)
+
+
+def dump_structure(path: str) -> str:
+    """--dump-structure: the disc's structure as JSON, Blu-ray first, then DVD,
+    as open_disc() tries them."""
+    try:
+        data = _bluray_structure(path)
+    except OSError as bd_error:
+        try:
+            data = _dvd_structure(path)
+        except OSError:
+            raise bd_error from None
+    return _json(data) + "\n"
 
 
 def is_dvd(path: Path) -> bool:

@@ -77,6 +77,9 @@ class FakeVobs:
     def read(self, sector: int, count: int) -> bytes:
         return pack(0b01 if self.scrambled else 0) * count
 
+    def close(self) -> None:
+        pass
+
 
 class FakeDvd:
     """Title 1 is a short trailer (VTS 1), title 2 the movie (VTS 2)."""
