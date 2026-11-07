@@ -84,7 +84,9 @@ def test_list_drives(monkeypatch: pytest.MonkeyPatch) -> None:
     assert osplatform.list_drives() == []
 
 
-REAL_CDLL = ctypes.CDLL          # ctypes.CDLL gets monkeypatched below: keep the real one
+# what the mocked ctypes.CDLL hands back: no real library is opened, so the
+# test means the same on every OS (ctypes.CDLL(None) is POSIX only)
+LIB = ctypes.CDLL.__new__(ctypes.CDLL)
 
 
 def test_load_library_tries_candidates_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,14 +99,14 @@ def test_load_library_tries_candidates_in_order(monkeypatch: pytest.MonkeyPatch)
         tried.append(name)
         if name != "libbluray.so.2":
             raise OSError("not found")
-        return REAL_CDLL(None)
+        return LIB
 
     # the .so candidate names are Linux's own, tested regardless of where this runs
     monkeypatch.setattr(osplatform, "MACOS", False)
     monkeypatch.setattr(osplatform.sys, "platform", "linux")
     monkeypatch.setattr(osplatform.ctypes.util, "find_library", nothing)
     monkeypatch.setattr(osplatform.ctypes, "CDLL", cdll)
-    osplatform.load_library("bluray", "apt install libbluray2")
+    assert osplatform.load_library("bluray", "apt install libbluray2") is LIB
     assert tried == ["libbluray.so.4", "libbluray.so.2"]
 
 
@@ -116,12 +118,12 @@ def test_load_library_prefers_the_system_lookup(monkeypatch: pytest.MonkeyPatch)
 
     def cdll(name: str) -> ctypes.CDLL:
         tried.append(name)
-        return REAL_CDLL(None)
+        return LIB
 
     monkeypatch.setattr(osplatform.ctypes.util, "find_library", found)
     monkeypatch.setattr(osplatform.ctypes, "CDLL", cdll)
-    osplatform.load_library("bluray", "apt install libbluray2")
-    assert tried[0] == "libbluray.so.4.1.0"
+    assert osplatform.load_library("bluray", "apt install libbluray2") is LIB
+    assert tried == ["libbluray.so.4.1.0"]
 
 
 def test_load_library_raises_with_the_advice_when_nothing_works(
