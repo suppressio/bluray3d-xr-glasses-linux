@@ -5,8 +5,23 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "deb-version.sh"
+# the bash on PATH, by full path: given a bare "bash", Windows' CreateProcess
+# looks in System32 before PATH, where it can find WSL's bash instead of Git's
+BASH = shutil.which("bash") or "bash"
 # the ordering checks ask Debian's own dpkg: absent on macOS and Windows
 needs_dpkg = pytest.mark.skipif(shutil.which("dpkg") is None, reason="needs dpkg")
+
+
+def _version(app_version: str) -> str:
+    # forward slashes: a path both POSIX bash and Git bash on Windows read
+    result = subprocess.run(
+        [BASH, "-c", 'source "$1"; deb_package_version "$2"', "_", SCRIPT.as_posix(), app_version],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
 
 
 @pytest.mark.parametrize(("app_version", "expected"), [
@@ -20,54 +35,23 @@ needs_dpkg = pytest.mark.skipif(shutil.which("dpkg") is None, reason="needs dpkg
     ("release", "0~release"),
 ])
 def test_deb_package_version(app_version: str, expected: str) -> None:
-    result = subprocess.run(
-        ["bash", "-c", 'source "$1"; deb_package_version "$2"', "_", str(SCRIPT), app_version],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.stdout.strip() == expected
+    assert _version(app_version) == expected
 
 
 @needs_dpkg
 def test_digit_starting_hash_version_sorts_before_release() -> None:
-    result = subprocess.run(
-        ["bash", "-c", 'source "$1"; deb_package_version "$2"', "_", str(SCRIPT), "20811e4"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
     subprocess.run(
-        ["dpkg", "--compare-versions", result.stdout.strip(), "lt", "1.2.0"],
+        ["dpkg", "--compare-versions", _version("20811e4"), "lt", "1.2.0"],
         check=True,
     )
 
 
 @needs_dpkg
 def test_prerelease_version_sorts_before_release() -> None:
-    result = subprocess.run(
-        ["bash", "-c", 'source "$1"; deb_package_version "$2"', "_", str(SCRIPT), "v1.2.0-rc.1"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
     subprocess.run(
-        ["dpkg", "--compare-versions", result.stdout.strip(), "lt", "1.2.0"],
+        ["dpkg", "--compare-versions", _version("v1.2.0-rc.1"), "lt", "1.2.0"],
         check=True,
     )
-
-
-def _version(app_version: str) -> str:
-    result = subprocess.run(
-        ["bash", "-c", 'source "$1"; deb_package_version "$2"', "_", str(SCRIPT), app_version],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip()
 
 
 @needs_dpkg

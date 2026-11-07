@@ -28,7 +28,9 @@ step "ruff"
 step "pyright (strict)"
 "${bin}/pyright" --pythonpath "${pybin}"
 step "shellcheck"
-"${bin}/shellcheck" scripts/*.sh scripts/deb-postinst scripts/deb-postrm docker/*.sh && echo "ok"
+# on its own line: in "a && b", set -e ignores a's failure
+"${bin}/shellcheck" scripts/*.sh scripts/deb-postinst scripts/deb-postrm docker/*.sh
+echo "ok"
 step "tests"
 "${pybin}" -m pytest -q
 if [[ "${1:-}" == "--integration" ]]; then

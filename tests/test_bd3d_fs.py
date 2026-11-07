@@ -345,7 +345,7 @@ def test_dlna_only_does_not_need_fuse() -> None:
 def test_require_samba_looks_in_sbin(monkeypatch: pytest.MonkeyPatch) -> None:
     # Debian: smbd is in /usr/sbin, and a normal user's PATH has no sbin
     which = Mock(return_value="/usr/sbin/smbd")
-    monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin:/bin")
+    monkeypatch.setenv("PATH", os.pathsep.join(["/usr/local/bin", "/usr/bin", "/bin"]))
     monkeypatch.setattr(bd3d_fs.shutil, "which", which)
     bd3d_fs.require_samba("samba")
     path = which.call_args.kwargs["path"].split(os.pathsep)
