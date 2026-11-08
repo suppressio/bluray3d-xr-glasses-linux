@@ -11,7 +11,7 @@ import pytest
 
 import http_server
 from http_server import TreeHttpServer, parse_range
-from tree import Folder, Tree
+from tree import Folder, Tree, current_reader
 
 
 @pytest.mark.parametrize(("header", "size", "expected"), [
@@ -53,6 +53,9 @@ class FakeFile:
         return bytes((offset + i) % 256 for i in range(min(size, self.size - offset)))
 
     def stop(self) -> None:
+        pass
+
+    def close(self) -> None:
         pass
 
     def stop_if_idle(self) -> None:
@@ -163,3 +166,22 @@ def test_an_ejected_file_ends_the_response_without_reading_again(
         resp.read()
     conn.close()
     assert reads == [0]             # one chunk, then no read of the gone file
+
+
+def test_a_read_names_the_client(server: tuple[TreeHttpServer, Tree]) -> None:
+    # the peer IP reaches the file's read (for the log, #78)
+    srv, tree = server
+    movie = next(iter(tree.files()))
+    seen: list[str] = []
+    original = movie.read
+
+    def read(offset: int, size: int) -> bytes:
+        seen.append(current_reader())
+        return original(offset, size)
+
+    movie.read = read  # type: ignore[method-assign]
+    conn = HTTPConnection("127.0.0.1", srv.server_address[1])
+    conn.request("GET", "/Blu-ray/movie.ts", headers={"Range": "bytes=0-9"})
+    conn.getresponse().read()
+    conn.close()
+    assert seen == ["127.0.0.1"]

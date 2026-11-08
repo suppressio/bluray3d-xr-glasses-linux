@@ -11,10 +11,9 @@ nothing about FUSE or HTTP.
 """
 import threading
 import time
-from collections.abc import Callable
 from typing import Protocol
 
-# matches pyfuse3.ROOT_INODE: Bd3dFS reuses tree ids as FUSE inodes directly
+# matches FUSE's root inode: Bd3dFS reports tree ids as inode numbers
 ROOT_ID = 1
 
 
@@ -28,7 +27,26 @@ class FileEntry(Protocol):
 
     def read(self, offset: int, size: int) -> bytes: ...
     def stop(self) -> None: ...
+    def close(self) -> None: ...
     def stop_if_idle(self) -> None: ...
+
+
+_reader = threading.local()
+
+
+def current_reader() -> str:
+    """Who is reading, for the log: the front end serving the read names it
+    (read_as); a client IP for HTTP/DLNA, the reading process for FUSE."""
+    return getattr(_reader, "name", "") or "an unknown reader"
+
+
+def read_as(reader: str, entry: FileEntry, offset: int, size: int) -> bytes:
+    """entry.read(offset, size) on behalf of reader (see current_reader)."""
+    _reader.name = reader
+    try:
+        return entry.read(offset, size)
+    finally:
+        _reader.name = ""
 
 
 class Folder:
@@ -59,10 +77,6 @@ class Tree:
         # bumped on every add/remove: DLNA's SystemUpdateID, so a renderer that
         # cached a listing sees that a disc went in or out
         self.revision = 0
-        # front ends that need to react to a removal (Bd3dFS: invalidate the
-        # kernel's cache of the name) subscribe here; Library itself only
-        # changes the tree, it does not know who else is serving it
-        self.on_remove: list[Callable[[Entry], None]] = []
 
     def new_id(self) -> int:
         with self.lock:
@@ -82,8 +96,6 @@ class Tree:
             self.children.get(e.parent, []).remove(e)
             self.by_name.pop((e.parent, e.name), None)
             self.revision += 1
-        for callback in self.on_remove:
-            callback(e)
 
     def folder(self, name: str, parent: int = ROOT_ID) -> Folder:
         """Sub-folder, created on first use."""

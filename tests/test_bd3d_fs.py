@@ -1,6 +1,7 @@
 """bd3d_fs.py: the program around library.py — argument parsing, the program's
 own log file, its version string, and the drive watcher that adds/removes a
 disc's files on insertion/eject."""
+import json
 import logging
 import os
 import signal
@@ -9,12 +10,14 @@ import sys
 import threading
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import cast
+from typing import Self, cast
 from unittest.mock import Mock
 
 import pytest
 
 import bd3d_fs
+import sources
+from fakes import FakeBluray, opener
 from library import Library
 from osplatform import DriveStatus
 from sources import Source, UnsupportedDiscError
@@ -228,6 +231,9 @@ def test_run_fails_when_a_watcher_dies(monkeypatch: pytest.MonkeyPatch) -> None:
         bd3d_fs.run(Tree(), cast("Library", Mock()), ["/dev/sr0"], None, use_fuse=False)
 
 
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="os.kill(SIGTERM) terminates the process on Windows, no handler runs"
+                           " (SPN#10)")
 @pytest.mark.usefixtures("signal_handlers")
 @pytest.mark.parametrize("busy_in", ["open_disc", "add"])
 def test_stop_while_a_disc_is_loaded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
@@ -332,9 +338,9 @@ def test_dlna_start_failure_hints_at_minidlna_on_port_8200(
 
 
 def test_dlna_only_does_not_need_fuse() -> None:
-    # without pyfuse3 the program still imports (--share dlna runs) ...
+    # without FUSE the program still imports (--share dlna runs) ...
     src = Path(bd3d_fs.__file__).parent
-    code = "import sys; sys.modules['pyfuse3'] = None; import bd3d_fs; print('ok')"
+    code = "import sys; sys.modules['mfusepy'] = None; import bd3d_fs; print('ok')"
     done = subprocess.run([sys.executable, "-c", code], cwd=src, capture_output=True,
                           text=True, check=False)
     assert done.stdout.strip() == "ok", done.stderr
@@ -343,7 +349,7 @@ def test_dlna_only_does_not_need_fuse() -> None:
 def test_require_samba_looks_in_sbin(monkeypatch: pytest.MonkeyPatch) -> None:
     # Debian: smbd is in /usr/sbin, and a normal user's PATH has no sbin
     which = Mock(return_value="/usr/sbin/smbd")
-    monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin:/bin")
+    monkeypatch.setenv("PATH", os.pathsep.join(["/usr/local/bin", "/usr/bin", "/bin"]))
     monkeypatch.setattr(bd3d_fs.shutil, "which", which)
     bd3d_fs.require_samba("samba")
     path = which.call_args.kwargs["path"].split(os.pathsep)
@@ -382,7 +388,7 @@ def test_share_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
             assert "sudo apt install samba" in message
         else:
             assert "FUSE, which is not installed" in message
-            assert "install python3-pyfuse3 and fuse3" in message
+            assert "install fuse3, or use --share dlna" in message
         fuse.mount.assert_not_called()
         run.assert_not_called()
     else:
@@ -397,3 +403,150 @@ def test_share_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
             assert which.call_args.args == ("smbd",)
             fuse.mount.assert_called_once()
             fuse.unmount.assert_called_once()
+
+
+def nothing_may_start(monkeypatch: pytest.MonkeyPatch) -> list[Mock]:
+    """Every piece main() starts for a share, failing the test if called."""
+    started: list[Mock] = []
+    for name in ("pick_encoder", "Library", "Dlna", "run", "require_fuse", "discover"):
+        started.append(Mock(side_effect=AssertionError(name)))
+        monkeypatch.setattr(bd3d_fs, name, started[-1])
+    monkeypatch.setitem(sys.modules, "fuse_fs", None)
+    return started
+
+
+def test_dump_structure_writes_and_exits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    folder, out = tmp_path / "Tron", tmp_path / "tron.json"
+    folder.mkdir()
+    disc = FakeBluray()
+    monkeypatch.setattr(sources, "_open_disc", opener(disc))
+    started = nothing_may_start(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--log", "none", "--dump-structure", str(out),
+                                      str(folder)])
+    bd3d_fs.main()
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert (data["format"], data["kind"], data["volume_id"]) == (1, "bluray", "TRON_LEGACY_3D")
+    assert disc.closed
+    for mock in started:
+        mock.assert_not_called()
+
+
+def test_dump_structure_takes_one_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # not the first and a silent drop of the others: the user named two discs
+    out = tmp_path / "out.json"
+    nothing_may_start(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--log", "none", "--dump-structure", str(out),
+                                      str(tmp_path), "/dev/sr0"])
+    with pytest.raises(SystemExit, match="takes one disc, drive, ISO or folder, not 2"):
+        bd3d_fs.main()
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("error", [None, "no title found"])
+def test_dump_structure_unreadable_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                          error: str | None) -> None:
+    folder, out = tmp_path / "Tron", tmp_path / "out.json"
+    if error is not None:
+        folder.mkdir()
+
+    def dump_structure(path: str) -> str:
+        raise OSError(f"{path}: {error}")       # as open_disc's errors: the path first
+
+    monkeypatch.setattr(bd3d_fs, "dump_structure", dump_structure)
+    nothing_may_start(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--log", "none", "--dump-structure", str(out),
+                                      str(folder)])
+    with pytest.raises(SystemExit) as exc:
+        bd3d_fs.main()
+    message = str(exc.value)
+    assert message == (f"not found: {folder}" if error is None else f"{folder}: {error}")
+    assert not out.exists()
+
+
+def test_dump_structure_unwritable_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    out = tmp_path / "missing" / "out.json"
+    monkeypatch.setattr(bd3d_fs, "dump_structure", Mock(return_value="{}\n"))
+    nothing_may_start(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--log", "none", "--dump-structure", str(out),
+                                      str(tmp_path)])
+    with pytest.raises(SystemExit, match="--dump-structure: cannot write"):
+        bd3d_fs.main()
+
+
+def link_to(kind: str, target: Path, link: Path) -> None:
+    """`link` as the same file as `target`: itself, a symlink or a hard link."""
+    try:
+        if kind == "symlink":
+            link.symlink_to(target)
+        elif kind == "hardlink":
+            link.hardlink_to(target)
+    except (OSError, NotImplementedError) as e:
+        pytest.skip(f"no {kind} here: {e}")
+
+
+@pytest.mark.parametrize("kind", ["same", "symlink", "hardlink"])
+def test_dump_structure_never_overwrites_the_source(monkeypatch: pytest.MonkeyPatch,
+                                                    tmp_path: Path, kind: str) -> None:
+    iso = tmp_path / "Tron.iso"
+    iso.write_bytes(b"ISO BYTES")
+    out = iso if kind == "same" else tmp_path / "out.json"
+    link_to(kind, iso, out)
+    dump = Mock(return_value="{}\n")
+    monkeypatch.setattr(bd3d_fs, "dump_structure", dump)
+    with pytest.raises(SystemExit, match="exists already, give the name of a new file"):
+        bd3d_fs.write_structure([str(iso)], str(out))
+    dump.assert_not_called()                    # refused before the disc is read
+    assert iso.read_bytes() == b"ISO BYTES"
+
+
+def test_dump_structure_keeps_an_existing_file(monkeypatch: pytest.MonkeyPatch,
+                                               tmp_path: Path) -> None:
+    out = tmp_path / "out.json"
+    out.write_text("an older dump")
+    monkeypatch.setattr(bd3d_fs, "dump_structure", Mock(return_value="{}\n"))
+    with pytest.raises(SystemExit, match="exists already"):
+        bd3d_fs.write_structure([str(tmp_path)], str(out))
+    assert out.read_text() == "an older dump"
+
+
+def test_dump_structure_keeps_a_file_created_while_reading(monkeypatch: pytest.MonkeyPatch,
+                                                          tmp_path: Path) -> None:
+    # it appeared after the first check, while the disc was read: still not ours
+    out = tmp_path / "out.json"
+
+    def dump_structure(path: str) -> str:
+        out.write_text("someone else's")
+        return "{}\n"
+
+    monkeypatch.setattr(bd3d_fs, "dump_structure", dump_structure)
+    with pytest.raises(SystemExit, match="exists already"):
+        bd3d_fs.write_structure([str(tmp_path)], str(out))
+    assert out.read_text() == "someone else's"
+
+
+def test_dump_structure_removes_its_half_written_file(monkeypatch: pytest.MonkeyPatch,
+                                                     tmp_path: Path) -> None:
+    out = tmp_path / "out.json"
+    real_open = open
+
+    class DiskFull:
+        def __init__(self, path: str, mode: str, encoding: str) -> None:
+            self.f = real_open(path, mode, encoding=encoding)
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self.f.close()
+
+        def write(self, text: str) -> int:
+            self.f.write(text[:len(text) // 2])
+            self.f.flush()
+            assert out.stat().st_size > 0        # half of it is on disk
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(bd3d_fs, "open", DiskFull, raising=False)
+    monkeypatch.setattr(bd3d_fs, "dump_structure", Mock(return_value='{"format": 1}\n'))
+    with pytest.raises(SystemExit, match=r"cannot write .*No space left on device"):
+        bd3d_fs.write_structure([str(tmp_path)], str(out))
+    assert not out.exists()

@@ -1,7 +1,9 @@
 """osplatform.py: the Linux-specific calls (drive status, library loading, the
 default temp dir and log path) behind a platform-independent interface."""
 import ctypes
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,6 +22,8 @@ def test_drive_status_no_such_device() -> None:
     (3, DriveStatus.UNKNOWN),    # CDS_DRIVE_NOT_READY: busy, not an eject
     (0, DriveStatus.UNKNOWN),
 ])
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="fcntl is POSIX only; Windows gets its own drive check (#10)")
 def test_drive_status_maps_the_ioctl_result(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
                                             ioctl_result: int, expected: DriveStatus) -> None:
     def ioctl(fd: int, request: int, arg: int) -> int:
@@ -27,10 +31,14 @@ def test_drive_status_maps_the_ioctl_result(monkeypatch: pytest.MonkeyPatch, tmp
 
     device = tmp_path / "sr0"
     device.touch()
-    monkeypatch.setattr(osplatform.fcntl, "ioctl", ioctl)
+    # the ioctl mapping is Linux's own, tested regardless of where this runs
+    monkeypatch.setattr(osplatform, "LINUX", True)
+    monkeypatch.setattr(osplatform, "fcntl", SimpleNamespace(ioctl=ioctl))
     assert drive_status(str(device)) == expected
 
 
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="fcntl is POSIX only; Windows gets its own drive check (#10)")
 def test_drive_status_ioctl_failure_is_unknown(monkeypatch: pytest.MonkeyPatch,
                                                tmp_path: Path) -> None:
     def fail(fd: int, request: int, arg: int) -> int:
@@ -38,7 +46,8 @@ def test_drive_status_ioctl_failure_is_unknown(monkeypatch: pytest.MonkeyPatch,
 
     device = tmp_path / "sr0"
     device.touch()
-    monkeypatch.setattr(osplatform.fcntl, "ioctl", fail)
+    monkeypatch.setattr(osplatform, "LINUX", True)
+    monkeypatch.setattr(osplatform, "fcntl", SimpleNamespace(ioctl=fail))
     assert drive_status(str(device)) == DriveStatus.UNKNOWN
 
 
@@ -50,17 +59,34 @@ def test_drive_status_not_linux_is_unknown(monkeypatch: pytest.MonkeyPatch,
     assert drive_status(str(device)) == DriveStatus.UNKNOWN
 
 
+def test_drive_status_on_windows_is_unknown(monkeypatch: pytest.MonkeyPatch,
+                                            tmp_path: Path) -> None:
+    # no fcntl ioctl there (#10): UNKNOWN, never the Linux call
+    def ioctl(fd: int, request: int, arg: int) -> int:
+        return 4                                          # CDS_DISC_OK
+
+    device = tmp_path / "sr0"
+    device.touch()
+    monkeypatch.setattr(osplatform, "LINUX", True)
+    monkeypatch.setattr(osplatform, "fcntl", SimpleNamespace(ioctl=ioctl), raising=False)
+    monkeypatch.setattr(osplatform.sys, "platform", "win32")
+    assert drive_status(str(device)) == DriveStatus.UNKNOWN
+
+
 def test_list_drives(monkeypatch: pytest.MonkeyPatch) -> None:
     def glob(pattern: str) -> list[str]:
         return ["/dev/sr1", "/dev/sr0"]
 
     monkeypatch.setattr(osplatform.glob, "glob", glob)
+    monkeypatch.setattr(osplatform, "LINUX", True)
     assert osplatform.list_drives() == ["/dev/sr0", "/dev/sr1"]
     monkeypatch.setattr(osplatform, "LINUX", False)
     assert osplatform.list_drives() == []
 
 
-REAL_CDLL = ctypes.CDLL          # ctypes.CDLL gets monkeypatched below: keep the real one
+# what the mocked ctypes.CDLL hands back: no real library is opened, so the
+# test means the same on every OS (ctypes.CDLL(None) is POSIX only)
+LIB = ctypes.CDLL.__new__(ctypes.CDLL)
 
 
 def test_load_library_tries_candidates_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,11 +99,14 @@ def test_load_library_tries_candidates_in_order(monkeypatch: pytest.MonkeyPatch)
         tried.append(name)
         if name != "libbluray.so.2":
             raise OSError("not found")
-        return REAL_CDLL(None)
+        return LIB
 
+    # the .so candidate names are Linux's own, tested regardless of where this runs
+    monkeypatch.setattr(osplatform, "MACOS", False)
+    monkeypatch.setattr(osplatform.sys, "platform", "linux")
     monkeypatch.setattr(osplatform.ctypes.util, "find_library", nothing)
     monkeypatch.setattr(osplatform.ctypes, "CDLL", cdll)
-    osplatform.load_library("bluray", "apt install libbluray2")
+    assert osplatform.load_library("bluray", "apt install libbluray2") is LIB
     assert tried == ["libbluray.so.4", "libbluray.so.2"]
 
 
@@ -89,12 +118,12 @@ def test_load_library_prefers_the_system_lookup(monkeypatch: pytest.MonkeyPatch)
 
     def cdll(name: str) -> ctypes.CDLL:
         tried.append(name)
-        return REAL_CDLL(None)
+        return LIB
 
     monkeypatch.setattr(osplatform.ctypes.util, "find_library", found)
     monkeypatch.setattr(osplatform.ctypes, "CDLL", cdll)
-    osplatform.load_library("bluray", "apt install libbluray2")
-    assert tried[0] == "libbluray.so.4.1.0"
+    assert osplatform.load_library("bluray", "apt install libbluray2") is LIB
+    assert tried == ["libbluray.so.4.1.0"]
 
 
 def test_load_library_raises_with_the_advice_when_nothing_works(
@@ -126,8 +155,13 @@ def test_has_library_falls_back_to_the_known_path(monkeypatch: pytest.MonkeyPatc
         return None
 
     def exists(self: Path) -> bool:
-        return str(self) == known
+        return self == Path(known)
 
+    # the /usr/lib fallback and its .so name are Linux's own, tested regardless
+    # of where this runs
+    monkeypatch.setattr(osplatform, "LINUX", True)
+    monkeypatch.setattr(osplatform, "MACOS", False)
+    monkeypatch.setattr(osplatform.sys, "platform", "linux")
     monkeypatch.setattr(osplatform.ctypes.util, "find_library", nothing)
     monkeypatch.setattr(osplatform.Path, "exists", exists)
     assert osplatform.has_library("mmbd") is True
@@ -145,17 +179,23 @@ def test_has_library_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     assert osplatform.has_library("mmbd") is False
 
 
-def test_default_temp_dir_is_slash_tmp_on_linux() -> None:
+def test_default_temp_dir_is_slash_tmp_on_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    # macOS sets TMPDIR itself; drop it so the plain default is what is checked here
+    monkeypatch.delenv("TMPDIR", raising=False)
     assert default_temp_dir() == "/tmp"                       # noqa: S108
 
 
 def test_default_program_log_under_xdg_state_home(monkeypatch: pytest.MonkeyPatch,
                                                    tmp_path: Path) -> None:
+    # the XDG path is Linux's own (macOS always takes ~/Library/Logs), tested
+    # regardless of where this runs
+    monkeypatch.setattr(osplatform, "MACOS", False)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     assert default_program_log() == tmp_path / "bluray3d-xr" / "bluray3d-xr.log"
 
 
 def test_default_program_log_falls_back_to_dot_local_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(osplatform, "MACOS", False)
     monkeypatch.delenv("XDG_STATE_HOME", raising=False)
     assert default_program_log() == Path.home() / ".local" / "state" / "bluray3d-xr" \
         / "bluray3d-xr.log"

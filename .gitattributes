@@ -1,0 +1,6 @@
+# Shell scripts keep LF on every checkout: a Windows checkout (core.autocrlf,
+# as on CI's windows-latest) would otherwise give them CRLF, which bash and
+# shellcheck reject.
+*.sh                 text eol=lf
+scripts/deb-postinst text eol=lf
+scripts/deb-postrm   text eol=lf

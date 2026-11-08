@@ -1,5 +1,6 @@
 import shlex
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -57,17 +58,21 @@ def three_d(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> BlurayDiscSource
     return BlurayDiscSource(str(tmp_path / "t.iso"), ["ita"])
 
 
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="3D audio uses os.mkfifo, POSIX only until #103")
 def test_decode_3d(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     s = three_d(monkeypatch, tmp_path)
     assert quality_for(s, "light") == QUALITIES[("3d", "light")]
     cmd = decode_command(s, 12.0, "OUT")
     parts = [p.strip() for p in cmd.split("|")]
     assert "disc_reader.py" in parts[0]
-    assert parts[1] == "edge264_test - -Ok"
+    assert parts[1] == "edge264mvc_test - -O"
     assert parts[2] == (f"ffmpeg -nostdin -v warning -i -  {s.audio_input(12.0)} -map 0:v "
                         f"{s.audio_map()} OUT")
 
 
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="3D audio uses os.mkfifo, POSIX only until #103")
 def test_decode_3d_subtitles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     s = three_d(monkeypatch, tmp_path)
     s.sub, s.sub_depth = s.subs[0], 10

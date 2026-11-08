@@ -15,7 +15,7 @@ that frame's PTS and the audio lands exactly where it belongs.
 
 Usage:
     disc_reader.py /dev/sr0 --playlist 00070 --start 3000 --audio-pid 0x1102 \
-        --audio-out /tmp/audio.fifo | edge264_test - -Ok | ffmpeg ...
+        --audio-out /tmp/audio.fifo | edge264mvc_test - -O | ffmpeg ...
 """
 import argparse
 import contextlib

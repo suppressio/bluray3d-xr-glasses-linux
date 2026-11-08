@@ -11,11 +11,14 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
+from datetime import timedelta
 from pathlib import Path
 from typing import Self, cast, override
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 import library
 from library import (
@@ -29,7 +32,12 @@ from library import (
 )
 from pipeline import Quality
 from sources import Source, SubTrack
-from tree import ROOT_ID, Folder, Tree
+from tree import ROOT_ID, Folder, Tree, read_as
+
+# real pipelines here run through bash -o pipefail and are stopped with
+# os.killpg: neither exists on native Windows until #103 replaces them
+pytestmark = pytest.mark.skipif(sys.platform == "win32",
+                                reason="bash pipelines and os.killpg, POSIX only until #103")
 
 PPS = 500                                  # TS packets per second of movie
 BPS = PPS * TS_PACKET                      # bytes per second
@@ -41,10 +49,12 @@ import os, sys, time
 ready_path = {ready_path!r}
 while ready_path and not os.path.exists(ready_path):
     time.sleep(0.01)
-i, tag, out = {first}, {tag!r}, sys.stdout.buffer
-while True:
+i, tag, out, end = {first}, {tag!r}, sys.stdout.buffer, {end}
+while end is None or i < end:
     chunk = bytearray()
     for _ in range(500):
+        if end is not None and i >= end:
+            break
         key = i % {every} == 0
         head = bytes([0x47, 0x41 if key else 0x01, 0x00, 0x30 if key else 0x10,
                       7 if key else 0, 0x40 if key else 0])
@@ -55,9 +65,15 @@ while True:
 """
 
 
-def producer(start: float, tag: bytes, ready_path: str | None = None) -> str:
+def producer(start: float, tag: bytes, ready_path: str | None = None,
+             duration: float | None = None) -> str:
+    """Numbered packets from `start` on: forever, like a pipeline the player stops,
+    or for `duration` seconds, like ffmpeg -t. Whatever reads it to the end (the
+    synthetic tail) needs the duration, or it waits forever and fills the memory."""
     first = int(start * BPS) // TS_PACKET
-    code = PRODUCER.format(ready_path=ready_path, first=first, tag=tag, every=KEYFRAME_EVERY)
+    end = None if duration is None else first + int(duration * BPS) // TS_PACKET
+    code = PRODUCER.format(ready_path=ready_path, first=first, tag=tag, every=KEYFRAME_EVERY,
+                           end=end)
     return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
 
 
@@ -98,7 +114,7 @@ def fake_decode(source: Source, start: float, output_args: str) -> str:
 
 def fake_filler(vf: VirtualFile, video_input: str, t0: float, duration: float | None = None,
                 extra: str = "", *, sbs: bool = False) -> str:
-    return producer(t0, b"L")
+    return producer(t0, b"L", duration=duration)
 
 
 _running: list[VirtualFile] = []
@@ -158,6 +174,140 @@ def test_first_keyframe_after_the_start(tmp_path: Path) -> None:
     assert_movie(vf.read(64 * 1024, 4096), 64 * 1024)
     assert vf.gens == [first]
     assert vf.head is not None
+
+
+class EarlyKeyframeSource(FakeSource):
+    """A source whose first keyframe precedes the start: 6 ms on Tron's first
+    clip before 371d80a."""
+
+    @override
+    def keyframe_at_or_before(self, seconds: float) -> float:
+        return float(int(seconds)) if seconds >= 1 else -0.006
+
+
+def test_first_keyframe_before_the_start(tmp_path: Path) -> None:
+    # the pipeline must not start at a negative offset: the head of the file
+    # is cached only from a pipeline starting at byte 0
+    vf = vfile(tmp_path, EarlyKeyframeSource(str(tmp_path / "disc")))
+    assert_movie(vf.read(0, 64 * 1024), 0)
+    assert vf.gens[0].base == 0
+    assert vf.head is not None
+
+
+def test_synthetic_tail_from_the_filler(tmp_path: Path) -> None:
+    # the tail is the filler's whole output: a filler that never ends (the fake
+    # one before #75) makes this read wait forever while its output fills the memory
+    vf = vfile(tmp_path)
+    offset = vf.size - 1000
+    assert_movie(vf.read(offset, 1000), offset, b"L")
+    short = vfile(tmp_path, FakeSource(str(tmp_path / "short"), duration=0.5))
+    assert short.tail_start == 0                         # all of it is the tail
+    assert_movie(short.read(0, 4096), 0, b"L")
+
+
+class OneKeyframeSource(FakeSource):
+    """A single keyframe, at 0: every pipeline starts there."""
+
+    @override
+    def keyframe_at_or_before(self, seconds: float) -> float:
+        return 0.0
+
+
+def test_read_far_past_a_new_pipeline(tmp_path: Path) -> None:
+    # a pipeline started from a keyframe far before the read: dropping the bytes
+    # behind the player used to move buf_start past what it held, and every byte
+    # after that was served at the wrong offset (found by the test below, #75)
+    vf = vfile(tmp_path, OneKeyframeSource(str(tmp_path / "disc"), max_pipelines=2))
+    vf.read(0, 4096)
+    offset = 3 * library.BEHIND_KEEP + 2 * library.JUMP_TOLERANCE    # beyond covers()
+    assert_movie(vf.read(offset, 4096), offset)
+    assert len(vf.gens) == 2 and vf.gens[1].base == 0
+
+
+class IrregularSource(FakeSource):
+    """Keyframes at the given times; before the first one, the first one."""
+
+    def __init__(self, path: str, keyframes: list[float], duration: float,
+                 max_pipelines: int) -> None:
+        super().__init__(path, duration=duration, max_pipelines=max_pipelines)
+        self.keyframes = keyframes
+
+    @override
+    def keyframe_at_or_before(self, seconds: float) -> float:
+        before = [k for k in self.keyframes if k <= seconds]
+        return before[-1] if before else self.keyframes[0]
+
+
+def test_keyframe_between_milliseconds(tmp_path: Path) -> None:
+    # the stream's clock starts at -output_ts_offset, written to the millisecond:
+    # base must start there too, or the bytes lag the clock by up to 0.5 ms
+    # (a whole packet in these tests). Found by the test below (#75)
+    vf = vfile(tmp_path, IrregularSource(str(tmp_path / "disc"), [0.0, 1.59375], 5.0, 1))
+    offset = int(1.7 * BPS)
+    assert_movie(vf.read(offset, 4096), offset)
+
+
+@st.composite
+def irregular_movies(draw: st.DrawFn) -> tuple[list[float], float]:
+    """(keyframes, duration) of one to three clips in a row, each with its first
+    keyframe a little before or after its start and uneven gaps after it. Small
+    on purpose: every pipeline is a process, and a few seconds of movie are enough."""
+    keyframes: list[float] = []
+    start = 0.0
+    for _ in range(draw(st.integers(1, 3))):
+        length = draw(st.floats(1.0, 60.0))
+        t = start + draw(st.floats(-0.05, 0.5))
+        keyframes.append(t)
+        for gap in draw(st.lists(st.floats(0.04, 20.0), max_size=6)):
+            t += gap
+            if t >= start + length:
+                break
+            keyframes.append(t)
+        start += length
+    return sorted(keyframes), start
+
+
+def test_generator_invariants_with_irregular_keyframes(tmp_path: Path) -> None:
+    reads = 4096
+
+    # given inside the test: the fixtures are set up once, not once per example
+    @settings(max_examples=25, deadline=timedelta(seconds=10))
+    @given(movie=irregular_movies(),
+           positions=st.lists(st.floats(0.0, 1.0, exclude_max=True), min_size=1, max_size=4))
+    def invariants(movie: tuple[list[float], float], positions: list[float]) -> None:
+        keyframes, duration = movie
+        # room for a pipeline per position: none is replaced, so no read is a late
+        # read for a position the player left (those are answered with padding)
+        source = IrregularSource(str(tmp_path / "disc"), keyframes, duration,
+                                 max_pipelines=len(positions) + 1)
+        vf = vfile(tmp_path, source)
+        try:
+            edge = library.EDGE_CACHE
+            assert_movie(vf.read(0, edge), 0, b"M" if edge <= vf.tail_start else b"L")
+            if edge <= vf.tail_start:
+                assert vf.gens[0].base == 0 and vf.head is not None
+            for p in positions:
+                offset = int(p * vf.size)
+                if offset + reads > vf.tail_start:
+                    continue                         # the synthetic tail: no pipeline
+                before = list(vf.gens)
+                data = vf.read(offset, reads)
+                assert len(data) == reads
+                assert_movie(data, offset)
+                started = [g for g in vf.gens if g not in before]
+                assert len(started) <= 1
+                for g in started:                    # the pipeline started for this read
+                    assert g.base <= offset and g.base % TS_PACKET == 0
+                    assert g.covers(offset)
+                again = list(vf.gens)
+                data = vf.read(offset, reads)
+                assert len(data) == reads
+                assert_movie(data, offset)
+                assert vf.gens == again              # the same read starts nothing new
+        finally:
+            vf.stop()
+
+    invariants()
 
 
 def test_null_padding() -> None:
@@ -336,6 +486,50 @@ def test_stop_if_idle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert vf.gens == [] and gen.stopped
 
 
+def test_a_closed_file_starts_no_pipeline(tmp_path: Path) -> None:
+    # the program is ending: a read still served (one in flight retries once
+    # its pipeline stops) must not start a pipeline that outlives the program
+    vf = vfile(tmp_path)
+    vf.read(0, 4096)
+    gen = vf.gens[0]
+    vf.close()
+    assert gen.stopped and vf.gens == []
+    far = vf.size // 2 // library.TS_PACKET * library.TS_PACKET
+    assert vf.read(far, 4096) == library.null_padding(far, 4096)
+    assert vf.gens == []
+    vf.stop()                                   # stop() alone does not reopen it
+    vf.read(far, 4096)
+    assert vf.gens == []
+    # nor FFmpeg for the synthetic tail, if a late read wants the end
+    with patch.object(library.subprocess, "run") as run:
+        assert vf.read(vf.tail_start, 188) == library.null_padding(vf.tail_start, 188)
+    run.assert_not_called()
+
+
+def test_a_removed_file_starts_no_pipeline(tmp_path: Path) -> None:
+    # its disc was ejected: a read still in flight must not restart it
+    tree, lib = make_library(tmp_path, audio_files="single", sub_langs=[])
+    entries = lib.add(DiscSource(str(tmp_path / "d")))
+    movie = movies(tree)[0]
+    movie.read(0, 4096)
+    lib.remove(entries)
+    far = movie.size // 2 // library.TS_PACKET * library.TS_PACKET
+    movie.read(far, 4096)
+    assert movie.gens == [] and movie.closed
+
+
+def test_log_names_who_started_a_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                         caplog: pytest.LogCaptureFixture) -> None:
+    # pipeline start and idle stop name the reader (#78)
+    caplog.set_level(logging.INFO, logger="bd3d_fs")
+    vf = vfile(tmp_path)
+    read_as("192.168.1.20", vf, 0, 4096)
+    assert "for 192.168.1.20" in caplog.text
+    monkeypatch.setattr(library, "IDLE_STOP", -1)
+    vf.stop_if_idle()
+    assert "stopping a pipeline (started for 192.168.1.20)" in caplog.text
+
+
 class Clock:
     def __init__(self) -> None:
         self.now = 1000.0
@@ -445,6 +639,13 @@ def test_slow_pipeline_is_logged(monkeypatch: pytest.MonkeyPatch,
 
 
 
+def test_no_pipeline_without_killpg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Windows: stop() could not kill the pipeline's process group, so none starts (#103)
+    monkeypatch.delattr(library.os, "killpg")
+    with pytest.raises(NotImplementedError, match=r"os\.killpg"):
+        library.Generator(vfile(tmp_path), 0.0)
+
+
 def test_stop_does_not_hang_on_a_stuck_pipeline(monkeypatch: pytest.MonkeyPatch,
                                                 caplog: pytest.LogCaptureFixture) -> None:
     """A pipeline stuck on the drive survives SIGKILL: stop() returns all the same."""
@@ -459,7 +660,8 @@ def test_stop_does_not_hang_on_a_stuck_pipeline(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setattr(library.os, "killpg", killpg)
     caplog.set_level(logging.INFO, logger="bd3d_fs")
     gen.stop()
-    killpg.assert_called_once_with(4242, library.signal.SIGKILL)
+    if sys.platform != "win32":                  # for pyright: pytestmark skips Windows
+        killpg.assert_called_once_with(4242, library.signal.SIGKILL)
     proc.wait.assert_called_once_with(library.KILL_WAIT)
     assert gen.stopped
     assert "did not exit 5s after SIGKILL" in caplog.text

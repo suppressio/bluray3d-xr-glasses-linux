@@ -1,8 +1,8 @@
 🌐 [English](RESEARCH.md) | **Italiano**
 
-# Ricerca sul Blu-ray: playlist e scelta dei titoli
+# Ricerca: playlist Blu-ray, scelta dei titoli, adapter FUSE
 
-> Note di ricerca, raccolte il 2026-10-10 e il 2026-10-13 mentre si costruiva la scelta dei titoli per i Blu-ray con più episodi. Fatti sul formato delle playlist Blu-ray e su come altri programmi scelgono i titoli, ciascuno con la sua fonte; il formato non è pubblico, quindi vengono da documentazione ricostruita (reverse engineering), codice sorgente e forum. Il *Riepilogo* è la versione breve, le sezioni dopo contengono i risultati completi. Le citazioni testuali dalle fonti restano in inglese. Il codice che si basa su un risultato cita questo file (per esempio `src/sources.py`, Q4).
+> Note di ricerca, raccolte il 2026-10-10 e il 2026-10-13 mentre si costruiva la scelta dei titoli per i Blu-ray con più episodi. Fatti sul formato delle playlist Blu-ray e su come altri programmi scelgono i titoli, ciascuno con la sua fonte; il formato non è pubblico, quindi vengono da documentazione ricostruita (reverse engineering), codice sorgente e forum. Il *Riepilogo* è la versione breve, le sezioni dopo contengono i risultati completi. Le citazioni testuali dalle fonti restano in inglese. Il codice che si basa su un risultato cita questo file (per esempio `src/sources.py`, Q4). L'ultima sezione, *L'adapter FUSE*, è un argomento a parte misurato il 2026-11-03, con le sue fonti.
 
 ## Riepilogo
 
@@ -612,3 +612,43 @@ Tutti i link citati sopra, nell'ordine in cui compaiono la prima volta.
 - [MakeMKV forum](https://forum.makemkv.com/forum/viewtopic.php?p=136962)
 - [bluback 0.7.1 crate docs](https://docs.rs/crate/bluback/0.7.1)
 - [libbluray navigation.h, code.videolan.org](https://code.videolan.org/videolan/libbluray/-/blob/8014175c0c0a450d93d710edf836ca30b5938502/src/libbdnav/navigation.c)
+
+## L'adapter FUSE: mfusepy su libfuse3
+
+> Misurato il 2026-11-03 per la [#129](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/129), l'approccio della [#7](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/7): [mfusepy](https://github.com/mxmlnkn/mfusepy) 3.1.1 può sostituire pyfuse3 su Linux? È l'adapter su cui contano i port per macOS e Windows. Su un PC Debian testing (Ryzen 9 5900X), libfuse 3.18.3, con un `VirtualFile` finto preso da `tests/test_library.py` (nessun disco). `src/fuse_fs.py` si basa su questi risultati.
+
+### In breve
+
+Sì: su libfuse3 mfusepy serve i file come faceva pyfuse3, senza perdere niente e senza niente da regolare. L'unica trappola è la libreria che carica: se è installata anche libfuse 2, mfusepy sceglie libfuse 2, dove le letture si fermano a 128 KiB e arrivano fuori ordine. `fuse_fs.py` gli indica libfuse3 (`FUSE_LIBRARY_PATH`).
+
+### Risultati
+
+| | pyfuse3 (prima) | mfusepy su libfuse3 |
+|---|---|---|
+| Lettura sequenziale, un lettore | ~300 MB/s | ~290 MB/s |
+| Lettura più grande inviata dal kernel | 1 MiB | 1 MiB |
+| Avvii della pipeline, 100 MB letti in ordine (letture da 1 MiB e 8 MiB) | 1 | 1 |
+| Avvii della pipeline, 12 salti con letture da 8 MiB | — | 12 (uno per salto) |
+| Due lettori, due open, backend alla velocità del disco | in parallelo | in parallelo |
+| Un file aperto letto da due processi insieme | uno dopo l'altro | uno dopo l'altro |
+| Chi ha aperto il file | id del thread → `Tgid` in `/proc` | uguale |
+
+- **La libreria che mfusepy carica.** Su Linux cerca prima libfuse 2 (`find_library("fuse")`), libfuse3 solo se la 2 manca; `FUSE_LIBRARY_PATH` ha la precedenza. Lo spike della #129 ha girato su libfuse 2.9 senza saperlo: letture ferme a 128 KiB (`max_read=` ignorato) e, con il loop multi-thread di default, 32 riavvii della pipeline su 100 MB letti in ordine, contro 2 di pyfuse3. Su libfuse3 non succede nessuna delle due cose (tabella sopra).
+- **Le letture fuori ordine sono un comportamento noto di FUSE.** Il kernel può mandare più letture dello stesso file insieme ([commit di go-fuse](https://github.com/hanwen/go-fuse/commit/15a8bb029a4e1a51e10043c370970596b1fbb737)), e un file system multi-thread può servirle fuori ordine ([fuse-devel, 2011](https://sourceforge.net/p/fuse/mailman/message/27502648/)). La soluzione usata altrove è togliere `FUSE_CAP_ASYNC_READ` e, per i file `direct_io` come i nostri, `FUSE_CAP_ASYNC_DIO`: allora il kernel tiene al massimo una lettura pendente per file handle ([fuse_common.h](https://github.com/libfuse/libfuse/blob/master/include/fuse_common.h)). Misurato con e senza: nessuna differenza su libfuse3, quindi restano al default di libfuse, come con pyfuse3.
+- **`direct_io` è rispettato** (dallo spike della #129): cinque `pread()` identiche sullo stesso offset sono arrivate al file system 5 volte su 5 con `direct_io`, una volta sola senza (al resto ha risposto la page cache). mfusepy lo imposta con `raw_fi=True`.
+- **Due letture dello stesso file aperto si aspettano** sia con pyfuse3 sia con mfusepy: è il kernel, non l'adapter. Due open (due player, o le open di Samba) vengono servite insieme.
+- **Chiusura.** mfusepy fa girare il loop di libfuse (`fuse_main_real`), che monta, serve e smonta; `fuse_fs.py` lo esegue in un thread. Si chiude con `fuse_exit()` più una richiesta che svegli il loop (il lookup di un nome che non esiste), e libfuse smonta in modo lazy: un file che Samba tiene ancora aperto non lo blocca. Verificato: `SIGTERM` e `SIGINT` arrivano ancora ai gestori del programma dopo il mount, e il programma esce pulito con un file aperto.
+- **File rimossi.** pyfuse3 diceva al kernel di dimenticare il nome di un file rimosso. mfusepy lavora per percorso, e l'unica chiamata per farlo (`fuse_invalidate_path`) può incrociarsi con libfuse che libera le sue tabelle quando il file system viene smontato dall'esterno. Quindi non si invalida niente: nomi e attributi restano in cache solo 5 s, meno di qualsiasi cambio disco, e `getattr` costa una ricerca in memoria. Un file ancora aperto mantiene i suoi attributi (`fstat()` risponde per l'handle, non per il percorso).
+- **Pacchetti.** Debian e Ubuntu non hanno `python3-mfusepy`; è un solo file Python puro (licenza ISC, solo la libreria standard), incluso così com'è in `src/mfusepy.py` (sha256 `4edc270e…b9db67c7`). Gli serve il pacchetto `fuse3` (libfuse3), come a pyfuse3. Senza pyfuse3 nessuno importa più trio; SPN#143 ha rimosso `python3-trio` dalle dipendenze del pacchetto e SPN#144 ha allineato installer nativo e immagine Docker.
+
+### Lacune
+
+- Non ancora provato con Samba e un player su hardware vero, né su Debian 13/Ubuntu 24.04 (libfuse 3.14, il cui `fuse_config` mfusepy gestisce a parte).
+- macOS (macFUSE, FUSE-T) e Windows (WinFsp): issue a parte.
+
+### Fonti
+
+- [libfuse: include/fuse_common.h](https://github.com/libfuse/libfuse/blob/master/include/fuse_common.h) (`FUSE_CAP_ASYNC_READ`, `FUSE_CAP_ASYNC_DIO`)
+- [go-fuse: opzione SyncRead, commit 15a8bb0](https://github.com/hanwen/go-fuse/commit/15a8bb029a4e1a51e10043c370970596b1fbb737)
+- [mailing list fuse-devel, 2011-05-14: letture gestite fuori ordine](https://sourceforge.net/p/fuse/mailman/message/27502648/)
+- [mfusepy su GitHub](https://github.com/mxmlnkn/mfusepy)

@@ -3,28 +3,37 @@
 #   scripts/check.sh                  ruff, pyright (strict), shellcheck, unit tests
 #   scripts/check.sh --integration    also the tests on the disc in the drive
 # The first run creates .venv with the pinned tools (requirements-dev.txt); the
-# program's own dependencies (pyfuse3, trio) come from the system, as installed
-# by scripts/install.sh or: sudo apt install python3-pyfuse3 python3-trio python3-venv ffmpeg
+# program's own FUSE dependency comes from the system, as installed by
+# scripts/install.sh or: sudo apt install fuse3 python3-venv ffmpeg
 set -euo pipefail
 cd "$(dirname "$0")/.."
 venv=.venv
+# Windows (CI's windows-latest, run under Git bash): no "python3" command, and
+# venv lays the tools out in Scripts/ rather than bin/
+py=python3
+command -v python3 >/dev/null 2>&1 || py=python
 
 if ! cmp -s requirements-dev.txt "${venv}/requirements-dev.txt"; then
-    python3 -m venv --system-site-packages "${venv}"
-    "${venv}/bin/pip" install --quiet --disable-pip-version-check -r requirements-dev.txt
+    "${py}" -m venv --system-site-packages "${venv}"
+    bin="${venv}/bin"; [[ -d "${venv}/Scripts" ]] && bin="${venv}/Scripts"
+    "${bin}/pip" install --quiet --disable-pip-version-check -r requirements-dev.txt
     cp requirements-dev.txt "${venv}/requirements-dev.txt"
 fi
+bin="${venv}/bin"; [[ -d "${venv}/Scripts" ]] && bin="${venv}/Scripts"
+pybin="${bin}/python"; [[ -x "${pybin}" ]] || pybin="${pybin}.exe"
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 step "ruff"
-"${venv}/bin/ruff" check .
+"${bin}/ruff" check .
 step "pyright (strict)"
-"${venv}/bin/pyright" --pythonpath "${venv}/bin/python"
+"${bin}/pyright" --pythonpath "${pybin}"
 step "shellcheck"
-"${venv}/bin/shellcheck" scripts/*.sh scripts/deb-postinst scripts/deb-postrm docker/*.sh && echo "ok"
+# on its own line: in "a && b", set -e ignores a's failure
+"${bin}/shellcheck" scripts/*.sh scripts/deb-postinst scripts/deb-postrm docker/*.sh
+echo "ok"
 step "tests"
-"${venv}/bin/python" -m pytest -q
+"${pybin}" -m pytest -q
 if [[ "${1:-}" == "--integration" ]]; then
     step "integration tests (real disc / BD3D_TEST_MKV)"
-    "${venv}/bin/python" -m pytest -q -m integration
+    "${pybin}" -m pytest -q -m integration
 fi

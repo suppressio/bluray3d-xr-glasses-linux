@@ -69,7 +69,7 @@ DVDs (CSS) are decrypted by **libdvdcss**, which you install yourself: on Debian
 #### Software on the PC
 - A **Debian/Ubuntu** system (other distributions: [Docker](#docker)). Everything else is installed for you:
   - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc): the only open-source decoder of the MVC dependent view;
-  - libbluray, libaacs, libbdplus (Blu-ray), libdvdread (DVD), FFmpeg, Samba (the network share), FUSE + pyfuse3 (the virtual file; Samba and FUSE are not needed with `--share dlna`).
+  - libbluray, libaacs, libbdplus (Blu-ray), libdvdread (DVD), FFmpeg, Samba (the network share), and FUSE via the vendored `mfusepy.py` adapter (Samba and FUSE are not needed with `--share dlna`).
 
 ---
 
@@ -123,11 +123,11 @@ cd bluray3d-xr-glasses-linux
 ./scripts/install.sh
 ```
 
-`scripts/install.sh --share dlna` skips Samba/FUSE entirely and sets up [DLNA/UPnP](docs/OPTIONS.md#dlnaupnp-instead-of-samba) instead; `--share both` installs both (default: `samba`).
+`scripts/install.sh --share dlna` skips Samba and FUSE entirely and sets up [DLNA/UPnP](docs/OPTIONS.md#dlnaupnp-instead-of-samba) instead; `--share samba` installs system `fuse3` for the vendored `mfusepy.py` adapter and Samba for the network share, while `--share both` installs both paths (default: `samba`).
 
 #### Docker
 
-For other distributions, or if you prefer not to touch the system: Samba, FUSE and the libraries live in the container. MakeMKV is not in the image (libaacs + your KEYDB only).
+For other distributions, or if you prefer not to touch the system: Samba, system FUSE and the libraries live in the container; the Python FUSE adapter is vendored in the image. MakeMKV is not in the image (libaacs + your KEYDB only).
 
 - [ ] Get the project:
 ```console
@@ -252,5 +252,5 @@ How the program reads, decodes and serves a disc: [docs/ARCHITECTURE.md](docs/AR
 ## Credits and references
 
 - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc) (BSD), fork of [edge264](https://github.com/tvlabs/edge264): the MVC decoder that makes all this possible;
-- [libbluray / libaacs](https://www.videolan.org/developers/libbluray.html), [FFmpeg](https://ffmpeg.org/), [Samba](https://www.samba.org/), [pyfuse3](https://github.com/libfuse/pyfuse3), [MakeMKV](https://www.makemkv.com/);
+- [libbluray / libaacs](https://www.videolan.org/developers/libbluray.html), [FFmpeg](https://ffmpeg.org/), [Samba](https://www.samba.org/), [libfuse](https://github.com/libfuse/libfuse), [MakeMKV](https://www.makemkv.com/);
 - [Play 3D Blu-ray in SBS directly from the disc…](https://cybereality.com/play-3d-blu-ray-in-sbs-directly-from-the-disc-for-playback-on-3d-monitors-xr-glasses-and-vr-headsets-using-free-and-open-source-tools/) (cybereality): a Windows approach (LAV Filters + madVR).

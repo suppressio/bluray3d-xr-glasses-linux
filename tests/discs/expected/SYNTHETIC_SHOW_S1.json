@@ -1,0 +1,26 @@
+{
+ "titles": [
+  ["00002", "S01E01 - Synthetic Show", 1450.0],
+  ["00001", "S01E02 - Synthetic Show", 1500.0],
+  ["00003", "Synthetic Show - Extra 1", 1500.0],
+  ["00004", "Synthetic Show - Extra 2", 1450.0]
+ ],
+ "tree": [
+  "Blu-ray",
+  "Blu-ray/ENG - S01E01 - Synthetic Show.ts",
+  "Blu-ray/ENG - S01E02 - Synthetic Show.ts",
+  "Blu-ray/ENGsubENG - S01E01 - Synthetic Show.ts",
+  "Blu-ray/ENGsubENG - S01E02 - Synthetic Show.ts",
+  "Blu-ray/ENGsubITA - S01E01 - Synthetic Show.ts",
+  "Blu-ray/ENGsubITA - S01E02 - Synthetic Show.ts",
+  "Blu-ray/Extra",
+  "Blu-ray/Extra/ENG - Synthetic Show - Extra 1.ts",
+  "Blu-ray/Extra/ENG - Synthetic Show - Extra 2.ts",
+  "Blu-ray/ITA - S01E01 - Synthetic Show.ts",
+  "Blu-ray/ITA - S01E02 - Synthetic Show.ts",
+  "Blu-ray/ITAsubENG - S01E01 - Synthetic Show.ts",
+  "Blu-ray/ITAsubENG - S01E02 - Synthetic Show.ts",
+  "Blu-ray/ITAsubITA - S01E01 - Synthetic Show.ts",
+  "Blu-ray/ITAsubITA - S01E02 - Synthetic Show.ts"
+ ]
+}

@@ -11,7 +11,7 @@ How to run the program from a clone, where things are in the code, what the test
 ## Setting up
 
 1. Run the native install once (the [native script](../README.md#native-script-from-a-clone) in the README), including the Samba share. It installs everything a clone needs as well:
-   - the system packages (FFmpeg, libbluray, libdvdread, pyfuse3, trio);
+   - the system packages (FFmpeg, libbluray, libdvdread, fuse3; Samba when using the Samba share);
    - the edge264 decoder in `/opt/bluray3d-xr/bin`;
    - the mount point `/srv/bd3d`;
    - `user_allow_other` in `/etc/fuse.conf`.
@@ -36,7 +36,7 @@ How to run the program from a clone, where things are in the code, what the test
 | File | What it does |
 |---|---|
 | `src/bd3d_fs.py` | The program: the command line, the program's log file, the drive watcher, and wiring `library.py` to a front end (`fuse_fs.py`, `http_server.py`/`dlna.py`). |
-| `src/library.py` | The library of virtual files: `VirtualFile` (the constant-bitrate `.ts`), `Generator` (a running pipeline: start, jump, pause, stop, the loading picture), `SidecarFile` (external subtitles, passthrough) and `Library`/`Shelf` (turns a disc's sources into files of the `Tree`). Synchronous and thread-safe; imports neither `bd3d_fs.py` nor a front end, pyfuse3 or trio. |
+| `src/library.py` | The library of virtual files: `VirtualFile` (the constant-bitrate `.ts`), `Generator` (a running pipeline: start, jump, pause, stop, the loading picture), `SidecarFile` (external subtitles, passthrough) and `Library`/`Shelf` (turns a disc's sources into files of the `Tree`). Synchronous and thread-safe; imports neither `bd3d_fs.py` nor a front end, `mfusepy` or a FUSE runtime. |
 | `src/sources.py` | What a movie is made of: `BlurayDiscSource`, `DvdSource`, `MkvSource`. Each one says how to read its video from a given time (`video_command`), and gives its audio, subtitles and keyframes. |
 | `src/pipeline.py` | The decode chain: reader → decoder → FFmpeg encoder at constant bitrate. Also the encoder choice (NVENC or x264) and the quality. |
 | `src/bluray.py` | A small ctypes binding to libbluray: it opens a disc, ISO or folder, and reads its files decrypted. |
@@ -47,15 +47,15 @@ How to run the program from a clone, where things are in the code, what the test
 | `src/dvd.py` | libdvdread through ctypes, the IFO files, the choice of the main title or the episodes, and the exact seek. |
 | `src/dvd_reader.py` | Reads a DVD title from a given time as an MPEG program stream for FFmpeg. It runs as its own process. |
 | `src/langs.py` | One spelling per language (ISO 639-2). |
-| `src/tree.py` | The tree of folders and files Library builds, independent of how it is served: ids, not pyfuse3 inodes, though Bd3dFS reuses them as such. |
-| `src/fuse_fs.py` | The FUSE front end (`--share samba`/`both`): Bd3dFS mounts the tree for Samba. The only module importing pyfuse3, loaded only when FUSE is used, so `--share dlna` runs without it. |
+| `src/tree.py` | The tree of folders and files Library builds, independent of how it is served: ids, not FUSE inodes, though Bd3dFS reuses them as such. |
+| `src/fuse_fs.py` | The FUSE front end (`--share samba`/`both`): Bd3dFS mounts the tree for Samba through vendored `mfusepy`. The only module loading the adapter, loaded only when FUSE is used, so `--share dlna` runs without it. |
 | `src/http_server.py` | The same tree over plain HTTP: a byte Range maps straight onto a `FileEntry.read()`, like a FUSE read. Used standalone (`--share dlna`/`both`) and as the transport dlna.py's endpoints ride on. |
 | `src/didl.py` | DIDL-Lite (the XML listing media) and the SOAP envelopes of ContentDirectory (Browse) and ConnectionManager: pure string building, no XML parser on untrusted input. |
 | `src/ssdp.py` | SSDP: answers M-SEARCH and sends NOTIFY ssdp:alive/byebye, so DLNA renderers find the server without being told its address. |
 | `src/dlna.py` | Wires http_server.py, didl.py and ssdp.py into one MediaServer: the device description, ContentDirectory/ConnectionManager control endpoints, and the SSDP responder's start/stop. |
 | `loaders/` | The loading animations shipped with the program. The Blender scripts that render them are in [bluray3d-xr-loaders](https://github.com/suppressio/bluray3d-xr-loaders). |
 | `tools/bdprobe.c` | The first probe of the project (roadmap phase 0): it opens a disc with libbluray and dumps the start of the 3D stream. |
-| `typings/pyfuse3/` | Type stubs for pyfuse3: its versions 3.3, 3.4 and 3.5 declare their types differently. |
+| `src/mfusepy.py` | Vendored FUSE adapter used only by the Samba/both path; it is loaded conditionally and talks to the system libfuse3 runtime. |
 
 The path of a piece of the file, from the player to the disc: the player reads bytes from a file in `/srv/bd3d` → `fuse_fs.py` hands the read to `VirtualFile.read()` (`library.py`), which turns the byte into a time (the bitrate is constant) → if no pipeline is at that time, it starts one: the source's reader (`disc_reader.py`, `dvd_reader.py` or FFmpeg for MKV), then the decoder (edge264 for 3D, FFmpeg otherwise), then FFmpeg encoding the `.ts` → the bytes go back to the player. `--share dlna` takes the same tree and the same `VirtualFile.read()` (`FileEntry` in `tree.py`), through `http_server.py`'s Range handling instead of a FUSE read; `dlna.py` only adds the UPnP description and discovery on top.
 
@@ -76,15 +76,47 @@ scripts/check.sh --integration    # also the tests on the disc in the drive
 - **shellcheck**: the scripts in `scripts/` and `docker/`;
 - **the unit tests**.
 
-The first run creates `.venv` with the pinned tools from `requirements-dev.txt`. The program's own dependencies come from the system. GitHub runs the same script on Ubuntu 24.04 (`.github/workflows/check.yml`).
+The first run creates `.venv` with the pinned tools from `requirements-dev.txt`. The program's own dependencies come from the system. GitHub runs the same script on Ubuntu 24.04, macOS and Windows (`.github/workflows/check.yml`): the unit tests, ruff and pyright stay green on all three while the v1.3 refactor makes the core portable; macOS and Windows skip whatever still needs Linux only (FUSE, the drive ioctl, `os.killpg`/`os.mkfifo`, the SIGTERM shutdown test; `dpkg` for the Debian version checks) and run no integration tests (no disc, no FUSE there). A pytest skip does not hide code from pyright: a POSIX-only call sits behind `if sys.platform != "win32"` (or after `if sys.platform == "win32": raise ...`), which pyright reads as a platform boundary.
 
 ### Unit tests (`tests/`)
 
 They need no disc and no drive, and take a few seconds.
 - `tests/builders.py` writes small but real MPLS, CLPI and IFO files and TS streams.
 - `tests/fakes.py` stands in for libbluray and libdvdread (`FakeBluray`, `FakeDvd`).
+- Some tests are property-based ([Hypothesis](https://hypothesis.readthedocs.io), a development dependency only): they generate irregular keyframe timelines and check the invariants of the pipelines. Keep their strategies small: in `test_library.py` every pipeline is a real process.
+- In `test_library.py` a small program stands in for FFmpeg. Whatever is read to its end (the synthetic tail) must end, as `ffmpeg -t` does: one that writes forever fills the memory.
 
 One test file per module: `test_bdmv.py` for `bdmv.py`, and so on. A fix comes with the test that would have caught the bug.
+
+### Recorded discs (`tests/discs/`)
+
+A disc's structure, written by [`--dump-structure`](OPTIONS.md#a-discs-structure), replays in the unit tests as if the disc were in the drive. `tests/recorded.py` (`RecordedSource`) answers the program's readers of playlists, clips, IFO files and navigation packs from the JSON; everything above them is the program's own: the choice of titles, their names, the files the library shows, the keyframes a jump lands on. No drive, libbluray, libdvdread, decoder or FFmpeg is involved.
+
+For every file in `tests/discs/`, `test_recorded.py` checks:
+- the titles the program takes and the files it shows (names, languages, extras), against `tests/discs/expected/` with the same file name;
+- the pipeline invariants of `test_library.py` on the disc's own keyframes, with the stand-in for FFmpeg: the head of the file is cached, a pipeline starts on a packet boundary at or before the read and covers it, the same read again starts nothing.
+
+To add a disc:
+
+1. Record it: `python3 src/bd3d_fs.py --dump-structure tests/discs/NAME.json /dev/sr0`. Name the file after the disc's volume label (an unlabelled DVD: `DVD-<fingerprint>`, as the program names it). The dump holds no path, key or stream content.
+2. Write `tests/discs/expected/NAME.json` by hand, from what the disc really holds:
+
+   ```json
+   {
+    "titles": [
+     ["00002", "S01E01 - Show", 1450.0]
+    ],
+    "tree": [
+     "Blu-ray",
+     "Blu-ray/ITA - S01E01 - Show.ts"
+    ]
+   }
+   ```
+
+   `titles`: one `[title, name, duration]` per source, in the program's order; the title is the playlist (Blu-ray) or the title number (DVD). `tree`: every folder and file the library shows, sorted, with one file per audio language and per subtitle language.
+3. Run `scripts/check.sh`. Nothing else changes.
+
+The `SYNTHETIC_*` and `DVD-7b90ebcd29ee` files are no real discs: they are the dumps of the synthetic discs in `test_recorded.py`, and a test checks that they still are. When the dump format changes, write them again from `dump_structure()`.
 
 ### Integration tests (`tests/integration/`)
 
@@ -129,7 +161,7 @@ It goes to the terminal and to `~/.local/state/bluray3d-xr/bluray3d-xr.log`, wit
 | `/dev/sr0: disc inserted, opening it` / `disc ejected` | the drive saw a disc go in or out |
 | `+ Blu-ray 3D/ITA - Movie - 3D SBS.ts (120 min, 24.0 Mbit/s, audio …)` | a file appeared: its length, bitrate and tracks |
 | `- …` | a file went away (eject) |
-| `…: pipeline from 1234.5s (requested 1236.0s, offset …)` | a player read there: decoding starts from the keyframe before the requested time |
+| `…: pipeline from 1234.5s (requested 1236.0s, offset …) for 192.168.1.20` | a player read there: decoding starts from the keyframe before the requested time. `for` names the reader: the client IP over DLNA/HTTP, `pid N (smbd: client [IP])` over Samba (one smbd per client) |
 | `…: movie ready, 0.6s after the jump (…)` | after a jump, how long the loading animation ran |
 | `…: ignoring the player's late reads for the position it left` | normal after a jump: the player still asks for the old position for a moment |
 | `…: stopping its pipeline, … is reading the same disc` | another file on the same disc started playing: one disc, one pipeline |
@@ -137,7 +169,7 @@ It goes to the terminal and to `~/.local/state/bluray3d-xr/bluray3d-xr.log`, wit
 | `…: the player receives 87% of the data rate …, with 60s of movie ready ahead …` / `back to real time` | the movie is ready but the player pulls it slowly: the network (try `Light/`) or the player itself; then it recovers |
 | `…: the player receives 62% …, and only 0.5s of movie is ready ahead …` | the player is waiting for us: the disc or the decoding is slow there |
 | `…: the player waited 12s for the movie at 1:09:10 …` | one read waited that long for the pipeline: a damaged or dirty spot on the disc, a busy drive or CPU |
-| `…: no reads for 120s, stopping a pipeline` | the player stopped or paused for a long time |
+| `…: no reads for 120s, stopping a pipeline (started for …)` | the player stopped or paused for a long time |
 | `…: read at … failed` + traceback | a bug, or an unreadable disc: the player gets a read error, the program goes on |
 
 `--debug` adds:
@@ -164,7 +196,7 @@ The `--debug` command of a pipeline gives the playlist, title and tracks. Each s
 python3 disc_reader.py /dev/sr0 --playlist 00800 --start 600 --mode 2d | ffplay -
 
 # 3D Blu-ray: the two views decoded side by side
-python3 disc_reader.py /dev/sr0 --playlist 00070 --start 600 | edge264_test - -Ok | ffplay -f yuv4mpegpipe -
+python3 disc_reader.py /dev/sr0 --playlist 00070 --start 600 | edge264mvc_test - -O | ffplay -f yuv4mpegpipe -
 
 # DVD: the title with its first audio track
 python3 dvd_reader.py /dev/sr0 --title 2 --start 600 --audio 0x80 | ffplay -f mpeg -

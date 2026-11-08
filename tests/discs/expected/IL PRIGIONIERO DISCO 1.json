@@ -1,0 +1,30 @@
+{
+ "titles": [
+  [
+   "00000",
+   "E01 - Il Prigioniero (Disco 1)",
+   3016.375
+  ],
+  [
+   "00001",
+   "E02 - Il Prigioniero (Disco 1)",
+   3020.3333333333335
+  ],
+  [
+   "00002",
+   "E03 - Il Prigioniero (Disco 1)",
+   3059.375
+  ]
+ ],
+ "tree": [
+  "Blu-ray",
+  "Blu-ray/ENG - E03 - Il Prigioniero (Disco 1).ts",
+  "Blu-ray/ENGsubITA - E03 - Il Prigioniero (Disco 1).ts",
+  "Blu-ray/ITA - E01 - Il Prigioniero (Disco 1).ts",
+  "Blu-ray/ITA - E02 - Il Prigioniero (Disco 1).ts",
+  "Blu-ray/ITA - E03 - Il Prigioniero (Disco 1).ts",
+  "Blu-ray/ITAsubITA - E01 - Il Prigioniero (Disco 1).ts",
+  "Blu-ray/ITAsubITA - E02 - Il Prigioniero (Disco 1).ts",
+  "Blu-ray/ITAsubITA - E03 - Il Prigioniero (Disco 1).ts"
+ ]
+}

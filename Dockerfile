@@ -7,8 +7,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 # edge264-mvc: the only open-source decoder of the MVC dependent view (3D Blu-ray)
 ARG EDGE264_REPO=https://github.com/jens-duttke/edge264-mvc.git
-# edge264-mvc release v2026.09.22
-ARG EDGE264_COMMIT=44e30b66d43a17418e0b342eba54d69d0c3be829
+# edge264-mvc release v2026.10.19
+ARG EDGE264_COMMIT=f181792e842ce4e99e2ef4a41bfd30c1c1514b42
 RUN git clone "$EDGE264_REPO" /edge264 \
  && git -C /edge264 checkout "$EDGE264_COMMIT" \
  && make -C /edge264 -j"$(nproc)"
@@ -23,10 +23,10 @@ RUN git -c safe.directory='*' -C /repo describe --tags --always > /version 2>/de
 FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ffmpeg python3 python3-pyfuse3 fuse3 samba tini libbluray2 libaacs0 libbdplus0 libdvdread8 \
+      ffmpeg python3 fuse3 samba tini libbluray2 libaacs0 libbdplus0 libdvdread8 \
  && rm -rf /var/lib/apt/lists/*
-# edge264_test finds libedge264.so.1 next to itself (rpath $ORIGIN)
-COPY --from=edge264 /edge264/edge264_test /edge264/libedge264.so.1 /usr/local/bin/
+# edge264mvc_test finds libedge264mvc.so.2 next to itself (rpath $ORIGIN)
+COPY --from=edge264 /edge264/edge264mvc_test /edge264/libedge264mvc.so.2 /usr/local/bin/
 COPY src/ /app/
 COPY loaders/ /loaders/
 COPY --from=version /version /app/version

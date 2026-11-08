@@ -1,21 +1,42 @@
+import hashlib
+import itertools
+import json
 import logging
 import os
+import re
 import shlex
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar, override
+from unittest.mock import Mock
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 import bluray as bluray_module
 import dvd
 import osplatform
 import sources
-from bdmv import AudioStream
+from bdmv import AudioStream, Clip, PlayItem, m2ts_seek, ssif_seek
 from bluray import DiscInfo, Title
-from builders import Item, Stream, clpi, mpls
+from builders import (
+    DvdAudioAttr,
+    DvdCell,
+    DvdSubAttr,
+    Item,
+    Stream,
+    clpi,
+    mpls,
+    nav_pack,
+    vmg_ifo,
+    vts_ifo,
+)
 from fakes import EPS, FakeBluray, FakeDvd, mkv_probe, opener, pack
+from library import Library, VirtualFile
 from sources import (
     BlurayDiscSource,
     DvdSource,
@@ -31,6 +52,7 @@ from sources import (
     is_dvd,
     open_disc,
 )
+from tree import Tree
 
 
 @pytest.fixture(autouse=True)
@@ -59,6 +81,7 @@ def test_safe_name(name: str, expected: str) -> None:
     ("Westworld Season 2", (2, "Westworld")),
     ("Il Trono Di Spade Stagione 3", (3, "Il Trono Di Spade")),
     ("Dix Pour Cent Saison 1", (1, "Dix Pour Cent")),
+    ("Serie_Temporada_2", (2, "Serie")),
     ("Show Season 1 Disc 2", None),           # split over discs: unreliable
     ("Show Vol. 2 Season 1", None),
     ("Show Stagione 1 Disco 2", None),
@@ -176,6 +199,23 @@ def test_bluray_keyframes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     assert s.keyframe_at_or_before(3600.5) == 3600.0
 
 
+def test_bluray_keyframe_within_its_clip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # a keyframe before its clip's start sends the decoder to a time no clip holds
+    # (371d80a); one after the requested time leaves a gap the pipeline never covers
+    s = bluray(monkeypatch, tmp_path, FakeBluray())
+    ends = [*s.starts[1:], s.duration]
+
+    @settings(max_examples=200, deadline=None)
+    @given(clip=st.integers(0, len(s.starts) - 1), into=st.floats(0.0, 1.0, exclude_max=True))
+    def within_clip(clip: int, into: float) -> None:
+        seconds = s.starts[clip] + into * (ends[clip] - s.starts[clip])
+        assert s.starts[clip] <= s.keyframe_at_or_before(seconds) <= seconds
+
+    within_clip()
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="3D audio uses os.mkfifo, POSIX only until #103")
 def test_bluray_3d_commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     s = bluray(monkeypatch, tmp_path, FakeBluray(), ["ita"],
                env={"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"})
@@ -192,6 +232,15 @@ def test_bluray_3d_commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     # every pipeline start gets a new FIFO, the previous one goes
     fifo2 = shlex.split(s.video_command(0.0))[-1]
     assert fifo2 != fifo and not os.path.exists(fifo) and Path(fifo2).is_fifo()
+
+
+def test_bluray_3d_audio_fifo_is_posix_only(monkeypatch: pytest.MonkeyPatch,
+                                            tmp_path: Path) -> None:
+    # Windows has no os.mkfifo: a clear error, not an AttributeError (#103)
+    s = bluray(monkeypatch, tmp_path, FakeBluray(), ["ita"])
+    monkeypatch.setattr(sources.sys, "platform", "win32")
+    with pytest.raises(NotImplementedError, match=r"os\.mkfifo"):
+        s.video_command(100.0)
 
 
 def test_bluray_2d(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -312,15 +361,15 @@ def test_bluray_all_on_dedup_and_audio_fallback(
     assert [s.playlist for s in found] == ["00001", "00002", "00021", "00022"]
     assert [s.audio_langs for s in found] == [["ita"], ["ita"], ["eng"], ["eng"]]
     assert caplog.text.count("no ita audio track, using eng") == 2
-    assert "Rick and Morty Staffel1 - Extra 1: no ita audio track, using eng" in caplog.text
-    assert "Rick and Morty Staffel1 - Extra 2: no ita audio track, using eng" in caplog.text
+    assert "Rick and Morty - Extra 1: no ita audio track, using eng" in caplog.text
+    assert "Rick and Morty - Extra 2: no ita audio track, using eng" in caplog.text
     # #27: the season from the disc name ("Staffel1"), episodes in play-all order;
-    # #39: the eng-only titles are the disc's extras, numbered apart in Extra/, and
-    # keep today's naming (no episode number applies to them)
+    # #39: the eng-only titles are the disc's extras, numbered apart in Extra/;
+    # #81: named after the show like the episodes, no episode number applies to them
     assert [(s.name, s.subfolder) for s in found] == [
         ("S01E01 - Rick and Morty", ""), ("S01E02 - Rick and Morty", ""),
-        ("Rick and Morty Staffel1 - Extra 1", "Extra"),
-        ("Rick and Morty Staffel1 - Extra 2", "Extra")]
+        ("Rick and Morty - Extra 1", "Extra"),
+        ("Rick and Morty - Extra 2", "Extra")]
     # the same split whatever language is asked for (#39: eng would number them 3, 4)
     for langs in (["eng"], None):
         again = BlurayDiscSource.all_on(str(iso), langs)
@@ -735,6 +784,22 @@ def test_parse_disc_part(name: str, expected: tuple[str, str] | None) -> None:
     assert sources._parse_disc_part(name) == expected
 
 
+@pytest.mark.parametrize(("name", "raw_names", "expected"), [
+    # #81: a recognised season names the extra after the show, not the raw disc name
+    ("Rick_and_Morty_Staffel1", ["Rick_and_Morty_Staffel1", "RICK AND MORTY STAFFEL1"],
+     ("Rick and Morty - Extra 1", "Extra")),
+    # a disc-part marker still gives the cleaned show name (no marker for extras)
+    ("Il_Prigioniero_Disco_1", ["Il_Prigioniero_Disco_1", "IL PRIGIONIERO DISCO 1"],
+     ("Il Prigioniero - Extra 2", "Extra")),
+    # neither recognised: underscores in the fallback name become spaces
+    ("Firefly_Bonus", ["Firefly_Bonus", "FIREFLY BONUS"], ("Firefly Bonus - Extra 3", "Extra")),
+])
+def test_episode_name_extra(name: str, raw_names: list[str],
+                            expected: tuple[str, str]) -> None:
+    episode = int(expected[0].rsplit(" ", 1)[1])
+    assert sources._episode_name(name, raw_names, episode, True) == expected
+
+
 NO_EXTRAS: list[str] = []
 
 
@@ -1050,6 +1115,265 @@ def test_open_disc_falls_back_to_dvd(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         open_disc(str(tmp_path / "BTTF"))
 
 
+# --- --dump-structure ----------------------------------------------------------
+
+# keyframes at irregular times (an open GOP here, a scene cut there), as on real
+# discs: the dump must keep them exact, not rounded to a regular grid
+IRREGULAR_EPS = [((k * 90_000 + (k % 7) * 9_000 + (k % 3) * 1_311) & ~0xFF, k * 1000)
+                 for k in range(3000)]
+# what must never reach a dump: the source's path, the decryption backend, the
+# payload of the streams, the commands that read them
+PRIVATE_DIR = "Private Rips of Someone"
+STREAM_PAYLOAD = b"PROTECTED-AV-PAYLOAD"
+
+
+class RecordingBluray(FakeBluray):
+    """FakeBluray with irregular keyframes, recording every file read; its
+    streams hold a marker the dump must never contain."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reads: list[str] = []
+
+    @override
+    def read_file(self, path: str) -> bytes:
+        self.reads.append(path)
+        if path.startswith("BDMV/STREAM/"):
+            return STREAM_PAYLOAD
+        if path.startswith("BDMV/CLIPINF/"):
+            dep = path.rsplit("/", 1)[1][:5] in ("00132", "00134")
+            return clpi(3_000_000, IRREGULAR_EPS, extents=list(range(0, 3_000_000, 50_000)),
+                        pid=0x1012 if dep else 0x1011)
+        return super().read_file(path)
+
+
+def dumped_bluray(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, disc: FakeBluray
+                  ) -> tuple[str, str]:
+    """(the folder the disc is read from, its dump), decrypted by libmmbd."""
+    folder = tmp_path / PRIVATE_DIR
+    folder.mkdir()
+    monkeypatch.setattr(sources, "_open_disc", opener(
+        disc, {"LIBAACS_PATH": "libmmbd", "LIBBDPLUS_PATH": "libmmbd"}))
+    return str(folder), sources.dump_structure(str(folder))
+
+
+def test_dump_structure_bluray(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    disc = RecordingBluray()
+    _, text = dumped_bluray(monkeypatch, tmp_path, disc)
+    data = json.loads(text)
+    assert disc.closed
+    assert {k: data[k] for k in ("format", "kind", "name", "volume_id", "has_3d")} == {
+        "format": 1, "kind": "bluray", "name": "Tron: Legacy - Blu-ray",
+        "volume_id": "TRON_LEGACY_3D", "has_3d": True}
+    # every title in libbluray's order, before any choice (00080 is not the movie)
+    assert [(t["playlist"], t["duration"]) for t in data["titles"]] == \
+        [("00080", 7300.0), ("00070", 7200.0)]
+    first = data["titles"][1]["items"][0]
+    assert (first["clip"], first["dep_clip"], first["in_time"], first["out_time"]) == \
+        ("00131", "00132", 45_000, 45_000 * 3601)
+    assert [(a["pid"], a["codec"], a["lang"]) for a in first["audio"]] == [
+        (0x1100, "truehd", "eng"), (0x1101, "dts-hd ma", "eng"), (0x1102, "dts", "ita"),
+        (0x1103, "ac3", "deu")]
+    assert [(s["stream"], s["lang"]) for s in first["subs"]] == \
+        [(0x1200, "ita"), (0x1201, "eng"), (0x1202, "ita")]
+    assert data["titles"][0]["items"][0]["dep_clip"] == ""
+    # each clip once, the MVC ones with the dependent view's EP_map
+    assert {c: data["clips"][c]["video_pid"] for c in data["clips"]} == {
+        "00200": 0x1011, "00131": 0x1011, "00132": 0x1012, "00133": 0x1011, "00134": 0x1012}
+    clip = data["clips"]["00131"]
+    assert clip["ep_pts"] == [p for p, _ in IRREGULAR_EPS]
+    assert clip["ep_spn"] == [s for _, s in IRREGULAR_EPS]
+    assert clip["extent_start"] == list(range(0, 3_000_000, 50_000))
+    assert clip["num_packets"] == 3_000_000
+    # the navigation files only: never a stream
+    assert all(r.startswith(("BDMV/PLAYLIST/", "BDMV/CLIPINF/")) for r in disc.reads)
+    # a long EP_map is one line of the file, a title's fields one line each
+    assert len(text.splitlines()) < 300
+
+
+@pytest.mark.parametrize("three_d", [True, False])
+def test_dump_structure_bluray_replays_keyframes(monkeypatch: pytest.MonkeyPatch,
+                                                 tmp_path: Path, three_d: bool) -> None:
+    """The dump holds what keyframe_at_or_before() needs: seeks computed from it
+    alone land on the same keyframes as the source on the disc, 3D and 2D."""
+    disc = RecordingBluray()
+    disc.three_d = three_d
+    folder, text = dumped_bluray(monkeypatch, tmp_path, disc)
+    data = json.loads(text)
+    s = BlurayDiscSource(folder)
+    title = next(t for t in data["titles"] if t["playlist"] == s.playlist)
+    items = [PlayItem(i["clip"], i["in_time"], i["out_time"], i["dep_clip"])
+             for i in title["items"]]
+
+    def clip(c: str) -> Clip:
+        d = data["clips"][c]
+        return Clip(d["num_packets"], d["ep_pts"], d["ep_spn"], d["extent_start"])
+
+    starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
+    for t in (0.0, 1.0, 101.5, 1234.567, 3599.99, 3600.5, 3605.0, 7000.0):
+        i = max(n for n, start in enumerate(starts) if start <= t)
+        item, rel = items[i], t - starts[i]
+        sp = m2ts_seek(item, clip(item.clip), rel) if s.two_d else \
+            ssif_seek(item, clip(item.clip), clip(item.dep_clip), rel)
+        assert starts[i] + max(0.0, sp.time) == s.keyframe_at_or_before(t)
+
+
+def test_dump_structure_bluray_keeps_no_key_path_or_payload(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    folder, text = dumped_bluray(monkeypatch, tmp_path, RecordingBluray())
+    for leak in (folder, PRIVATE_DIR, str(tmp_path), "libmmbd", "LIBAACS", "LIBBDPLUS", "AACS",
+                 "decrypt", STREAM_PAYLOAD.decode(), "disc_reader", "python", "--playlist",
+                 "m2ts", "ssif"):
+        assert leak not in text, leak
+
+
+def test_dump_structure_bluray_records_unreadable_files(monkeypatch: pytest.MonkeyPatch,
+                                                        tmp_path: Path) -> None:
+    """A broken playlist or clip is recorded as such, as the program skips it."""
+    disc = RecordingBluray()
+    normal = disc.read_file
+
+    def read(path: str) -> bytes:
+        if path in ("BDMV/PLAYLIST/00080.mpls", "BDMV/CLIPINF/00134.clpi"):
+            raise OSError(f"cannot open {path} on the disc")
+        return normal(path)
+
+    monkeypatch.setattr(disc, "read_file", read)
+    data = json.loads(dumped_bluray(monkeypatch, tmp_path, disc)[1])
+    assert data["titles"][0] == {"playlist": "00080", "duration": 7300.0, "error": "OSError"}
+    assert data["clips"]["00134"] == {"video_pid": 0x1012, "error": "OSError"}
+    assert "00200" not in data["clips"]
+    assert "ep_pts" in data["clips"]["00133"]
+
+
+class NavVobs:
+    """Title VOBs whose VOBU starts are navigation packs; records what is read
+    and fills every other sector with stream payload."""
+
+    def __init__(self, navs: dict[int, bytes]) -> None:
+        self.navs, self.reads = navs, list[tuple[int, int]]()
+
+    def read(self, sector: int, count: int) -> bytes:
+        self.reads.append((sector, count))
+        if sector in self.navs and count == 1:
+            return self.navs[sector]
+        if sector == 50_000:                         # a damaged spot
+            return b""
+        return b"".join(self.navs.get(s, STREAM_PAYLOAD.ljust(2048, b"\0"))
+                        for s in range(sector, sector + count))
+
+    def close(self) -> None:
+        pass
+
+
+# VTS 2 (the movie): VOBUs at 0, 50 000 (unreadable), 100 000 and 150 000;
+# irregular times within each VOB cell, its PTS restarting at the second VOB
+MOVIE_NAVS = {0: nav_pack(1, 1, 0.0, 90_000), 100_000: nav_pack(2, 1, 0.48, 7_000_000),
+              150_000: nav_pack(2, 1, 1500.04, 7_000_000 + 135_003_600)}
+
+
+class NavDvd(FakeDvd):
+    vobs: ClassVar[dict[int, NavVobs]] = {}
+
+    def __init__(self, path: str = "") -> None:
+        super().__init__(path)
+        self.movie = vts_ifo(
+            [DvdCell(3000.0, 0, 99_999, 1, 1), DvdCell(3000.0, 100_000, 199_999, 2, 1)],
+            [DvdAudioAttr(0, "it", 1, 0), DvdAudioAttr(0, "en", 3, 1)],
+            [DvdSubAttr("it", 1, wide=0), DvdSubAttr("en", 9, wide=1)],
+            palette=[(235, 128, 128)] * 16, pgcn=2, vobus=[0, 50_000, 100_000, 150_000])
+
+    @override
+    def title_vobs(self, vts: int) -> "NavVobs":  # type: ignore[override]
+        return NavDvd.vobs.setdefault(vts, NavVobs(MOVIE_NAVS if vts == 2 else {}))
+
+
+def dumped_dvd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[str, str]:
+    """(the folder the DVD is read from, its dump), after Blu-ray failed on it."""
+    def no_bluray(path: str) -> None:
+        raise OSError("cannot open Blu-ray")
+
+    folder = tmp_path / PRIVATE_DIR
+    folder.mkdir()
+    monkeypatch.setattr(sources, "_open_disc", no_bluray)
+    monkeypatch.setattr(dvd, "Dvd", NavDvd)
+    monkeypatch.setattr(NavDvd, "vobs", {})
+    return str(folder), sources.dump_structure(str(folder))
+
+
+def test_dump_structure_dvd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    data = json.loads(dumped_dvd(monkeypatch, tmp_path)[1])
+    assert (data["format"], data["kind"], data["volume_id"]) == (1, "dvd", "BACK_TO_THE_FUTURE")
+    # both titles, the trailer too: main_titles() has not chosen yet
+    assert [(t["number"], t["vts"], t["ttn"], t["duration"]) for t in data["titles"]] == \
+        [(1, 1, 1, 90.0), (2, 2, 1, 6000.0)]
+    movie = data["titles"][1]
+    assert (movie["frame_size"], movie["frame_rate"]) == ("1024x576", "25")
+    assert movie["cells"] == [
+        {"start": 0.0, "duration": 3000.0, "first": 0, "last": 99_999, "vob_id": 1, "cell_id": 1},
+        {"start": 3000.0, "duration": 3000.0, "first": 100_000, "last": 199_999, "vob_id": 2,
+         "cell_id": 1}]
+    assert movie["audio"] == [
+        {"stream": 0x80, "codec": "ac3", "lang": "ita", "commentary": False},
+        {"stream": 0x81, "codec": "ac3", "lang": "eng", "commentary": True}]
+    assert movie["subs"] == [{"stream": 0x20, "lang": "ita", "kind": "normal"},
+                             {"stream": 0x21, "lang": "eng", "kind": "forced"}]
+    sets = data["title_sets"]
+    assert sets["1"] == {"vobus": [], "navs": {"vob_id": [], "cell_id": [], "cell_time": [],
+                                               "pts": []}}
+    assert sets["2"]["vobus"] == [0, 50_000, 100_000, 150_000]
+    navs = sets["2"]["navs"]
+    assert navs["vob_id"] == [1, None, 2, 2]
+    assert navs["cell_id"] == [1, None, 1, 1]
+    assert navs["pts"] == [90_000, None, 7_000_000, 7_000_000 + 135_003_600]
+    # the times exactly as the navigation pack gives them
+    assert navs["cell_time"] == [0.0, None, 0.48, dvd.parse_nav(MOVIE_NAVS[150_000]).cell_time]  # type: ignore[union-attr]
+    # one sector at each VOBU start, nothing else
+    assert sorted(NavDvd.vobs[2].reads) == [(0, 1), (50_000, 1), (100_000, 1), (150_000, 1)]
+
+
+def test_dump_structure_dvd_replays_keyframes(monkeypatch: pytest.MonkeyPatch,
+                                              tmp_path: Path) -> None:
+    """The dump holds what DvdSource's seek needs: a title rebuilt from it, with
+    navigation packs rebuilt from it, seeks to the same VOBUs as the disc."""
+    folder, text = dumped_dvd(monkeypatch, tmp_path)
+    data = json.loads(text)
+    movie = data["titles"][1]
+    title = dvd.DvdTitle(movie["number"], movie["vts"], movie["duration"],
+                         cells=[dvd.Cell(**c) for c in movie["cells"]],
+                         vobus=data["title_sets"]["2"]["vobus"])
+    n = data["title_sets"]["2"]["navs"]
+    rebuilt = NavVobs({s: nav_pack(v, c, t, p) for s, v, c, t, p in zip(
+        title.vobus, n["vob_id"], n["cell_id"], n["cell_time"], n["pts"], strict=True)
+        if v is not None})
+    s = DvdSource(folder)
+    assert s.title.number == title.number
+    for t in (0.0, 10.0, 2999.0, 3000.2, 3000.5, 4600.0, 5999.0):
+        assert dvd.seek(rebuilt, title, t) == dvd.seek(NavDvd.vobs[2], s.title, t)
+        assert dvd.seek(rebuilt, title, t).time == s.keyframe_at_or_before(t)
+
+
+def test_dump_structure_dvd_keeps_no_path_payload_or_palette(monkeypatch: pytest.MonkeyPatch,
+                                                             tmp_path: Path) -> None:
+    folder, text = dumped_dvd(monkeypatch, tmp_path)
+    for leak in (folder, PRIVATE_DIR, str(tmp_path), STREAM_PAYLOAD.decode(), "palette",
+                 "dvd_reader", "python", "--title", "ifo"):
+        assert leak not in text, leak
+
+
+def test_dump_structure_neither_bluray_nor_dvd(monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_bluray(path: str) -> None:
+        raise OSError("cannot open Blu-ray: x")
+
+    def no_dvd(path: str) -> None:
+        raise OSError("cannot open DVD: x")
+
+    monkeypatch.setattr(sources, "_open_disc", no_bluray)
+    monkeypatch.setattr(dvd, "Dvd", no_dvd)
+    with pytest.raises(OSError, match="cannot open Blu-ray"):
+        sources.dump_structure("x")
+
+
 # --- MKV ---------------------------------------------------------------------
 
 def mkv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
@@ -1120,3 +1444,225 @@ def test_discover_logs_the_failed_candidate(monkeypatch: pytest.MonkeyPatch, tmp
         assert discover([str(tmp_path)]) == []
     assert f"{iso}: skipped: cannot read the disc" in caplog.text   # the path, exactly once
     assert caplog.text.count(str(iso)) == 1
+
+
+class UnlabeledDvd(NavDvd):
+    """NavDvd with no volume label."""
+
+    @override
+    def volume_id(self) -> str:
+        return ""
+
+
+class UnlabeledTwoLanguages(FakeDvd):
+    """FakeDvd (ita and eng, subtitles) with no volume label: another disc."""
+
+    @override
+    def volume_id(self) -> str:
+        return ""
+
+
+class UnlabeledSeries(FakeDvd):
+    """Two 25-minute episodes, in VTS 1 and 2, and no volume label."""
+
+    @override
+    def ifo(self, vts: int) -> bytes:
+        if vts == 0:
+            return vmg_ifo([(1, 1), (2, 1)])
+        first = (vts - 1) * 10_000
+        return vts_ifo([DvdCell(1500.0, first, first + 9_999)], [DvdAudioAttr(0, "en")], [])
+
+    @override
+    def volume_id(self) -> str:
+        return ""
+
+
+def fingerprint(disc: dvd.IfoReader) -> str:
+    return sources._dvd_fingerprint(*sources._dvd_titles(disc))
+
+
+def library_paths(source_paths: list[str], tmp_path: Path) -> list[str]:
+    tree = Tree()
+    lib = Library(tree, "x264", str(tmp_path / "log"), "per-language", False, [])
+    for p in source_paths:
+        for s in DvdSource.all_on(p):
+            lib.add(s)
+    paths = sorted(f.path for f in tree.files())
+    for f in tree.files():
+        f.close()
+    return paths
+
+
+def test_dvd_fingerprint_is_its_navigation(monkeypatch: pytest.MonkeyPatch,
+                                           tmp_path: Path) -> None:
+    """Exactly what the fingerprint is made of: the dump's titles and the VOBU
+    map of each title set (not the navigation packs, nor the label), as canonical
+    JSON: a replay recomputes it from the dump, however the dump is formatted."""
+    data = json.loads(dumped_dvd(monkeypatch, tmp_path)[1])
+    vobus = {vts: s["vobus"] for vts, s in data["title_sets"].items()}
+    for text in (json.dumps(data), json.dumps(data, indent=4, sort_keys=True)):
+        again = json.loads(text)
+        canonical = json.dumps({"titles": again["titles"], "vobus": vobus},
+                               sort_keys=True, separators=(",", ":"))
+        assert hashlib.sha256(canonical.encode()).hexdigest()[:12] == data["fingerprint"]
+    assert re.fullmatch(r"[0-9a-f]{12}", data["fingerprint"])
+    assert data["fingerprint"] == fingerprint(NavDvd())          # the same, live
+    # other navigation, another fingerprint: one cell ends a sector earlier
+    other = NavDvd()
+    other.movie = vts_ifo(
+        [DvdCell(3000.0, 0, 99_998, 1, 1), DvdCell(3000.0, 100_000, 199_999, 2, 1)],
+        [DvdAudioAttr(0, "it", 1, 0), DvdAudioAttr(0, "en", 3, 1)],
+        [DvdSubAttr("it", 1, wide=0), DvdSubAttr("en", 9, wide=1)],
+        palette=[(235, 128, 128)] * 16, pgcn=2, vobus=[0, 50_000, 100_000, 150_000])
+    assert fingerprint(other) != data["fingerprint"]
+    # the label is not part of it: it only names discs that have none
+    assert fingerprint(UnlabeledDvd()) == data["fingerprint"]
+
+
+def test_dvd_without_label_is_named_after_the_disc_alone(monkeypatch: pytest.MonkeyPatch,
+                                                         tmp_path: Path) -> None:
+    """The same unlabeled DVD read from two differently named places: the same
+    dump, without either name, and the same name in the library, the one the
+    dump's fingerprint gives."""
+    no_bluray = Mock(side_effect=OSError("cannot open Blu-ray"))
+    monkeypatch.setattr(sources, "_open_disc", no_bluray)
+    monkeypatch.setattr(dvd, "Dvd", UnlabeledDvd)
+    places = [tmp_path / "Holiday Rips 2019", tmp_path / "bttf-copy"]
+    dumps: list[str] = []
+    for place in places:
+        place.mkdir()
+        monkeypatch.setattr(NavDvd, "vobs", {})
+        dumps.append(sources.dump_structure(str(place)))
+    assert no_bluray.call_count == 2
+    assert dumps[0] == dumps[1]
+    data = json.loads(dumps[0])
+    assert data["volume_id"] == ""
+    assert not any(p.name in dumps[0] for p in places)
+
+    monkeypatch.setattr(NavDvd, "vobs", {})
+    first, second = (DvdSource(str(p)) for p in places)
+    name = f"DVD-{data['fingerprint']}"
+    assert first.name == second.name == name
+    assert first.fallback_name and second.fallback_name
+    # naming it read the IFO files only: the one VOB read is the CSS check
+    assert NavDvd.vobs[2].reads == [(0, 16), (0, 16)]
+    for t in (0.0, 2999.0, 3000.5, 4600.0):
+        assert first.keyframe_at_or_before(t) == second.keyframe_at_or_before(t)
+    paths = [library_paths([str(p)], tmp_path) for p in places]
+    assert paths[0] == paths[1] == [f"DVD/{name}.ts"]     # one language: no prefix
+
+
+def test_dvd_with_label_is_named_as_before(monkeypatch: pytest.MonkeyPatch,
+                                           tmp_path: Path) -> None:
+    # no fingerprint work for a disc that names itself
+    monkeypatch.setattr(sources, "_dvd_titles", Mock(side_effect=AssertionError("fingerprint")))
+    s = dvd_source(monkeypatch, tmp_path)
+    assert (s.name, s.fallback_name) == ("Back To The Future", False)
+
+
+def test_dvd_series_without_label(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(dvd, "Dvd", UnlabeledSeries)
+    place = tmp_path / "My Series Folder"
+    place.mkdir()
+    disc = f"DVD-{fingerprint(UnlabeledSeries())}"
+    # one name for the disc, the episode numbers after it as before
+    assert [s.name for s in DvdSource.all_on(str(place))] == [f"{disc} - 1", f"{disc} - 2"]
+    assert library_paths([str(place)], tmp_path) == [f"DVD/{disc} - 1.ts", f"DVD/{disc} - 2.ts"]
+
+
+def disc_files(name: str) -> list[str]:
+    """UnlabeledTwoLanguages' files in a Library with Light/ and English subtitles."""
+    return sorted(f"DVD/{d}{v}" for d in ("", "Light/") for v in (
+        f"ENG - {name}.ts", f"ENGsubENG - {name}.ts", f"ITA - {name}.ts",
+        f"ITAsubENG - {name}.ts"))
+
+
+def files_of(tree: Tree, place: str) -> list[str]:
+    """Paths of the files read from `place`, each checked to be found by its path."""
+    paths = sorted(f.path for f in tree.files()
+                   if isinstance(f, VirtualFile) and f.source.path == place)
+    for p in paths:
+        found = tree.lookup(p)
+        assert isinstance(found, VirtualFile) and found.source.path == place, p
+    return paths
+
+
+def unlabeled_library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                      discs: list[type[FakeDvd]]) -> tuple[Tree, Library, list[str]]:
+    """A real Library with Light/ copies, and one folder per disc of `discs`."""
+    places = [str(tmp_path / f"disc {n}") for n in range(len(discs))]
+    kind = dict(zip(places, discs, strict=True))
+    for p in places:
+        Path(p).mkdir()
+
+    def open_dvd(path: str) -> FakeDvd:
+        return kind[path](path)
+
+    monkeypatch.setattr(dvd, "Dvd", open_dvd)
+    monkeypatch.setattr(NavDvd, "vobs", {})
+    tree = Tree()
+    return tree, Library(tree, "x264", str(tmp_path / "log"), "per-language", True, ["eng"]), places
+
+
+@pytest.mark.parametrize("removed", [0, 1])
+def test_unlabeled_dvds_in_one_library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                       removed: int) -> None:
+    """Two copies of one unlabeled DVD and a different one, in one library: the
+    different one has its own name, the second copy is numbered; whichever copy
+    goes, the others are still found under their names."""
+    tree, lib, places = unlabeled_library(
+        monkeypatch, tmp_path, [UnlabeledTwoLanguages, UnlabeledTwoLanguages, UnlabeledDvd])
+    entries = [[e for s in DvdSource.all_on(p) for e in lib.add(s)] for p in places]
+    copy_name, other = (f"DVD-{fingerprint(d())}" for d in (UnlabeledTwoLanguages, UnlabeledDvd))
+    assert copy_name != other
+    assert files_of(tree, places[0]) == disc_files(copy_name)
+    assert files_of(tree, places[1]) == disc_files(f"{copy_name} (2)")
+    assert files_of(tree, places[2]) == [f"DVD/{other}.ts", f"DVD/Light/{other}.ts"]
+    assert len(tree.files()) == 18
+
+    lib.remove(entries[removed])
+    kept = 1 - removed
+    assert files_of(tree, places[kept]) == disc_files(copy_name if kept == 0
+                                                      else f"{copy_name} (2)")
+    assert files_of(tree, places[2]) == [f"DVD/{other}.ts", f"DVD/Light/{other}.ts"]
+    lib.remove(entries[kept])
+    lib.remove(entries[2])
+    assert tree.files() == []
+
+
+def test_unlabeled_dvd_copies_count_up_and_reuse(monkeypatch: pytest.MonkeyPatch,
+                                                 tmp_path: Path) -> None:
+    tree, lib, places = unlabeled_library(monkeypatch, tmp_path, [UnlabeledTwoLanguages] * 4)
+    name = f"DVD-{fingerprint(UnlabeledTwoLanguages())}"
+    entries = [[e for s in DvdSource.all_on(p) for e in lib.add(s)] for p in places[:3]]
+    assert [files_of(tree, p)[0] for p in places[:3]] == \
+        [f"DVD/ENG - {name}.ts", f"DVD/ENG - {name} (2).ts", f"DVD/ENG - {name} (3).ts"]
+    lib.remove(entries[0])
+    # the others keep their names; a copy inserted now takes the free one
+    entries.append([e for s in DvdSource.all_on(places[3]) for e in lib.add(s)])
+    assert [files_of(tree, p)[0] for p in places[1:]] == \
+        [f"DVD/ENG - {name} (2).ts", f"DVD/ENG - {name} (3).ts", f"DVD/ENG - {name}.ts"]
+    for e in entries[1:]:
+        lib.remove(e)
+    assert tree.files() == []
+
+
+def test_unlabeled_name_in_another_folder_is_no_collision(monkeypatch: pytest.MonkeyPatch,
+                                                          tmp_path: Path) -> None:
+    tree, lib, places = unlabeled_library(monkeypatch, tmp_path, [UnlabeledTwoLanguages] * 2)
+    movie, extra = DvdSource(places[0]), DvdSource(places[1])
+    extra.subfolder = "Extra"
+    added = lib.add(movie) + lib.add(extra)
+    assert f"DVD/Extra/ENG - {extra.name}.ts" in files_of(tree, places[1])
+    lib.remove(added)
+
+
+def test_names_a_disc_gives_itself_are_not_numbered(monkeypatch: pytest.MonkeyPatch,
+                                                    tmp_path: Path) -> None:
+    # only names the program made up are numbered (the maintainer's scope for #134)
+    _, lib, places = unlabeled_library(monkeypatch, tmp_path, [FakeDvd, FakeDvd])
+    first = DvdSource(places[0])
+    added = lib.add(first)
+    second = DvdSource(places[1])
+    assert lib._unique(second) is second
+    lib.remove(added)

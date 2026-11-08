@@ -27,6 +27,7 @@ The defaults work: you only need this page to change what the share offers (lang
 | [Program log file](#logs) | — | `--log path` or `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
 | [Pipeline log](#logs) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 | [Jump log](#logs) | — | `--debug` | off |
+| [Write a disc's structure and exit](#a-discs-structure) | — | `--dump-structure file.json` | off |
 
 ---
 
@@ -53,11 +54,11 @@ Folders are scanned at startup: restart the program to see a new file. Drives ar
 
 A Blu-ray that holds several episodes (one title per episode, in play-all order: see [RESEARCH.md](RESEARCH.md)) gets each one named `S<season>E<episode> - <Show>.ts`, e.g. `S01E05 - Rick and Morty.ts`; the season/episode part always comes right after the language/subtitle prefix (`ITA - `, `subITA - `...), since players cut long names in their file list. The prefix itself is uniform across the disc: if any episode has more than one selected audio language, every episode gets it, even one that itself only has one (an episode dubbed where another is not must not name differently from its siblings).
 
-The season is read from the disc's own name or volume label (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), with no network lookup. The first episode's number is not on the disc, so it is only assumed (1, 2, 3...) when neither the disc's name nor its label gives a sign that it holds just part of a season (`Disc 2`, `Vol. 2`...); a season split over several discs, or a disc with no recognised season, is named `E<episode> - <Show>.ts` instead, with the disc/volume marker in parentheses when there is one, e.g. `E01 - Il Prigioniero (Disco 1).ts`.
+The season is read from the disc's own name or volume label (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `Temporada 1`, `S1`...), with no network lookup. The first episode's number is not on the disc, so it is only assumed (1, 2, 3...) when neither the disc's name nor its label gives a sign that it holds just part of a season (`Disc 2`, `Vol. 2`...); a season split over several discs, or a disc with no recognised season, is named `E<episode> - <Show>.ts` instead, with the disc/volume marker in parentheses when there is one, e.g. `E01 - Il Prigioniero (Disco 1).ts`.
 
 A 3D disc is never a series when a 3D "play all" title covers every part: that is a movie split into parts (Tron: Legacy 3D has both halves as titles of their own), and it is loaded as one movie.
 
-A disc's bonus content (making-of, deleted scenes...) goes in an `Extra/` subfolder, numbered apart from the episodes.
+A disc's bonus content (making-of, deleted scenes...) goes in an `Extra/` subfolder, numbered apart from the episodes and named after the show just like them, e.g. `Rick and Morty - Extra 1.ts`.
 
 ## DLNA/UPnP instead of Samba
 
@@ -71,7 +72,7 @@ bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
 - On the player, look for "bluray3d-xr" among the DLNA/media servers it finds on the network (no IP address to type): browse into `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, the same folders as the SMB share.
 - Seeking works the same way as over SMB: a byte of the file is still a precise second of the movie, so a jump restarts the pipeline from there regardless of whether the player reads it over SMB or HTTP.
 - Docker, DLNA only: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — no Samba, no FUSE, no port 445; it uses the host network, since SSDP discovery is multicast (`HTTP_PORT` in `.env` sets the port). DLNA together with Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, also on the host network, so Samba uses the host's port 445 directly (`SMB_PORT` does not apply).
-- Native install: `scripts/install.sh --share dlna` skips the Samba/pyfuse3/fuse3 packages, the FUSE mount and `smb.conf` entirely. `scripts/install.sh --share both` installs everything; running it again with `both` after a `dlna` install adds the Samba/FUSE pieces it had skipped. `scripts/update.sh` keeps the kind chosen at install time.
+- Native install: `scripts/install.sh --share dlna` skips Samba and system FUSE packages, the FUSE mount and `smb.conf` entirely. The Samba path uses the vendored `mfusepy.py` adapter with the system `fuse3` runtime; `scripts/install.sh --share both` installs both paths. Running it again with `both` after a `dlna` install adds the Samba/FUSE pieces it had skipped. `scripts/update.sh` keeps the kind chosen at install time.
 
 ## Audio languages
 
@@ -138,3 +139,19 @@ The animations shipped (`loaders/retrowave.mp4`, 1 MB, side by side; `loaders/si
 - The program's log says which movies appear, which pipeline starts where, and whether the network and the disc keep up. It goes to the terminal and is also saved, with the date, in `~/.local/state/bluray3d-xr/bluray3d-xr.log` (up to 5 MB, then three older copies `.1` `.2` `.3`); `--log` saves it elsewhere, `--log none` not at all. With Docker: `docker compose logs`.
 - `--log-file` is FFmpeg's and the decoders' output, one section per pipeline (the older one moves to `.1` beyond 10 MB): the first place to look when the picture is wrong.
 - `--debug` also logs every jump and the player's reads in the 20 seconds after it: how long it waited, and whether it looked paused. Also the full command of each pipeline, to run it by hand ([DEVELOPMENT.md](DEVELOPMENT.md#taking-a-pipeline-apart)).
+
+## A disc's structure
+
+`--dump-structure FILE` reads one disc (a drive with the disc in it, an ISO, a BDMV or VIDEO_TS folder), writes its structure to `FILE` as JSON and exits: nothing is shared, mounted or encoded.
+
+```console
+bluray3d-xr --dump-structure tron.json /dev/sr0
+```
+
+- **What it holds:** what the program picks the movie or the episodes from and seeks with, as read from the disc's navigation files, before any choice. Blu-ray: every title libbluray lists, with its play items (clip, in and out time, audio and subtitle tracks and their languages), and the keyframe map (EP_map) and extents of every clip they use. DVD: every title, with its cells, tracks and languages, and for each title set the start of every VOBU with the time its navigation pack gives. Times keep the disc's own precision. The file starts with its format version (`"format": 1`).
+- **What it does not hold:** video, audio or subtitle data, keys or anything else of the decryption, the path of the disc on your computer, commands. The disc's own name and volume label are in it.
+- **A DVD without a volume label** is named `DVD-` and 12 hex digits, e.g. `DVD-3f9a0c41b2e7` (a series: `DVD-3f9a0c41b2e7 - 1`, `- 2`...), never after its file or folder. The digits are a fingerprint of the disc's navigation (its titles, cells, tracks and VOBU map, as the IFO files give them): the same disc gets the same name from the drive, an ISO or a folder, and the dump records it (`"fingerprint"`). Two different discs could share it, though it is unlikely. Two copies of the same disc always do: the one that comes second is shown as `DVD-3f9a0c41b2e7 (2)`, then `(3)`..., for as long as it is there. Discs with a label keep the name they had.
+- **One disc at a time:** more than one source is an error, not a choice. A Blu-ray must open as it does for playing (see [Decryption](../README.md#decryption-bring-your-own-keys) in the README). On a DVD it reads the first sector of every VOBU, so it takes longer than opening the disc to play it.
+- **Never overwrites:** `FILE` must be a new file. If it exists already (an older dump, the source itself or a link to it) the program says so and stops, before reading the disc; a write that fails half way removes the file it had started.
+
+Attach the file to a bug report about how a disc is shown (the wrong title, episodes in the wrong order, a jump landing in the wrong place): it describes how the disc is built, without the disc.

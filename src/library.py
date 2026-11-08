@@ -5,7 +5,7 @@ feeds), SidecarFile (a plain passthrough, e.g. external subtitles), Library
 implements. Synchronous and thread-safe, like tree.py: bd3d_fs.py (the
 program: arguments, logging, drive watching) wires it to a front end
 (fuse_fs.py, http_server.py); this module imports neither of them, nor
-pyfuse3 nor trio.
+mfusepy.
 
 The trick behind VirtualFile is a constant-bitrate MPEG-TS (-muxrate): byte X
 of the file always matches second X / bytes_per_sec of the movie. So:
@@ -20,10 +20,12 @@ import copy
 import errno
 import functools
 import logging
+import math
 import os
 import shlex
 import signal
 import subprocess
+import sys
 import threading
 import time
 import weakref
@@ -33,7 +35,7 @@ from typing import Protocol, TextIO
 
 from pipeline import Quality, decode_command, encoder_args, quality_for
 from sources import Source, ffprobe_json
-from tree import ROOT_ID, FileEntry, Folder, Tree
+from tree import ROOT_ID, FileEntry, Folder, Tree, current_reader
 
 log = logging.getLogger("bd3d_fs")
 
@@ -137,8 +139,12 @@ class Generator:
         # the stream's clock and bytes start at t0: the keyframe, or the requested
         # time when the disc's first keyframe comes after it (0.081s on Il
         # Prigioniero, #73). The pipeline must cover the offset it was started for,
-        # or every read there would start another one
-        t0 = min(start, seconds)
+        # or every read there would start another one. Never before 0: a source
+        # whose first keyframe precedes the start would put the pipeline at a
+        # negative offset, and the head of the file would never be cached.
+        # Down to the millisecond, as -output_ts_offset gets it: otherwise the
+        # clock starts up to 0.5 ms after the bytes, and down keeps base <= the read
+        t0 = math.floor(max(0.0, min(start, seconds)) * 1000) / 1000
         # base aligned to TS packets, so bytes match the global grid
         self.base = int(t0 * vf.bytes_per_sec) // TS_PACKET * TS_PACKET
         self.buf = bytearray()
@@ -157,6 +163,7 @@ class Generator:
         self.jump_at: int | None = None       # first offset the player read
         self.path, self.bytes_per_sec, self.is_loader = vf.path, vf.bytes_per_sec, loader
         self.slow_logged = 0.0
+        self.reader = current_reader()     # who made it start, for the log
 
         if loader and vf.loader:
             # same start, so the same timestamps and bytes <-> time mapping as the movie
@@ -170,11 +177,13 @@ class Generator:
                 f"{vf.encode_args} {COMMON_ARGS}"
                 f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {vf.muxrate} -",
             )
-            log.info("%s: pipeline from %.1fs (requested %.1fs, offset %d)",
-                     vf.path, start, seconds, self.base)
+            log.info("%s: pipeline from %.1fs (requested %.1fs, offset %d) for %s",
+                     vf.path, start, seconds, self.base, self.reader)
             if with_loader:
                 self.loader = Generator(vf, seconds, loader=True)
         log.debug("  %s", cmd)
+        if not hasattr(os, "killpg"):    # Windows: stop() could not kill the pipeline
+            raise NotImplementedError("pipelines need os.killpg, POSIX only until #103")
         with open_pipeline_log(vf.log_path, f"{vf.path}: {'loader' if loader else 'pipeline'} "
                                f"from {start:.1f}s") as stderr:
             self.proc = subprocess.Popen(
@@ -207,7 +216,10 @@ class Generator:
                     self.cond.notify_all()
                     return
                 self.buf += data
-                drop = self.reader_pos - BEHIND_KEEP - self.buf_start
+                # never past the end: a pipeline just started from a keyframe far
+                # before the player's position holds less than that, and moving
+                # buf_start beyond its bytes would shift every byte after them
+                drop = min(self.reader_pos - BEHIND_KEEP, self.end) - self.buf_start
                 if drop > 2 * BEHIND_KEEP:  # trim in big chunks: rare memmove
                     del self.buf[:drop]
                     self.buf_start += drop
@@ -273,7 +285,8 @@ class Generator:
         with self.cond:
             self.stopped = True
             self.cond.notify_all()
-        if self.proc.poll() is None:
+        # never started without os.killpg (__init__): Windows, until #103
+        if sys.platform != "win32" and self.proc.poll() is None:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(self.proc.pid, signal.SIGKILL)
         # SIGKILL waits for a process stuck in the kernel (a drive that does not
@@ -323,6 +336,7 @@ class VirtualFile:
         self.stale: Generator | None = None
         self.stale_until = 0.0
         self.stale_logged = False
+        self.closed = False                      # gone for good: no new pipeline
         self.head: bytes | None = None
         self.tail: bytes | None = None
         self.last_read = 0.0
@@ -379,6 +393,8 @@ class VirtualFile:
                          other.path, self.path)
                 other.stop()
         with self.lock:
+            if self.closed:
+                return None
             self.gens = [g for g in self.gens if not g.stopped]
             for g in self.gens:
                 if g.covers(offset):
@@ -494,6 +510,8 @@ class VirtualFile:
             return None
         with self.lock:
             if self.tail is None:
+                if self.closed:                  # no FFmpeg for it any more
+                    return null_padding(offset, size)
                 self.tail = self._synthetic_tail()
         if offset >= tail_start:
             return self.tail[offset - tail_start:offset - tail_start + size]
@@ -572,7 +590,8 @@ class VirtualFile:
             for g in idle:
                 self.gens.remove(g)
         for g in idle:
-            log.info("%s: no reads for %ds, stopping a pipeline", self.name, IDLE_STOP)
+            log.info("%s: no reads for %ds, stopping a pipeline (started for %s)",
+                     self.name, IDLE_STOP, g.reader)
             g.stop()
 
     def stop(self) -> None:
@@ -581,6 +600,15 @@ class VirtualFile:
             self.stale = None
         for g in gens:
             g.stop()
+
+    def close(self) -> None:
+        """stop() for good, when the file leaves the tree (its disc ejected) or
+        the program ends: the front ends may still be serving reads of it (one
+        in flight retries once its pipeline stops), and a pipeline or FFmpeg
+        started for them would outlive the file and the program."""
+        with self.lock:
+            self.closed = True
+        self.stop()
 
 
 class SidecarFile:
@@ -606,6 +634,9 @@ class SidecarFile:
         pass
 
     def stop(self) -> None:
+        pass
+
+    def close(self) -> None:
         pass
 
 
@@ -689,6 +720,7 @@ class Library:
     def add(self, source: Source) -> list[FileEntry]:
         """Files go in the folder of their kind: Blu-ray 3D/, Blu-ray/ ... (a series'
         bonus titles in its Extra/ sub-folder)."""
+        source = self._unique(source)
         category = self.tree.folder(source.category).inode
         if source.subfolder:
             category = self.tree.folder(source.subfolder, category).inode
@@ -697,9 +729,34 @@ class Library:
             added += self._add_set(source, self.tree.folder(LIGHT_DIR, category).inode, "light")
         return added
 
+    def _unique(self, source: Source) -> Source:
+        """A source named by the program (a DVD without a label), or a copy of it
+        named "<name> (2)", "(3)"... when another movie in the same folder already
+        has its name (two copies of one disc): its files would take the others'
+        names. The name is fixed for as long as the source is in the tree, and comes
+        from no path. Names the disc gives itself are left as they are."""
+        if not source.fallback_name:
+            return source
+
+        def taken(name: str) -> bool:
+            return any(isinstance(f, VirtualFile) and (f.source.name, f.source.category,
+                       f.source.subfolder) == (name, source.category, source.subfolder)
+                       for f in self.tree.files())
+
+        if not taken(source.name):
+            return source
+        n = 2
+        while taken(f"{source.name} ({n})"):
+            n += 1
+        unique = copy.copy(source)
+        unique.name = f"{source.name} ({n})"
+        log.info("%s: another movie has the name %s, shown as %s", source.path, source.name,
+                 unique.name)
+        return unique
+
     def remove(self, entries: Sequence[FileEntry]) -> None:
         for e in entries:
-            e.stop()
+            e.close()
             self.tree.remove(e)
             log.info("- %s", e.path)
         # folders left empty go too, deepest first (Multi-audio/, Light/, then the

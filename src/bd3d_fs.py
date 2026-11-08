@@ -17,8 +17,8 @@ Usage:
     python3 bd3d_fs.py [--mount /srv/bd3d] ~/Videos/3D [more MKVs or folders...]
 Unmount: Ctrl+C (or fusermount3 -u /srv/bd3d)
 
-Requires: python3-trio, edge264_test, ffmpeg, ffprobe; python3-pyfuse3 and fuse3
-for --share samba/both (fuse_fs.py)
+Requires: edge264mvc_test, ffmpeg, ffprobe; fuse3 (libfuse3) for --share samba/both
+(fuse_fs.py, through the vendored mfusepy.py)
 """
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ from langs import lang_list
 from library import LIGHT_DIR, MULTI_AUDIO_DIR, Library, Shelf
 from osplatform import DriveStatus, default_program_log, default_temp_dir, drive_status
 from pipeline import ENCODERS, pick_encoder
-from sources import Source, UnsupportedDiscError, discover, open_disc
+from sources import Source, UnsupportedDiscError, discover, dump_structure, open_disc
 from tree import FileEntry, Tree
 
 log = logging.getLogger("bd3d_fs")
@@ -170,8 +170,8 @@ def terminate_on_signal(stop: threading.Event, use_fuse: bool) -> None:
     # Ctrl+C (SIGINT), docker stop / systemctl stop (SIGTERM): unmount (if
     # mounted) and exit cleanly, instead of the traceback a signal leaves by
     # default. The handler only sets stop, and from a thread of its own: it can
-    # interrupt the main thread anywhere (before or after trio runs FUSE, or
-    # while it holds stop's lock); fuse_fs.serve() ends FUSE from trio itself.
+    # interrupt the main thread anywhere (before or while it waits in
+    # fuse_fs.serve(), or while it holds stop's lock); fuse_fs.unmount() ends FUSE.
     def handler(_signum: int, _frame: object) -> None:
         log.info("stopping%s", ": unmounting" if use_fuse else "")
         threading.Thread(target=stop.set).start()
@@ -226,13 +226,13 @@ def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] 
 
 def require_fuse(share: str) -> None:
     """fuse_fs is imported only when FUSE is used (here first): --share dlna
-    must start on a system without pyfuse3 and fuse3."""
+    must start on a system without fuse3."""
     try:
         importlib.import_module("fuse_fs")
     except ImportError as e:
         raise SystemExit(f"--share {share} mounts the files with FUSE, which is not installed "
                          f"({e}): run scripts/install.sh --share {share}, "
-                         "install python3-pyfuse3 and fuse3, or use --share dlna") from e
+                         "install fuse3, or use --share dlna") from e
 
 
 def require_samba(share: str) -> None:
@@ -310,7 +310,43 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log", default=str(default_program_log()),
                         help="the program's log is also saved here (default "
                              "~/.local/state/bluray3d-xr/bluray3d-xr.log), or none")
+    parser.add_argument("--dump-structure", metavar="FILE",
+                        help="write the structure of the one disc given (drive, ISO, BDMV or "
+                             "VIDEO_TS folder) to FILE, a new file, as JSON and exit: titles, "
+                             "play items, keyframe maps, tracks; no video, keys or paths")
     return parser
+
+
+def write_structure(sources_args: list[str], out: str) -> None:
+    """--dump-structure: one disc only, nothing started (no encoder, mount, server,
+    watcher). A drive is read once, so it must hold the disc already."""
+    if len(sources_args) != 1:
+        raise SystemExit(f"--dump-structure takes one disc, drive, ISO or folder, "
+                         f"not {len(sources_args)}: {' '.join(sources_args)}")
+    source = str(Path(sources_args[0]).expanduser())
+    if not Path(source).exists():
+        raise SystemExit(f"not found: {source}")
+    # never overwrite: FILE may be the source itself (or a link to it), or a
+    # file worth keeping. Checked before the disc is read, and again on creation
+    exists = f"--dump-structure: {out} exists already, give the name of a new file"
+    if os.path.lexists(out):
+        raise SystemExit(exists)
+    try:
+        text = dump_structure(source)
+    except OSError as e:
+        raise SystemExit(f"{source}: {str(e).removeprefix(f'{source}: ')}") from e
+    created = False
+    try:
+        with open(out, "x", encoding="utf-8") as f:
+            created = True
+            f.write(text)
+    except FileExistsError:
+        raise SystemExit(exists) from None
+    except OSError as e:
+        if created:                  # ours, half written: not left behind
+            Path(out).unlink(missing_ok=True)
+        raise SystemExit(f"--dump-structure: cannot write {out}: {e}") from e
+    log.info("%s: structure written to %s", source, out)
 
 
 def main() -> None:
@@ -326,13 +362,15 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     if args.debug:
-        log.setLevel(logging.DEBUG)      # ours only: pyfuse3's debug output is huge
+        log.setLevel(logging.DEBUG)      # ours only: libfuse's debug output is huge
     log_path: str = args.log
     log_to_file(log_path)
 
     log.info("bluray3d-xr %s", program_version())
     if log_path != "none":
         log.info("log saved in %s", log_path)
+    if args.dump_structure is not None:     # one disc, written out: nothing else starts
+        return write_structure(sources_args, args.dump_structure)
     encoder = pick_encoder(args.encoder)
     log.info("video encoder: %s", encoder)
     audio_langs = None if audio_lang.strip().lower() in ("", "all") else lang_list(audio_lang)
@@ -376,7 +414,7 @@ def main() -> None:
         pass
     finally:
         for f in tree.files():
-            f.stop()
+            f.close()
         if dlna is not None:
             dlna.stop()
         if use_fuse:

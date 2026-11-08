@@ -19,6 +19,7 @@ Implemented:
 import atexit
 import copy
 import functools
+import hashlib
 import itertools
 import json
 import logging
@@ -34,9 +35,9 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Protocol, Self, override
+from typing import Any, Protocol, Self, cast, override
 
 import bluray
 import dvd
@@ -98,6 +99,9 @@ class Source(ABC):
     sub: SubtitleTrack | None = None  # the track drawn into this file, if any
     forced_only: bool = False       # draw only its forced subtitles (foreign-language parts)
     sub_depth: int = 8              # 3D: pixels each eye's copy is moved inward
+    # named by the program, not by the disc (a DVD without a label): copies of one
+    # disc share that name, so the Library numbers the ones that come after
+    fallback_name: bool = False
     # Pipelines that may run at once on this source. A disc is one optical drive:
     # two pipelines reading far-apart places make its head jump back and forth
     # on every read and both crawl.
@@ -399,7 +403,7 @@ def _safe_name(name: str) -> str:
 # season markers in the disc name/label, one word per language (#27); the bare
 # "S1"/"S01" form last, so "Staffel 1" etc. are tried first
 _SEASON_PATTERNS = [re.compile(rf"\b{word}\s*0*(\d{{1,2}})\b", re.IGNORECASE) for word in
-                    ("staffel", "stagione", "saison", "season", "s")]
+                    ("staffel", "stagione", "saison", "season", "temporada", "s")]
 # a disc that names itself "Disc 2", "Vol. 1", "Teil 2"... is only part of a season:
 # its first episode number cannot be known offline (#27)
 _DISC_PART_PATTERN = re.compile(
@@ -447,16 +451,25 @@ def _parse_disc_part(*names: str) -> tuple[str, str] | None:
 def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool
                   ) -> tuple[str, str]:
     """An episode's file name and subfolder: extras (#39) are numbered apart and go
-    in Extra/; an episode gets S<season>E<episode> first when the season is known
-    and reliable (#27). Otherwise (#80) "E<episode> - <name>", with the disc/volume
-    marker in parentheses when the disc's name carries one (e.g. "Disco 1")."""
-    if extra:
-        return f"{name} - Extra {episode}", "Extra"
+    in Extra/, named after the show like episodes are (#81); an episode gets
+    S<season>E<episode> first when the season is known and reliable (#27).
+    Otherwise (#80) "E<episode> - <name>", with the disc/volume marker in
+    parentheses when the disc's name carries one (e.g. "Disco 1"). The raw disc
+    name/label may have underscores instead of spaces (#81): cleaned up already by
+    _parse_season/_parse_disc_part, or here for the fallback with no marker at all."""
     season_show = _parse_season(*raw_names)
+    disc_part = _parse_disc_part(*raw_names) if season_show is None else None
+    if extra:
+        if season_show is not None:
+            show = season_show[1]
+        elif disc_part is not None:
+            show = disc_part[1]
+        else:
+            show = name.replace("_", " ")
+        return f"{_safe_name(show)} - Extra {episode}", "Extra"
     if season_show is not None:
         season, show = season_show
         return f"S{season:02d}E{episode:02d} - {_safe_name(show)}", ""
-    disc_part = _parse_disc_part(*raw_names)
     if disc_part is not None:
         marker, show = disc_part
         return f"E{episode:02d} - {_safe_name(show)} ({marker})", ""
@@ -808,6 +821,9 @@ class BlurayDiscSource(DiscSource):
         # 3D: one FIFO per pipeline start, disc_reader writes the audio TS into it
         if self._fifo and os.path.exists(self._fifo):
             os.unlink(self._fifo)
+        if sys.platform == "win32":
+            raise NotImplementedError("3D audio goes through a FIFO (os.mkfifo): POSIX only "
+                                      "until #103")
         self._fifo = _temp_file("audio.ts")
         os.mkfifo(self._fifo)
         return f"{cmd} --audio-out {shlex.quote(self._fifo)}".strip()
@@ -851,6 +867,9 @@ class DvdSource(DiscSource):
         try:
             self.title = title or dvd.main_titles(self._dvd)[0]
             label = self._dvd.volume_id()
+            # no label: named after its navigation, never its file or folder name,
+            # so the name depends on the disc alone (and a --dump-structure replays it)
+            fingerprint = "" if label else _dvd_fingerprint(*_dvd_titles(self._dvd))
         except OSError:
             self._dvd.close()
             raise
@@ -865,7 +884,8 @@ class DvdSource(DiscSource):
                      if dvd.has_dvdcss() else "DVD not encrypted")
         self._lock = threading.Lock()
         self._ifo_copy: str | None = None
-        self.name = _safe_name(label.replace("_", " ").title() if label else Path(path).stem)
+        self.fallback_name = not label
+        self.name = _safe_name(label.replace("_", " ").title()) if label else f"DVD-{fingerprint}"
         if episode:
             self.name = f"{self.name} - {episode}"
         self.duration = self.title.duration
@@ -941,6 +961,143 @@ def open_disc(path: str, audio_langs: list[str] | None = None) -> list[Source]:
             return list(DvdSource.all_on(path, audio_langs))
         except OSError:
             raise bd_error from None
+
+
+# --dump-structure: what the selection, the naming and the keyframes are computed
+# from, as parsed by the readers above, before any choice is made. Bump the format
+# when a field changes meaning. Left out on purpose: the source's path, the
+# decryption backend, raw files, audio/video/subtitle payload, commands.
+STRUCTURE_FORMAT = 1
+
+
+def _clip_structure(disc: bluray.Disc, clip: str, pid: int) -> dict[str, object]:
+    try:
+        return {"video_pid": pid, **asdict(parse_clpi(
+            disc.read_file(f"BDMV/CLIPINF/{clip}.clpi"), pid=pid))}
+    except Exception as e:  # noqa: BLE001  recorded: only the title using it would fail
+        return {"video_pid": pid, "error": type(e).__name__}
+
+
+def _bluray_structure(path: str) -> dict[str, object]:
+    """Every title libbluray lists, in its order, with its play items, and the
+    EP_map/extents of every clip they use (base view 0x1011, MVC view 0x1012)."""
+    disc, info, _ = _open_disc(path)
+    try:
+        titles: list[dict[str, object]] = []
+        clips: dict[str, object] = {}
+        for t in disc.titles():
+            entry: dict[str, object] = {"playlist": t.playlist, "duration": t.duration}
+            try:
+                items = parse_mpls(disc.read_file(f"BDMV/PLAYLIST/{t.playlist}.mpls"))
+            except Exception as e:  # noqa: BLE001  recorded: all_on() skips it too (#63)
+                entry["error"] = type(e).__name__
+                items = []
+            else:
+                entry["items"] = [asdict(it) for it in items]
+            for it in items:
+                for clip, pid in ((it.clip, 0x1011), (it.dep_clip, 0x1012)):
+                    if clip and clip not in clips:
+                        clips[clip] = _clip_structure(disc, clip, pid)
+            titles.append(entry)
+    finally:
+        disc.close()
+    return {"format": STRUCTURE_FORMAT, "kind": "bluray", "name": info.name,
+            "volume_id": info.volume_id, "has_3d": info.has_3d,
+            "titles": titles, "clips": clips}
+
+
+def _nav_structure(disc: dvd.Dvd, vts: int, vobus: list[int]) -> dict[str, list[object]] | None:
+    """The navigation pack at every VOBU start of a title set, as parallel lists
+    (None where a sector is unreadable or holds none): what dvd.seek() reads."""
+    try:
+        vobs = disc.title_vobs(vts)
+    except OSError:
+        return None
+    try:
+        navs = [dvd.parse_nav(vobs.read(sector, 1)) for sector in vobus]
+    finally:
+        vobs.close()
+    return {"vob_id": [n.vob_id if n else None for n in navs],
+            "cell_id": [n.cell_id if n else None for n in navs],
+            "cell_time": [n.cell_time if n else None for n in navs],
+            "pts": [n.pts if n else None for n in navs]}
+
+
+def _dvd_titles(disc: dvd.IfoReader) -> tuple[list[dict[str, object]], dict[int, list[int]]]:
+    """Every title of VIDEO_TS.IFO as parse_title() reads it, before any choice,
+    and the VOBU address map (ADMAP) of each title set: the IFO files only."""
+    ifos: dict[int, bytes] = {}
+    vobus: dict[int, list[int]] = {}
+    titles: list[dict[str, object]] = []
+    for number, vts, ttn in dvd.titles(disc.ifo(0)):
+        if vts not in ifos:
+            ifos[vts] = disc.ifo(vts)
+        entry: dict[str, object] = {"number": number, "vts": vts, "ttn": ttn}
+        try:
+            t = dvd.parse_title(ifos[vts], number, vts, ttn)
+        except (IndexError, ValueError) as e:  # main_titles() skips these too
+            entry["error"] = type(e).__name__
+        else:
+            # not the palette: main_titles() and the seek do not use it
+            entry |= {"duration": t.duration, "frame_size": t.frame_size,
+                      "frame_rate": t.frame_rate,
+                      "cells": [asdict(c) for c in t.cells],
+                      "audio": [asdict(a) for a in t.audio],
+                      "subs": [asdict(s) for s in t.subs]}
+            vobus[vts] = t.vobus
+        titles.append(entry)
+    return titles, vobus
+
+
+def _dvd_fingerprint(titles: list[dict[str, object]], vobus: dict[int, list[int]]) -> str:
+    """12 hex digits of SHA-256 over _dvd_titles() as canonical JSON: names a DVD
+    without a volume label after its navigation alone (no path, no stream data),
+    so every copy of it, and a replay of its dump, gets the same one. Short:
+    two different discs may share it, as two copies of one disc always do."""
+    canonical = json.dumps({"titles": titles, "vobus": {str(v): s for v, s in vobus.items()}},
+                           sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:12]
+
+
+def _dvd_structure(path: str) -> dict[str, object]:
+    """_dvd_titles(), its fingerprint, and per title set its VOBU map with the
+    navigation pack of each VOBU."""
+    with dvd.Dvd(path) as disc:
+        titles, vobus = _dvd_titles(disc)
+        title_sets = {str(vts): {"vobus": sectors, "navs": _nav_structure(disc, vts, sectors)}
+                      for vts, sectors in sorted(vobus.items())}
+        volume_id = disc.volume_id()
+    return {"format": STRUCTURE_FORMAT, "kind": "dvd", "volume_id": volume_id,
+            "fingerprint": _dvd_fingerprint(titles, vobus),
+            "titles": titles, "title_sets": title_sets}
+
+
+def _json(value: object, indent: str = "") -> str:
+    """JSON with one line per field, but lists of numbers on one line: an EP_map
+    or a VOBU map of thousands of entries stays one line of the diff."""
+    inner = indent + " "
+    if isinstance(value, dict) and value:
+        fields = cast(dict[str, object], value)
+        return "{\n" + ",\n".join(f"{inner}{json.dumps(k)}: {_json(v, inner)}"
+                                  for k, v in fields.items()) + f"\n{indent}}}"
+    if isinstance(value, list) and any(isinstance(v, dict | list) for v in
+                                       cast(list[object], value)):
+        return "[\n" + ",\n".join(inner + _json(v, inner) for v in cast(list[object], value)) \
+            + f"\n{indent}]"
+    return json.dumps(value, ensure_ascii=False)
+
+
+def dump_structure(path: str) -> str:
+    """--dump-structure: the disc's structure as JSON, Blu-ray first, then DVD,
+    as open_disc() tries them."""
+    try:
+        data = _bluray_structure(path)
+    except OSError as bd_error:
+        try:
+            data = _dvd_structure(path)
+        except OSError:
+            raise bd_error from None
+    return _json(data) + "\n"
 
 
 def is_dvd(path: Path) -> bool:

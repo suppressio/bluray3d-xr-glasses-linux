@@ -5,13 +5,13 @@
 #
 # Usage: install.sh [--share samba|dlna|both]   (default: samba)
 #   samba (default): Samba only, as before.
-#   dlna: skips the Samba/pyfuse3/fuse3 packages, the FUSE mount and smb.conf.
+#   dlna: skips the FUSE/Samba packages, the FUSE mount and smb.conf.
 #   both: installs everything.
 #
 # What it changes on the system (undo with scripts/uninstall.sh):
-#   - apt packages: ffmpeg python3-trio libbluray libaacs libbdplus libdvdread
+#   - apt packages: ffmpeg python3 libbluray libaacs libbdplus libdvdread
 #                   (+ build tools for edge264), and with --share samba/both:
-#                   python3-pyfuse3 fuse3 samba
+#                   fuse3 samba
 #   - /opt/bluray3d-xr            edge264 decoder + the program
 #   - /usr/local/bin/bluray3d-xr  command to start it
 #   - /srv/bd3d                   mount point of the virtual files (--share samba/both)
@@ -22,8 +22,8 @@ set -euo pipefail
 PREFIX=/opt/bluray3d-xr
 MOUNT=/srv/bd3d
 EDGE264_REPO=https://github.com/jens-duttke/edge264-mvc.git
-# edge264-mvc release v2026.09.22
-EDGE264_COMMIT=44e30b66d43a17418e0b342eba54d69d0c3be829
+# edge264-mvc release v2026.10.19
+EDGE264_COMMIT=f181792e842ce4e99e2ef4a41bfd30c1c1514b42
 MARK_BEGIN="# >>> bluray3d-xr >>>"
 MARK_END="# <<< bluray3d-xr <<<"
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
@@ -55,14 +55,14 @@ libbluray=libbluray2
 apt-cache show libbluray4 >/dev/null 2>&1 && libbluray=libbluray4
 libdvdread=libdvdread8
 apt-cache show libdvdread8t64 >/dev/null 2>&1 && libdvdread=libdvdread8t64
-packages=(ffmpeg python3 python3-trio "$libbluray" libaacs0 libbdplus0 "$libdvdread" git build-essential ca-certificates)
-case "$SHARE" in samba|both) packages+=(python3-pyfuse3 fuse3 samba) ;; esac
+packages=(ffmpeg python3 "$libbluray" libaacs0 libbdplus0 "$libdvdread" git build-essential ca-certificates)
+case "$SHARE" in samba|both) packages+=(fuse3 samba) ;; esac
 sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
 step "2/5 edge264-mvc decoder (MVC 3D)"
 # built once per pinned commit: the one installed is recorded next to it
 if [ "$(cat "$PREFIX/bin/edge264.commit" 2>/dev/null)" = "$EDGE264_COMMIT" ] \
-        && [ -x "$PREFIX/bin/edge264_test" ]; then
+        && [ -x "$PREFIX/bin/edge264mvc_test" ]; then
     echo "already built (${EDGE264_COMMIT:0:12})"
 else
     build=$(mktemp -d)
@@ -71,12 +71,14 @@ else
     # plain system PATH: toolchains from Homebrew/conda & co. can break the link step
     env PATH=/usr/local/bin:/usr/bin:/bin make -C "$build/edge264" -j"$(nproc)" CC=/usr/bin/gcc >/dev/null
     sudo install -d "$PREFIX/bin" "$PREFIX/app"
-    sudo install -m 755 "$build/edge264/edge264_test" "$PREFIX/bin/"
-    sudo install -m 644 "$build/edge264/libedge264.so.1" "$PREFIX/bin/"
+    sudo install -m 755 "$build/edge264/edge264mvc_test" "$PREFIX/bin/"
+    sudo install -m 644 "$build/edge264/libedge264mvc.so.2" "$PREFIX/bin/"
     echo "$EDGE264_COMMIT" | sudo tee "$PREFIX/bin/edge264.commit" >/dev/null
+    # names used before edge264-mvc's API v2 (v2026.10.19)
+    sudo rm -f "$PREFIX/bin/edge264_test" "$PREFIX/bin/libedge264.so.1"
     rm -rf "$build"
 fi
-"$PREFIX/bin/edge264_test" -h >/dev/null && echo "edge264_test OK"
+"$PREFIX/bin/edge264mvc_test" -h >/dev/null && echo "edge264mvc_test OK"
 
 step "3/5 Program"
 sudo install -d "$PREFIX/app"
@@ -151,11 +153,24 @@ Done. Start it with:
     bluray3d-xr$share_flag --audio-lang eng --subs eng /dev/sr0       # the disc in the drive
     bluray3d-xr$share_flag --audio-lang eng /path/to/your/movies      # ISO, BDMV/VIDEO_TS folders, MKV rips
 Every option: docs/OPTIONS.md
-Commercial Blu-rays need a decryption key database for libaacs in ~/.config/aacs/KEYDB.cfg
+DONE
+# decryption hints only for what is missing: the key file libaacs reads, the libraries the program looks for
+keydb="${XDG_CONFIG_HOME:-$HOME/.config}/aacs/KEYDB.cfg"
+# captured once: grep -q on a pipe would kill ldconfig early (SIGPIPE, fails under pipefail)
+libs=$(/sbin/ldconfig -p 2>/dev/null || true)
+if [ ! -f "$keydb" ] && [ ! -f /etc/xdg/aacs/KEYDB.cfg ] \
+        && ! grep -q 'libmmbd\.so\.0' <<<"$libs" && [ ! -e /usr/lib/libmmbd.so.0 ]; then
+    cat <<HINT
+Commercial Blu-rays need a decryption key database for libaacs in $keydb
 (this project does not provide one), or MakeMKV installed (used via its libmmbd).
+HINT
+fi
+if ! grep -q 'libdvdcss\.so\.2' <<<"$libs"; then
+    cat <<'HINT'
 Encrypted DVDs (CSS) need libdvdcss, not installed by this script. On Debian/Ubuntu:
     sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg   (Debian: "contrib")
-DONE
+HINT
+fi
 case "$SHARE" in
     samba)
         printf 'Then on the glasses open the network share \\\\%s\\Disks\n' "$(hostname -I | awk '{print $1}')" ;;

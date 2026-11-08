@@ -6,14 +6,13 @@ is the only platform implemented; a port adds branches here instead of
 touching every module that assumes Linux today.
 
 Named osplatform, not platform: the standard library already has a `platform`
-module (imported by trio's own dependencies), and a module of ours with that
+module (imported by mfusepy), and a module of ours with that
 name would shadow it for anything importing from src/.
 """
 from __future__ import annotations
 
 import ctypes
 import ctypes.util
-import fcntl
 import glob
 import os
 import sys
@@ -22,6 +21,12 @@ from pathlib import Path
 
 LINUX = sys.platform == "linux"
 MACOS = sys.platform == "darwin"
+
+# fcntl is POSIX only: importing it unconditionally would crash this module (and
+# everything that imports it, down to bd3d_fs.py) on Windows before drive_status()
+# below even gets a chance to say "not Linux" (#10 gives Windows its own drive check)
+if sys.platform != "win32":
+    import fcntl
 
 
 class DriveStatus(Enum):
@@ -37,7 +42,7 @@ _CDS_NO_DISC, _CDS_TRAY_OPEN, _CDS_DISC_OK = 1, 2, 4
 def drive_status(device: str) -> DriveStatus:
     """Ask the drive whether a disc is in, without reading it. A busy drive can
     answer "not ready" or fail the call: that is not an eject (UNKNOWN)."""
-    if not LINUX:
+    if sys.platform == "win32" or not LINUX:   # win32 first: pyright skips the POSIX calls
         return DriveStatus.UNKNOWN
     try:
         fd = os.open(device, os.O_RDONLY | os.O_NONBLOCK)

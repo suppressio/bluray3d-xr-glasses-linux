@@ -27,6 +27,7 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 | [File di log del programma](#log) | — | `--log percorso` o `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
 | [Log della pipeline](#log) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 | [Log dei salti](#log) | — | `--debug` | spento |
+| [Scrivere la struttura di un disco e uscire](#la-struttura-di-un-disco) | — | `--dump-structure file.json` | spento |
 
 ---
 
@@ -53,11 +54,11 @@ Le cartelle vengono lette all'avvio: per vedere un file nuovo riavvia il program
 
 Un Blu-ray con più episodi (un titolo per episodio, nell'ordine del "play all": vedi [RESEARCH.it.md](RESEARCH.it.md)) ha ogni episodio nominato `S<stagione>E<episodio> - <Serie>.ts`, per esempio `S01E05 - Rick and Morty.ts`; la parte stagione/episodio viene sempre subito dopo il prefisso di lingua/sottotitoli (`ITA - `, `subITA - `...), perché i lettori tagliano i nomi lunghi nell'elenco dei file. Il prefisso stesso è uniforme su tutto il disco: se un episodio qualsiasi ha più di una lingua audio selezionata, lo riceve ogni episodio, anche quello che ne ha solo una (un episodio doppiato quando un altro non lo è non deve chiamarsi diversamente dai suoi "fratelli").
 
-La stagione si legge dal nome del disco o dall'etichetta del volume (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `S1`...), senza alcuna ricerca in rete. Il numero del primo episodio non è scritto sul disco, quindi viene solo ipotizzato (1, 2, 3...) quando né il nome del disco né l'etichetta lasciano intendere che contenga solo una parte della stagione (`Disco 2`, `Disc 2`, `Vol. 2`...); una stagione divisa su più dischi, o un disco senza una stagione riconosciuta, viene invece nominato `E<episodio> - <Serie>.ts`, con l'indicazione di disco/volume tra parentesi quando è presente, per esempio `E01 - Il Prigioniero (Disco 1).ts`.
+La stagione si legge dal nome del disco o dall'etichetta del volume (`Staffel 1`, `Season 1`, `Stagione 1`, `Saison 1`, `Temporada 1`, `S1`...), senza alcuna ricerca in rete. Il numero del primo episodio non è scritto sul disco, quindi viene solo ipotizzato (1, 2, 3...) quando né il nome del disco né l'etichetta lasciano intendere che contenga solo una parte della stagione (`Disco 2`, `Disc 2`, `Vol. 2`...); una stagione divisa su più dischi, o un disco senza una stagione riconosciuta, viene invece nominato `E<episodio> - <Serie>.ts`, con l'indicazione di disco/volume tra parentesi quando è presente, per esempio `E01 - Il Prigioniero (Disco 1).ts`.
 
 Un disco 3D non è mai una serie quando un titolo "play all" in 3D copre tutte le parti: è un film diviso in parti (Tron: Legacy 3D ha anche le due metà come titoli a sé), e si carica come un solo film.
 
-I contenuti extra di un disco (making-of, scene eliminate...) vanno in una sottocartella `Extra/`, numerati separatamente dagli episodi.
+I contenuti extra di un disco (making-of, scene eliminate...) vanno in una sottocartella `Extra/`, numerati separatamente dagli episodi e nominati come la serie allo stesso modo, per esempio `Rick and Morty - Extra 1.ts`.
 
 ## DLNA/UPnP invece di Samba
 
@@ -71,7 +72,7 @@ bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
 - Sul player, cerca "bluray3d-xr" tra i media server DLNA che trova in rete (nessun indirizzo IP da digitare): entra in `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, le stesse cartelle della condivisione SMB.
 - Il salto funziona come su SMB: un byte del file corrisponde sempre a un secondo preciso del film, quindi un salto riavvia la pipeline da lì, che il player legga via SMB o via HTTP.
 - Docker, solo DLNA: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — niente Samba, niente FUSE, niente porta 445; usa la rete dell'host, perché la scoperta SSDP è multicast (la porta si imposta con `HTTP_PORT` in `.env`). DLNA insieme a Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, anche questo sulla rete dell'host, quindi Samba usa direttamente la porta 445 dell'host (`SMB_PORT` non vale).
-- Installazione nativa: `scripts/install.sh --share dlna` salta del tutto i pacchetti Samba/pyfuse3/fuse3, il mount FUSE e `smb.conf`. `scripts/install.sh --share both` installa tutto; rilanciarlo con `both` dopo un'installazione `dlna` aggiunge le parti Samba/FUSE che aveva saltato. `scripts/update.sh` mantiene il tipo scelto all'installazione.
+- Installazione nativa: `scripts/install.sh --share dlna` salta del tutto Samba e i pacchetti FUSE di sistema, il mount FUSE e `smb.conf`. Il percorso Samba usa l'adapter vendored `mfusepy.py` con il runtime di sistema `fuse3`; `scripts/install.sh --share both` installa entrambi i percorsi. Rilanciarlo con `both` dopo un'installazione `dlna` aggiunge le parti Samba/FUSE che aveva saltato. `scripts/update.sh` mantiene il tipo scelto all'installazione.
 
 ## Lingue audio
 
@@ -138,3 +139,19 @@ Le animazioni incluse (`loaders/retrowave.mp4`, 1 MB, affiancata; `loaders/simpl
 - Il log del programma dice quali film compaiono, da dove parte ogni pipeline e se la rete e il disco reggono. Va nel terminale ed è anche salvato, con la data, in `~/.local/state/bluray3d-xr/bluray3d-xr.log` (fino a 5 MB, poi tre copie vecchie `.1` `.2` `.3`); `--log` lo salva altrove, `--log none` per niente. Con Docker: `docker compose logs`.
 - `--log-file` è l'output di FFmpeg e dei decoder, una sezione per pipeline (oltre i 10 MB la parte vecchia passa in `.1`): il primo posto dove guardare se l'immagine è sbagliata.
 - `--debug` registra anche ogni salto e le letture del player nei 20 secondi successivi: quanto ha aspettato e se sembrava in pausa. Anche il comando completo di ogni pipeline, per rilanciarlo a mano ([DEVELOPMENT.it.md](DEVELOPMENT.it.md#smontare-una-pipeline)).
+
+## La struttura di un disco
+
+`--dump-structure FILE` legge un disco (un lettore con il disco dentro, una ISO, una cartella BDMV o VIDEO_TS), ne scrive la struttura in `FILE` come JSON ed esce: non condivide, non monta e non codifica niente.
+
+```console
+bluray3d-xr --dump-structure tron.json /dev/sr0
+```
+
+- **Cosa contiene:** ciò da cui il programma sceglie il film o gli episodi e su cui fa i salti, come lo leggono dai file di navigazione del disco, prima di ogni scelta. Blu-ray: tutti i titoli che libbluray elenca, con i loro play item (clip, tempo di inizio e di fine, tracce audio e sottotitoli con le lingue), e la mappa dei keyframe (EP_map) e gli extent di ogni clip che usano. DVD: tutti i titoli, con celle, tracce e lingue, e per ogni title set l'inizio di ogni VOBU con il tempo dato dal suo navigation pack. I tempi mantengono la precisione del disco. Il file comincia con la versione del formato (`"format": 1`).
+- **Cosa non contiene:** dati video, audio o dei sottotitoli, chiavi o altro della decifratura, il percorso del disco sul tuo computer, comandi. Il nome del disco e l'etichetta del volume invece ci sono.
+- **Un DVD senza etichetta del volume** si chiama `DVD-` seguito da 12 cifre esadecimali, per esempio `DVD-3f9a0c41b2e7` (una serie: `DVD-3f9a0c41b2e7 - 1`, `- 2`...), mai come il suo file o la sua cartella. Le cifre sono un'impronta della navigazione del disco (titoli, celle, tracce e mappa delle VOBU, come li danno i file IFO): lo stesso disco ha lo stesso nome dal lettore, da una ISO o da una cartella, e il dump la registra (`"fingerprint"`). Due dischi diversi potrebbero averla uguale, anche se è improbabile. Due copie dello stesso disco ce l'hanno sempre: quella arrivata dopo compare come `DVD-3f9a0c41b2e7 (2)`, poi `(3)`..., finché resta. I dischi con etichetta mantengono il nome che avevano.
+- **Un disco alla volta:** più di una sorgente è un errore, non una scelta. Un Blu-ray deve aprirsi come per guardarlo (vedi [Decifratura](../README.it.md#decifratura-le-chiavi-le-porti-tu) nel README). Su un DVD legge il primo settore di ogni VOBU, quindi ci mette più che ad aprire il disco per guardarlo.
+- **Non sovrascrive mai:** `FILE` dev'essere un file nuovo. Se esiste già (un dump precedente, la sorgente stessa o un link a essa) il programma lo dice e si ferma, prima di leggere il disco; una scrittura che fallisce a metà cancella il file che aveva iniziato.
+
+Allega il file a una segnalazione di bug su come viene mostrato un disco (il titolo sbagliato, episodi in ordine sbagliato, un salto che arriva nel punto sbagliato): descrive com'è fatto il disco, senza il disco.

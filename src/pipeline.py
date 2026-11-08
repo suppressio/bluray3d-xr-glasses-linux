@@ -2,7 +2,7 @@
 pipeline.py — encoder choice and the decode chain, independent of the source.
 
     <source video command>              # Annex B H.264 + MVC (see sources.py)
-      | edge264_test - -Ok              # MVC -> Y4M SBS 3840x1080
+      | edge264mvc_test - -O              # MVC -> Y4M SBS 3840x1080
       | ffmpeg -i - <source audio> ...  # encode + audio -> output
 """
 import shlex
@@ -99,7 +99,7 @@ def decode_command(source: Source, start: float, output_args: str) -> str:
         video, sub_args = "-map 0:v", ""
     return (
         f"{source.video_command(start)} "
-        f"| edge264_test - -Ok "
+        f"| edge264mvc_test - -O "
         f"| ffmpeg -nostdin -v warning -i - {sub_args} {source.audio_input(start)} "
         f"{video} {source.audio_map()} {output_args}"
     )
