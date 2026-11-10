@@ -118,4 +118,3 @@ def default_program_log() -> Path:
         return Path.home() / "Library" / "Logs" / "bluray3d-xr" / "bluray3d-xr.log"
     state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
     return Path(state) / "bluray3d-xr" / "bluray3d-xr.log"
-
