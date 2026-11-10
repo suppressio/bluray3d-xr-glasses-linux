@@ -867,9 +867,8 @@ def test_bluray_lookup_enabled_appends_online_titles(
     def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
         return disc, disc.info(), {}
 
-    def fake_episode_titles(cache_dir: str, content_hash: str, playlists: list[str]
-                            ) -> list[str | None]:
-        seen.update(cache_dir=cache_dir, content_hash=content_hash, playlists=playlists)
+    def fake_episode_titles(content_hash: str, playlists: list[str]) -> list[str | None]:
+        seen.update(content_hash=content_hash, playlists=playlists)
         return ["Pilot", "Lawnmower Dog"]
 
     monkeypatch.setattr(sources, "_open_disc", open_disc)
@@ -896,8 +895,7 @@ def test_bluray_lookup_no_titles_found_keeps_offline_naming(
     def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
         return disc, disc.info(), {}
 
-    def no_titles(cache_dir: str, content_hash: str, playlists: list[str]
-                 ) -> list[str | None]:
+    def no_titles(content_hash: str, playlists: list[str]) -> list[str | None]:
         return [None, None]
 
     monkeypatch.setattr(sources, "_open_disc", open_disc)

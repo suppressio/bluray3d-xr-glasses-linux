@@ -44,7 +44,7 @@ import dvd
 import lookup
 from bdmv import Clip, PlayItem, m2ts_seek, parse_clpi, parse_mpls, ssif_seek
 from langs import lang as to_lang
-from osplatform import default_cache_dir, has_library
+from osplatform import has_library
 
 log = logging.getLogger("bd3d_fs")
 
@@ -513,8 +513,7 @@ def _online_episode_titles(path: str, disc: bluray.Disc,
     content_hash = _content_hash(disc)
     titles: list[str | None] = [None] * len(episodes)
     if content_hash:
-        titles = lookup.episode_titles(os.path.join(default_cache_dir(), "lookup"),
-                                       content_hash, [t.playlist for t in episodes])
+        titles = lookup.episode_titles(content_hash, [t.playlist for t in episodes])
     log.info("%s: %s", path, "episode titles found online" if any(titles) else
              "no online episode titles, using the offline names")
     return titles
