@@ -500,7 +500,7 @@ def _pick_audio[T: AudioTrack](audio: list[T], langs: list[str] | None,
     return audio[:1]
 
 
-# extras / episodes count for _split_extras: a second copy of every episode, plus a few bonuses
+# extras / episodes count for _split_extras: one bonus title per episode, plus a few more
 EXTRAS_RATIO = (0.8, 1.5)
 
 
@@ -508,10 +508,11 @@ def _split_extras[T](titles: list[T], langs_of: Callable[[T], frozenset[str]]
                      ) -> tuple[list[T], list[T]]:
     """Split a series' titles into episodes and extras by their audio languages.
 
-    Some discs carry a second copy of every episode with fewer dubs (Rick and Morty S1,
-    German edition: 11 episodes in ita+eng, then 11 eng-only copies and a bonus). The
-    group whose languages include every other group's, and has more of them, is the
-    episodes; the rest are extras. Only when the extras look like such a second set:
+    A heuristic: the disc does not say which titles are bonus material, and a role from a
+    disc database (#69) would replace it. Built for Rick and Morty S1, German edition
+    (#137): 11 episodes in ita+eng, then 11 eng-only animatics of the same episodes and a
+    featurette. The group whose languages include every other group's, and has more of
+    them, is the episodes; the rest are extras. Only when the extras look like a second set:
     about as many titles as the episodes (EXTRAS_RATIO), and at least 2 on each side.
     A series whose last episodes were never dubbed (7 dubbed, 3 not), or where a few
     episodes carry one more dub, keeps all its episodes. Otherwise: all episodes.
