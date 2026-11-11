@@ -12,7 +12,7 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 
 | Opzione | `.env` (Docker) | Riga di comando (nativo) | Predefinito |
 |---|---|---|---|
-| Lettore Blu-ray | `DRIVE` | argomento, per esempio `/dev/sr0` | — |
+| Lettore Blu-ray | `DRIVE` | argomento, per esempio `/dev/sr0`; se non indicato: tutti i lettori trovati | — |
 | Cartella con ISO / BDMV / MKV | `MOVIES_DIR` | argomenti posizionali | — |
 | [Lingue audio](#lingue-audio) | `AUDIO_LANG` | `--audio-lang ita,eng` oppure `all` | `all` |
 | [Un file per lingua, uno con tutte, o entrambi](#lingue-audio) | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
@@ -47,6 +47,14 @@ Oltre al lettore, il programma accetta lo stesso contenuto in altre forme (anche
 ```console
 bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
 ```
+
+**Nessuna sorgente sulla riga di comando:** il programma controlla ogni lettore ottico che trova (`/dev/sr0`, `/dev/sr1`...), come se ciascuno fosse stato indicato esplicitamente:
+
+```console
+bluray3d-xr --audio-lang ita,eng
+```
+
+Senza alcun lettore (e niente altro indicato), si ferma con "no source found".
 
 Le cartelle vengono lette all'avvio: per vedere un file nuovo riavvia il programma. I lettori invece sono controllati di continuo.
 

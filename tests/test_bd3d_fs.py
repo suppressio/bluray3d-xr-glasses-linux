@@ -405,6 +405,31 @@ def test_share_dependencies(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
             fuse.unmount.assert_called_once()
 
 
+def test_no_sources_watches_every_drive_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    # no positional argument at all: list_drives() stands in for a drive named on
+    # the command line, and every drive it finds is watched (#90)
+    run = Mock(side_effect=KeyboardInterrupt)
+    monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--share", "dlna", "--log", "none",
+                                      "--loader", "none"])
+    monkeypatch.setattr(bd3d_fs, "list_drives", Mock(return_value=["/dev/sr0", "/dev/sr1"]))
+    monkeypatch.setattr(bd3d_fs, "pick_encoder", Mock(return_value="x264"))
+    monkeypatch.setattr(bd3d_fs, "run", run)
+    monkeypatch.setattr(bd3d_fs, "Dlna", Mock())
+    bd3d_fs.main()
+    run.assert_called_once()
+    assert run.call_args.args[2] == ["/dev/sr0", "/dev/sr1"]
+
+
+def test_no_sources_and_no_drive_found_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    # same "no source found" error as before #90, now also reached with no
+    # positional argument when the machine has no optical drive either
+    monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--log", "none", "--loader", "none"])
+    monkeypatch.setattr(bd3d_fs, "list_drives", Mock(return_value=[]))
+    monkeypatch.setattr(bd3d_fs, "pick_encoder", Mock(return_value="x264"))
+    with pytest.raises(SystemExit, match="no source found"):
+        bd3d_fs.main()
+
+
 def nothing_may_start(monkeypatch: pytest.MonkeyPatch) -> list[Mock]:
     """Every piece main() starts for a share, failing the test if called."""
     started: list[Mock] = []

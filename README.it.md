@@ -221,7 +221,7 @@ Le impostazioni predefinite offrono tutto quello che c'è sul disco. Di solito s
 ```console
 bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
-(Docker: `AUDIO_LANG=ita,eng` e `SUBS=ita,eng` nel file `.env`.) Tutte le altre opzioni, e file ISO, cartelle BDMV/VIDEO_TS o rip MKV al posto del lettore: [**docs/OPTIONS.it.md**](docs/OPTIONS.it.md).
+(Docker: `AUDIO_LANG=ita,eng` e `SUBS=ita,eng` nel file `.env`.) Senza indicare né un lettore né una cartella: `bluray3d-xr` da solo controlla ogni lettore ottico che trova (`/dev/sr0`, `/dev/sr1`...). Tutte le altre opzioni, e file ISO, cartelle BDMV/VIDEO_TS o rip MKV al posto del lettore: [**docs/OPTIONS.it.md**](docs/OPTIONS.it.md).
 
 ---
 

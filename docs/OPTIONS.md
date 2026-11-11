@@ -12,7 +12,7 @@ The defaults work: you only need this page to change what the share offers (lang
 
 | Option | `.env` (Docker) | Command line (native) | Default |
 |---|---|---|---|
-| Blu-ray drive | `DRIVE` | positional argument, e.g. `/dev/sr0` | — |
+| Blu-ray drive | `DRIVE` | positional argument, e.g. `/dev/sr0`; none given: every drive found | — |
 | Folder with ISO / BDMV / MKV | `MOVIES_DIR` | positional arguments | — |
 | [Audio languages](#audio-languages) | `AUDIO_LANG` | `--audio-lang ita,eng` or `all` | `all` |
 | [One file per language, one with all, or both](#audio-languages) | `AUDIO_FILES` | `--audio-files per-language\|single\|both` | `per-language` |
@@ -47,6 +47,14 @@ Besides a drive, the program accepts the same content in other forms (all at onc
 ```console
 bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
 ```
+
+**No source named on the command line:** the program watches every optical drive it finds (`/dev/sr0`, `/dev/sr1`...), as if each had been named explicitly:
+
+```console
+bluray3d-xr --audio-lang ita,eng
+```
+
+With no drive at all (and nothing else named), it stops with "no source found".
 
 Folders are scanned at startup: restart the program to see a new file. Drives are watched continuously.
 
