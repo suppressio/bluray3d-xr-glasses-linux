@@ -1,0 +1,22 @@
+version: 2
+
+updates:
+  # requirements-dev.txt: ruff, pyright, pytest... pinned in scripts/check.sh
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      pip-dev-dependencies:
+        patterns:
+          - "*"
+
+  # Actions used by the workflows in .github/workflows/
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
