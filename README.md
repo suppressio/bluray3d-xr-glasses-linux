@@ -221,7 +221,7 @@ The defaults offer everything on the disc. Most people want only their languages
 ```console
 bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
-(Docker: `AUDIO_LANG=ita,eng` and `SUBS=ita,eng` in `.env`.) Every other option, and ISO files, BDMV/VIDEO_TS folders or MKV rips instead of a drive: [**docs/OPTIONS.md**](docs/OPTIONS.md).
+(Docker: `AUDIO_LANG=ita,eng` and `SUBS=ita,eng` in `.env`.) No drive or folder named at all: `bluray3d-xr` on its own watches every optical drive it finds (`/dev/sr0`, `/dev/sr1`...). Every other option, and ISO files, BDMV/VIDEO_TS folders or MKV rips instead of a drive: [**docs/OPTIONS.md**](docs/OPTIONS.md).
 
 ---
 
