@@ -23,6 +23,7 @@ The defaults work: you only need this page to change what the share offers (lang
 | Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
 | [Share over Samba, DLNA, or both](#dlnaupnp-instead-of-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
 | [DLNA/HTTP port](#dlnaupnp-instead-of-samba) | `HTTP_PORT` | `--http-port` | `8201` |
+| [Online episode titles](#online-episode-lookup) | `LOOKUP=on\|off` | `--lookup` | off |
 | Mount point | — | `--mount` | `/srv/bd3d` |
 | [Program log file](#logs) | — | `--log path` or `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
 | [Pipeline log](#logs) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
@@ -67,6 +68,19 @@ The season is read from the disc's own name or volume label (`Staffel 1`, `Seaso
 A 3D disc is never a series when a 3D "play all" title covers every part: that is a movie split into parts (Tron: Legacy 3D has both halves as titles of their own), and it is loaded as one movie.
 
 A disc's bonus content (making-of, deleted scenes...) goes in an `Extra/` subfolder, numbered apart from the episodes and named after the show just like them, e.g. `Rick and Morty - Extra 1.ts`.
+
+## Online episode lookup
+
+By default an episode's file name only has its season/episode numbers, read offline from the disc (above). `--lookup` (Docker: `LOOKUP=on`) also looks up each episode's real title online, so the name becomes `S01E05 - Rick and Morty - Rixty Minutes.ts`:
+
+```console
+bluray3d-xr --lookup /dev/sr0
+```
+
+- **[TheDiscDB](https://thediscdb.com)** is the source: it identifies the disc by its content (a fingerprint of its stream files, no title or label involved) and, when the disc is in its community database, maps each playlist straight to its episode title. No API key, no setup. Only the same edition matches: the season disc of a box set and the stand-alone release of that season are different discs to TheDiscDB, so one can be found and the other not.
+- **Asked on every insert, nothing stored**: one request per disc (well under a second), no local cache. A disc added to TheDiscDB later, or a title corrected there, shows up the next time the disc goes in.
+- **Never breaks playback**: no match, an unknown disc, or a network problem all fall back silently to the offline name (`S01E05 - Show`, or `E05 - Show (Disc 1)` when the disc names no season), with one line in the log; `--lookup` queries TheDiscDB only for a Blu-ray read as a series, never for a single movie.
+- Blu-ray only, like the season detection above; a DVD's episodes keep their current naming regardless of `--lookup`.
 
 ## DLNA/UPnP instead of Samba
 
