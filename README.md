@@ -25,7 +25,7 @@ The PC reads the disc and decodes the MVC **while you watch**, and serves the re
 3D Blu-ray in the drive (or an ISO / BDMV folder / MKV rip)
         │  libbluray + libaacs: read and decrypt on the fly
         ▼
-   base + dependent view ─► edge264 (MVC → SBS 3840×1080) ─► encoder (NVENC or x264) + audio
+   base + dependent view ─► edge264 (MVC → SBS 3840×1080) ─► encoder (NVENC, VAAPI or x264) + audio
         │
         ▼
    "ITA - movie - 3D SBS.ts"  a virtual file in an SMB share (it does not exist on disk)
@@ -49,7 +49,7 @@ All the procedures described here are a balanced compromise between "manual" and
 #### Hardware
 - **A Blu-ray drive** in the Linux PC (internal or USB), which reads DVDs too. Its name is usually `/dev/sr0`; with more than one drive, `lsblk -d -o NAME,MODEL | grep sr` tells which is which.
 - **A Linux PC** on the same network as the glasses. Decoding MVC is CPU work: a recent multi-core desktop CPU is plenty (on the test PC decoding runs at ~9× real time). Low-power CPUs have not been tested.
-- **Optional: an NVIDIA GPU** to encode with NVENC. Without it the video is encoded by the CPU with x264 (on the same CPU still ~6× real time).
+- **Optional: an NVIDIA or Intel GPU** to encode with NVENC or VAAPI. Without one the video is encoded by the CPU with x264 (on the same CPU still ~6× real time).
 - **XR glasses + a player** that opens videos from an SMB network share and plays SBS 3D ([tested ones](docs/TESTED.md)).
 - **RAM**: about 0.5 GB free while a movie plays. Nothing is written to disk: the pipeline prepares up to ~256 MB ahead of the player in memory and keeps ~190 MB behind for short jumps back, plus 16 MB (start and end) per file opened.
 - **A good Wi-Fi connection** (5 GHz recommended): 15 Mbit/s for 2D, 24 Mbit/s for 3D, less with the `Light/` copies (see [Network and quality](docs/OPTIONS.md#network-and-quality)).
@@ -167,6 +167,14 @@ docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
 ```
 The log should now say `video encoder: nvenc`.
 > ⚠️ This variant is not tested yet (my PC has no Container Toolkit). NVENC is tested with the native path.
+
+##### Intel GPU / VAAPI (optional)
+Start with both compose files instead:
+```console
+docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d --build
+```
+The log should say `video encoder: vaapi (/dev/dri/renderD...)`. On a machine with both an Intel and an NVIDIA GPU, every `/dev/dri/renderD*` is tried with a real test encode and the first that works is kept (the NVIDIA one does not encode through VAAPI). `--encoder auto` (the default) prefers NVENC when both are available; force VAAPI with `ENCODER=vaapi`.
+> ⚠️ Not validated on real hardware yet (no Intel GPU on my PC either).
 
 ##### 💩 happens: port 445 already in use
 If the PC already runs Samba, the container cannot take port 445. Players on phones and glasses usually only speak to port 445, so stop the host Samba while you watch (`sudo systemctl stop smbd`) or install the release package, which adds a share to your existing Samba.

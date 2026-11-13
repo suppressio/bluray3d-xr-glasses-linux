@@ -208,8 +208,9 @@ def test_virtual_file(source: Source, tmp_path: Path) -> None:
     """A piece of the virtual file, through the real pipeline: streams, picture
     size and timestamps where the byte <-> time mapping says."""
     variant = source.variants()[0]
-    vf = VirtualFile(1000, variant, pick_encoder(), quality_for(variant, "light"),
-                     str(tmp_path / "pipeline.log"))
+    encoder, vaapi_device = pick_encoder()
+    vf = VirtualFile(1000, variant, encoder, quality_for(variant, "light"),
+                     str(tmp_path / "pipeline.log"), vaapi_device=vaapi_device)
     try:
         offset = int(vf.size * 0.3) // 188 * 188
         data = vf.read(offset, 3 * 1024 * 1024)
