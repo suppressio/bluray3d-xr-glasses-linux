@@ -20,7 +20,7 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 | [Profondità dei sottotitoli 3D](#sottotitoli) (pixel) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | [Copie a bitrate ridotto in `Light/`](#rete-e-qualità) | `LIGHT=on\|off` | `--light` / `--no-light` | attive |
 | [Animazione dopo un salto](#animazione-di-caricamento-dopo-un-salto) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
-| Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
+| Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` (un `nvenc` forzato senza un encoder GPU funzionante si ferma all'avvio) | `auto` (NVENC se c'è) |
 | [Condivisione via Samba, DLNA, o entrambe](#dlnaupnp-invece-di-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
 | [Porta DLNA/HTTP](#dlnaupnp-invece-di-samba) | `HTTP_PORT` | `--http-port` | `8201` |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |

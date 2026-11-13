@@ -35,21 +35,32 @@ def test_encoder_args() -> None:
 
 
 def test_pick_encoder(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert pick_encoder("x264") == "x264"
+    assert pick_encoder("x264") == "x264"  # software: no test encode needed
     calls: list[list[str]] = []
 
-    def run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[bytes]:
+    def fails(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[bytes]:
         calls.append(cmd)
-        return subprocess.CompletedProcess(cmd, 1)
+        return subprocess.CompletedProcess(cmd, 1, stderr=b"no capable devices found")
 
-    monkeypatch.setattr(pipeline.subprocess, "run", run)
+    monkeypatch.setattr(pipeline.subprocess, "run", fails)
     assert pick_encoder() == "x264"
     assert "h264_nvenc" in calls[0]
+
     def works(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[bytes]:
         return subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(pipeline.subprocess, "run", works)
     assert pick_encoder("auto") == "nvenc"
+    assert pick_encoder("nvenc") == "nvenc"  # forced nvenc: tested too, not returned blindly
+
+
+def test_pick_encoder_forced_nvenc_stops_without_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fails(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(cmd, 1, stderr=b"no capable devices found")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fails)
+    with pytest.raises(SystemExit):
+        pick_encoder("nvenc")
 
 
 def three_d(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> BlurayDiscSource:

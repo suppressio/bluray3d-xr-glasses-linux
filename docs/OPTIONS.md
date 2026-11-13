@@ -20,7 +20,7 @@ The defaults work: you only need this page to change what the share offers (lang
 | [3D subtitle depth](#subtitles) (pixels) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | [Lower-bitrate copies in `Light/`](#network-and-quality) | `LIGHT=on\|off` | `--light` / `--no-light` | on |
 | [Animation after a jump](#loading-animation-after-a-jump) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
-| Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
+| Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` (a forced `nvenc` without a working GPU encoder stops at startup) | `auto` (NVENC if available) |
 | [Share over Samba, DLNA, or both](#dlnaupnp-instead-of-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
 | [DLNA/HTTP port](#dlnaupnp-instead-of-samba) | `HTTP_PORT` | `--http-port` | `8201` |
 | Mount point | — | `--mount` | `/srv/bd3d` |

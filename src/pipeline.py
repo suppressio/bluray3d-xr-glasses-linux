@@ -5,11 +5,14 @@ pipeline.py — encoder choice and the decode chain, independent of the source.
       | edge264mvc_test - -O              # MVC -> Y4M SBS 3840x1080
       | ffmpeg -i - <source audio> ...  # encode + audio -> output
 """
+import logging
 import shlex
 import subprocess
 from dataclasses import dataclass
 
 from sources import Source
+
+log = logging.getLogger(__name__)
 
 # Video encoders, best first. Bitrate is constant (CBR) because the virtual
 # file maps bytes to seconds linearly.
@@ -55,15 +58,25 @@ def encoder_args(encoder: str, video_bitrate: int) -> str:
 
 
 def pick_encoder(requested: str = "auto") -> str:
-    """'auto' tries NVENC with a tiny test encode, falling back to x264 (CPU)."""
-    if requested != "auto":
+    """'auto' tries NVENC with a tiny test encode, falling back to x264 (CPU).
+
+    An explicitly requested 'nvenc' goes through the same test encode: if it fails, this
+    stops at startup with a clear message instead of only failing on the first real encode.
+    """
+    if requested == "x264":
         return requested
     test = subprocess.run(
         ["ffmpeg", "-v", "quiet", "-f", "lavfi", "-i", "color=s=256x256",
          "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-"],
-        check=False,
+        check=False, capture_output=True,
     )
-    return "nvenc" if test.returncode == 0 else "x264"
+    if test.returncode == 0:
+        return "nvenc"
+    if requested == "nvenc":
+        raise SystemExit("--encoder nvenc: NVENC test encode failed, no working GPU encoder")
+    log.debug("NVENC test encode failed, falling back to x264: %s",
+              test.stderr.decode(errors="replace").strip() if test.stderr else test.returncode)
+    return "x264"
 
 
 def decode_command(source: Source, start: float, output_args: str) -> str:
