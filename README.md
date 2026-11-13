@@ -169,7 +169,7 @@ The log should now say `video encoder: nvenc`.
 > ⚠️ This variant is not tested yet (my PC has no Container Toolkit). NVENC is tested with the native path.
 
 ##### Intel GPU / VAAPI (optional)
-Start with both compose files instead:
+Set `RENDER_GID` in `.env` to the host's `render` group (`getent group render | cut -d: -f3`), then start with both compose files:
 ```console
 docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d --build
 ```

@@ -25,9 +25,6 @@ ENCODERS = {
             "-x264-params nal-hrd=cbr",
 }
 
-# ffmpeg -c:v value tested when picking an encoder (see pick_encoder())
-_CODECS = {"nvenc": "h264_nvenc", "vaapi": "h264_vaapi", "x264": "libx264"}
-
 # a per-encoder filter chain appended to the video output of every graph that
 # feeds the encoder (decode_command's branches, VirtualFile.filler_command):
 # h264_vaapi only takes frames already uploaded to the GPU
@@ -78,16 +75,23 @@ def with_filter_suffix(graph: str, suffix: str) -> str:
     return f"{graph[:-len('[v]')]},{suffix}[v]" if suffix else graph
 
 
-def _test_encode(codec: str, *, filter_args: str = "", vaapi_device: str = "") -> bool:
-    """A real 1-frame encode: the only reliable way to tell a codec ffmpeg knows
-    the name of from one that actually works here (the right GPU, the right
-    driver) — never a silent fallback for a choice (forced or automatic) that
-    looks right on paper but fails the moment it decodes something."""
-    device = ["-vaapi_device", vaapi_device] if vaapi_device else []
-    vf = ["-vf", filter_args] if filter_args else []
+# bitrate of the probe: any CBR value the real pipeline could use will do
+_PROBE_BITRATE = 8_000_000
+
+
+def _test_encode(encoder: str, *, vaapi_device: str = "") -> bool:
+    """A real 1-frame encode with the encoder's real arguments (CBR included):
+    the only reliable way to tell an encoder ffmpeg knows the name of from one
+    that actually works here (the right GPU, the right driver, the rate control
+    the pipeline needs) — never a silent fallback for a choice (forced or
+    automatic) that looks right on paper but fails the moment it decodes
+    something."""
+    suffix = FILTER_SUFFIX[encoder]
+    vf = ["-vf", suffix] if suffix else []
     test = subprocess.run(
-        ["ffmpeg", "-v", "quiet", *device, "-f", "lavfi", "-i", "color=s=256x256",
-         *vf, "-frames:v", "1", "-c:v", codec, "-f", "null", "-"],
+        ["ffmpeg", "-v", "quiet", "-f", "lavfi", "-i", "color=s=256x256", *vf,
+         "-frames:v", "1", *shlex.split(encoder_args(encoder, _PROBE_BITRATE, vaapi_device)),
+         "-f", "null", "-"],
         check=False,
     )
     return test.returncode == 0
@@ -98,8 +102,7 @@ def _vaapi_device_that_works() -> str | None:
     machine with both an Intel and an NVIDIA GPU, the NVIDIA render node
     exists but its VA driver does not encode (seen on RICK, SPN#156)."""
     for device in sorted(glob.glob("/dev/dri/renderD*")):
-        if _test_encode(_CODECS["vaapi"], filter_args=FILTER_SUFFIX["vaapi"],
-                        vaapi_device=device):
+        if _test_encode("vaapi", vaapi_device=device):
             return device
     return None
 
@@ -113,7 +116,7 @@ def pick_encoder(requested: str = "auto") -> tuple[str, str]:
     fails stops the program instead of silently falling back."""
     if requested not in ("auto", *ENCODERS):
         raise ValueError(f"unknown encoder {requested!r}")
-    if requested in ("auto", "nvenc") and _test_encode(_CODECS["nvenc"]):
+    if requested in ("auto", "nvenc") and _test_encode("nvenc"):
         return "nvenc", ""
     if requested == "nvenc":
         raise SystemExit("--encoder nvenc: the test encode failed, no usable NVENC GPU here")
@@ -124,7 +127,7 @@ def pick_encoder(requested: str = "auto") -> tuple[str, str]:
         if requested == "vaapi":
             raise SystemExit("--encoder vaapi: the test encode failed on every "
                              "/dev/dri/renderD* device")
-    if requested == "x264" and not _test_encode(_CODECS["x264"]):
+    if requested == "x264" and not _test_encode("x264"):
         raise SystemExit("--encoder x264: the test encode failed")
     return "x264", ""
 

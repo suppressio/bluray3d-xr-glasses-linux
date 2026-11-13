@@ -88,6 +88,32 @@ def test_pick_encoder_auto_vaapi(monkeypatch: pytest.MonkeyPatch) -> None:
     assert [c[c.index("-vaapi_device") + 1] for c in vaapi_calls] == \
         ["/dev/dri/renderD128", "/dev/dri/renderD129"]
     assert all("-vf" in c and "format=nv12,hwupload" in c for c in vaapi_calls)
+    # the probe encodes with the real configuration (CBR), not the encoder's
+    # defaults: a device that only does CQP must not be picked (SPN#158 review)
+    assert all("-rc_mode" in c and c[c.index("-rc_mode") + 1] == "CBR" for c in vaapi_calls)
+
+
+def test_probe_uses_the_real_encoder_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    def run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[bytes]:
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(pipeline.subprocess, "run", run)
+    pick_encoder("nvenc")
+    assert "-rc" in calls[-1] and calls[-1][calls[-1].index("-rc") + 1] == "cbr"
+    pick_encoder("x264")
+    assert "nal-hrd=cbr" in calls[-1]
+
+
+def test_vaapi_compose_does_not_need_a_render_group_in_the_image() -> None:
+    # the image has no "render" group: group_add by name would stop the
+    # container before pick_encoder() could fall back (SPN#158 review)
+    text = (Path(__file__).parent.parent / "docker-compose.vaapi.yml").read_text()
+    entries = [ln.strip() for ln in text.splitlines() if ln.strip().startswith("- ")]
+    assert "- render" not in entries
+    assert any("RENDER_GID" in e for e in entries)
 
 
 def test_pick_encoder_auto_falls_back_to_x264(monkeypatch: pytest.MonkeyPatch) -> None:
