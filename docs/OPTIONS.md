@@ -20,7 +20,7 @@ The defaults work: you only need this page to change what the share offers (lang
 | [3D subtitle depth](#subtitles) (pixels) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | [Lower-bitrate copies in `Light/`](#network-and-quality) | `LIGHT=on\|off` | `--light` / `--no-light` | on |
 | [Animation after a jump](#loading-animation-after-a-jump) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
-| Video encoder | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC if available) |
+| [Video encoder](#video-encoder) | `ENCODER` | `--encoder auto\|nvenc\|vaapi\|x264` | `auto` (NVENC, then VAAPI, then x264) |
 | [Share over Samba, DLNA, or both](#dlnaupnp-instead-of-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
 | [DLNA/HTTP port](#dlnaupnp-instead-of-samba) | `HTTP_PORT` | `--http-port` | `8201` |
 | Mount point | — | `--mount` | `/srv/bd3d` |
@@ -141,6 +141,17 @@ It is not shown when the player is paused (it waits for the movie's frame) nor w
 - `--loader-3d video.mp4`: a different side-by-side video for 3D movies only.
 
 The animations shipped (`loaders/retrowave.mp4`, 1 MB, side by side; `loaders/simple.mp4`, 100 KB) are made from scratch in Blender: no images or fonts of anyone else. The scripts that render them are in [bluray3d-xr-loaders](https://github.com/suppressio/bluray3d-xr-loaders).
+
+## Video encoder
+
+`--encoder auto` (the default) tries, in order, a real one-frame test encode with NVENC, then VAAPI (an Intel GPU, trying every `/dev/dri/renderD*` device until one actually encodes — on a machine with both an Intel and an NVIDIA GPU, the NVIDIA render node exists but does not), then falls back to x264 on the CPU without testing it (nothing is left to fall back to). The log says which one it picked:
+```
+video encoder: vaapi (/dev/dri/renderD128)
+```
+
+`--encoder nvenc|vaapi|x264` forces one instead of choosing automatically. Its test encode still runs: if it fails, the program **stops at startup** with a clear message rather than silently falling back to a slower encoder.
+
+Docker: `ENCODER` in `.env`, plus the matching compose override to reach the GPU — `docker-compose.nvidia.yml` for NVENC, `docker-compose.vaapi.yml` for VAAPI (see the [README](../README.md#docker)).
 
 ## Logs
 

@@ -20,7 +20,7 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 | [Profondità dei sottotitoli 3D](#sottotitoli) (pixel) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | [Copie a bitrate ridotto in `Light/`](#rete-e-qualità) | `LIGHT=on\|off` | `--light` / `--no-light` | attive |
 | [Animazione dopo un salto](#animazione-di-caricamento-dopo-un-salto) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
-| Encoder video | `ENCODER` | `--encoder auto\|nvenc\|x264` | `auto` (NVENC se c'è) |
+| [Encoder video](#encoder-video) | `ENCODER` | `--encoder auto\|nvenc\|vaapi\|x264` | `auto` (NVENC, poi VAAPI, poi x264) |
 | [Condivisione via Samba, DLNA, o entrambe](#dlnaupnp-invece-di-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
 | [Porta DLNA/HTTP](#dlnaupnp-invece-di-samba) | `HTTP_PORT` | `--http-port` | `8201` |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |
@@ -141,6 +141,17 @@ Non compare quando il player è in pausa (aspetta il fotogramma del film) né al
 - `--loader-3d video.mp4`: un altro video affiancato, solo per i film 3D.
 
 Le animazioni incluse (`loaders/retrowave.mp4`, 1 MB, affiancata; `loaders/simple.mp4`, 100 KB) sono fatte da zero in Blender: niente immagini o font di altri. Gli script che le generano sono in [bluray3d-xr-loaders](https://github.com/suppressio/bluray3d-xr-loaders).
+
+## Encoder video
+
+`--encoder auto` (predefinito) prova, in ordine, un vero encode di prova di un fotogramma con NVENC, poi VAAPI (una GPU Intel, provando ogni dispositivo `/dev/dri/renderD*` finché uno codifica davvero — su una macchina con sia una GPU Intel che NVIDIA, il render node della NVIDIA esiste ma non codifica), infine passa a x264 sulla CPU senza testarlo (non resta altro su cui ripiegare). Il log dice quale ha scelto:
+```
+video encoder: vaapi (/dev/dri/renderD128)
+```
+
+`--encoder nvenc|vaapi|x264` forza una scelta invece di farla in automatico. Il suo encode di prova viene comunque eseguito: se fallisce, il programma **si ferma all'avvio** con un messaggio chiaro, invece di ripiegare in silenzio su un encoder più lento.
+
+Docker: `ENCODER` in `.env`, più il file compose aggiuntivo giusto per raggiungere la GPU — `docker-compose.nvidia.yml` per NVENC, `docker-compose.vaapi.yml` per VAAPI (vedi il [README](../README.it.md#docker)).
 
 ## Log
 

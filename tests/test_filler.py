@@ -19,11 +19,12 @@ def graph_of(cmd: str) -> str:
     return args[args.index("-filter_complex") + 1]
 
 
-def movie(tmp_path: Path, two_d: bool) -> VirtualFile:
+def movie(tmp_path: Path, two_d: bool, encoder: str = "x264") -> VirtualFile:
     source = FakeSource(str(tmp_path / "disc"))
     if two_d:
         source.two_d, source.frame_size = True, "1920x1080"
-    return VirtualFile(1, source, "x264", Quality("normal", 1, 8_000_000), str(tmp_path / "log"))
+    return VirtualFile(1, source, encoder, Quality("normal", 1, 8_000_000), str(tmp_path / "log"),
+                       vaapi_device="/dev/dri/renderD128")
 
 
 @pytest.mark.parametrize(("two_d", "sbs", "expected"), [
@@ -40,6 +41,17 @@ def test_filler_picture(tmp_path: Path, two_d: bool, sbs: bool, expected: str) -
     graph = graph_of(vf.filler_command("-i loader.mp4", 12.0, sbs=sbs))
     assert graph.startswith("[0:v]")
     assert expected in graph
+
+
+@pytest.mark.parametrize(("two_d", "sbs"), [(False, False), (False, True), (True, False),
+                                            (True, True)])
+def test_filler_picture_vaapi(tmp_path: Path, two_d: bool, sbs: bool) -> None:
+    """Every filler_command branch feeds the encoder too: VAAPI's filter suffix
+    must end its graph exactly once, same as decode_command's branches."""
+    vf = movie(tmp_path, two_d, "vaapi")
+    graph = graph_of(vf.filler_command("-i loader.mp4", 12.0, sbs=sbs))
+    assert graph.count("format=nv12,hwupload") == 1
+    assert graph.endswith(",format=nv12,hwupload[v]")
 
 
 def test_is_side_by_side(monkeypatch: pytest.MonkeyPatch) -> None:

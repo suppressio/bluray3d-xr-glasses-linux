@@ -25,7 +25,7 @@ Il PC legge il disco e decodifica l'MVC **mentre guardi**, e manda il risultato 
 Blu-ray 3D nel lettore (oppure un ISO / una cartella BDMV / un rip MKV)
         │  libbluray + libaacs: lettura e decifratura al volo
         ▼
-   vista base + dipendente ─► edge264 (MVC → SBS 3840×1080) ─► encoder (NVENC o x264) + audio
+   vista base + dipendente ─► edge264 (MVC → SBS 3840×1080) ─► encoder (NVENC, VAAPI o x264) + audio
         │
         ▼
    "ITA - film - 3D SBS.ts"  file virtuale in una cartella condivisa SMB (su disco non esiste)
@@ -49,7 +49,7 @@ Tutte le procedure descritte sono un compromesso ragionato tra il "manuale" e il
 #### Hardware
 - **Un lettore Blu-ray** nel PC Linux (interno o USB), che legge anche i DVD. Di solito si chiama `/dev/sr0`; se ce n'è più di uno, `lsblk -d -o NAME,MODEL | grep sr` dice qual è quale.
 - **Un PC Linux** sulla stessa rete degli occhiali. Decodificare l'MVC è lavoro per la CPU: basta una CPU desktop recente con più core (sul PC di prova la decodifica va a circa 9 volte il tempo reale). CPU a basso consumo non sono state provate.
-- **Facoltativa: una GPU NVIDIA**, per codificare con NVENC. Senza, il video viene codificato dalla CPU con x264 (sulla stessa CPU comunque circa 6 volte il tempo reale).
+- **Facoltativa: una GPU NVIDIA o Intel**, per codificare con NVENC o VAAPI. Senza, il video viene codificato dalla CPU con x264 (sulla stessa CPU comunque circa 6 volte il tempo reale).
 - **Occhiali XR + un player** che apra video da una cartella di rete SMB e riproduca il 3D SBS ([quelli provati](docs/TESTED.it.md)).
 - **RAM**: circa 0,5 GB liberi mentre guardi un film. Su disco non si scrive nulla: la pipeline prepara in memoria fino a circa 256 MB in anticipo sul player e ne tiene circa 190 già letti per i piccoli salti indietro, più 16 MB (inizio e fine) per ogni file aperto.
 - **Un buon Wi-Fi** (consigliati i 5 GHz): 15 Mbit/s per il 2D, 24 Mbit/s per il 3D, meno con le copie in `Light/` (vedi [Rete e qualità](docs/OPTIONS.it.md#rete-e-qualità)).
@@ -167,6 +167,14 @@ docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
 ```
 Nel log deve comparire `video encoder: nvenc`.
 > ⚠️ Questa variante non l'ho ancora provata (sul mio PC non c'è il Container Toolkit). NVENC è provato con la strada nativa.
+
+##### GPU Intel / VAAPI (facoltativo)
+Avvia invece con entrambi questi file compose:
+```console
+docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d --build
+```
+Nel log deve comparire `video encoder: vaapi (/dev/dri/renderD...)`. Su una macchina con sia una GPU Intel che NVIDIA, ogni `/dev/dri/renderD*` viene provato con un vero encode di prova e si tiene il primo che funziona (quello NVIDIA non codifica via VAAPI). `--encoder auto` (predefinito) preferisce NVENC quando c'è anche quella; per forzare VAAPI: `ENCODER=vaapi`.
+> ⚠️ Non ancora validata su hardware reale (niente GPU Intel sul mio PC).
 
 ##### 💩 happens: porta 445 già occupata
 Se sul PC gira già Samba, il container non può prendere la porta 445. I player di telefoni e occhiali di solito parlano solo con la 445. Quindi mentre guardi il film ferma il Samba del sistema (`sudo systemctl stop smbd`), oppure installa il pacchetto della release, che aggiunge una condivisione al Samba che hai già.

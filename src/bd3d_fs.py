@@ -296,7 +296,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--loader-3d", default="none",
                         help="another animation for 3D movies only, side by side (3840x1080)")
     parser.add_argument("--encoder", choices=["auto", *ENCODERS], default="auto",
-                        help="auto = NVENC if available, else x264 on the CPU")
+                        help="auto (default) = NVENC, else VAAPI (Intel GPU), else x264 on "
+                             "the CPU, each tried with a real test encode; nvenc/vaapi/x264 "
+                             "forces one, stopping at startup if its test encode fails")
     parser.add_argument("--share", choices=["samba", "dlna", "both"], default="samba",
                         help="samba (default): mount the files for Samba, as before. dlna: "
                              "announce them over DLNA/UPnP instead, for players that browse a "
@@ -383,8 +385,8 @@ def main() -> None:
         log.info("log saved in %s", log_path)
     if args.dump_structure is not None:     # one disc, written out: nothing else starts
         return write_structure(sources_args, args.dump_structure)
-    encoder = pick_encoder(args.encoder)
-    log.info("video encoder: %s", encoder)
+    encoder, vaapi_device = pick_encoder(args.encoder)
+    log.info("video encoder: %s%s", encoder, f" ({vaapi_device})" if vaapi_device else "")
     audio_langs = None if audio_lang.strip().lower() in ("", "all") else lang_list(audio_lang)
 
     drives, others = split_sources(sources_args)
@@ -395,7 +397,7 @@ def main() -> None:
     sub_langs = None if subs in ("", "all") else [] if subs == "none" else lang_list(subs_arg)
     loader, loader_3d = loader_video(loader_arg), loader_video(loader_3d_arg)
     lib = Library(tree, encoder, args.log_file, args.audio_files, args.light, sub_langs,
-                  loader, loader_3d)
+                  loader, loader_3d, vaapi_device)
     for source in discover(others, audio_langs) if others else []:
         lib.add(source)
     if not tree.files() and not drives:
