@@ -24,6 +24,7 @@ FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ffmpeg python3 fuse3 samba tini libbluray2 libaacs0 libbdplus0 libdvdread8 \
+      intel-media-va-driver \
  && rm -rf /var/lib/apt/lists/*
 # edge264mvc_test finds libedge264mvc.so.2 next to itself (rpath $ORIGIN)
 COPY --from=edge264 /edge264/edge264mvc_test /edge264/libedge264mvc.so.2 /usr/local/bin/
@@ -35,5 +36,7 @@ COPY docker/entrypoint.sh /entrypoint.sh
 # NVENC (optional): with the NVIDIA Container Toolkit the driver's encoder
 # library is mounted into the container; without it x264 (CPU) is used.
 ENV NVIDIA_DRIVER_CAPABILITIES=video,utility
+# VAAPI (optional): intel-media-va-driver above needs the host's /dev/dri
+# passed in (docker-compose.vaapi.yml); without it x264 (CPU) is used.
 EXPOSE 445
 ENTRYPOINT ["tini", "--", "/entrypoint.sh"]

@@ -1,0 +1,10 @@
+# Intel GPU encoding (VAAPI). Requires an Intel GPU exposing /dev/dri/renderD*
+# on the host. The image has no "render" group, so the group is given by its
+# numeric host GID: set RENDER_GID in .env (getent group render | cut -d: -f3).
+# Use with: docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d --build
+services:
+  bd3d:
+    devices:
+      - /dev/dri
+    group_add:
+      - "${RENDER_GID:?set RENDER_GID in .env: getent group render | cut -d: -f3}"

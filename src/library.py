@@ -33,7 +33,14 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol, TextIO
 
-from pipeline import Quality, decode_command, encoder_args, quality_for
+from pipeline import (
+    Quality,
+    decode_command,
+    encoder_args,
+    filter_suffix,
+    quality_for,
+    with_filter_suffix,
+)
 from sources import Source, ffprobe_json
 from tree import ROOT_ID, FileEntry, Folder, Tree, current_reader
 
@@ -176,6 +183,7 @@ class Generator:
                 source, start,
                 f"{vf.encode_args} {COMMON_ARGS}"
                 f"-output_ts_offset {t0:.3f} -f mpegts -muxrate {vf.muxrate} -",
+                vf.filter_suffix,
             )
             log.info("%s: pipeline from %.1fs (requested %.1fs, offset %d) for %s",
                      vf.path, start, seconds, self.base, self.reader)
@@ -305,7 +313,7 @@ class VirtualFile:
 
     def __init__(self, inode: int, source: Source, encoder: str, quality: Quality,
                  log_path: str, parent: int = ROOT_ID, path: str = "",
-                 loader: str | None = None) -> None:
+                 loader: str | None = None, vaapi_device: str = "") -> None:
         self.inode = inode
         self.parent = parent
         self.source = source
@@ -315,7 +323,8 @@ class VirtualFile:
         extra_tracks = max(0, len(source.audio_langs) - 1)
         self.muxrate = quality.muxrate + extra_tracks * AUDIO_TRACK_MUX
         self.bytes_per_sec = self.muxrate // 8
-        self.encode_args = encoder_args(encoder, quality.video)
+        self.encode_args = encoder_args(encoder, quality.video, vaapi_device)
+        self.filter_suffix = filter_suffix(encoder)
         self.log_path = log_path
         self.loader = loader
         # the language goes first: players cut long names, and it must stay visible
@@ -437,6 +446,7 @@ class VirtualFile:
             graph = f"{fit(eye)},split[a][b];[a][b]hstack[v]"
         else:                                   # 2D movie: the left eye of a 3D picture
             graph = f"{fit(w, 'crop=iw/2:ih:0:0,' if sbs else '')}[v]"
+        graph = with_filter_suffix(graph, self.filter_suffix)
         maps = " ".join([f"-filter_complex {shlex.quote(graph)} -map '[v]'"] +
                         [f"-map {i + 1}:a" for i in range(n_audio)])
         langs = " ".join(f"-metadata:s:a:{i} language={lang}"
@@ -647,11 +657,12 @@ class Library:
 
     def __init__(self, tree: Tree, encoder: str, log_file: str, audio_files: str, light: bool,
                  sub_langs: list[str] | None = None, loader: str | None = None,
-                 loader_3d: str | None = None) -> None:
+                 loader_3d: str | None = None, vaapi_device: str = "") -> None:
         self.tree, self.encoder, self.log_file = tree, encoder, log_file
         self.loader, self.loader_3d = loader, loader_3d     # 3D movies: loader_3d if given
         self.audio_files, self.light = audio_files, light
         self.sub_langs = sub_langs          # None: every language; []: no subtitle versions
+        self.vaapi_device = vaapi_device    # only used when encoder == "vaapi"
 
     def _path(self, inode: int) -> str:
         p = self.tree.path_of(inode)
@@ -661,7 +672,7 @@ class Library:
         quality = quality_for(source, level)
         loader = self.loader_3d if self.loader_3d and not source.two_d else self.loader
         vf = VirtualFile(self.tree.new_id(), source, self.encoder, quality, self.log_file,
-                         parent, self._path(parent), loader)
+                         parent, self._path(parent), loader, self.vaapi_device)
         added: list[FileEntry] = [vf]
         sub = ""
         if source.sub is not None:

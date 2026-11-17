@@ -105,7 +105,7 @@ class FakeSource(Source):
         return ""
 
 
-def fake_decode(source: Source, start: float, output_args: str) -> str:
+def fake_decode(source: Source, start: float, output_args: str, filter_suffix: str = "") -> str:
     # the muxer's clock, and so the bytes, start at -output_ts_offset
     m = re.search(r"-output_ts_offset (\S+)", output_args)
     t0 = float(m.group(1)) if m else start
@@ -698,6 +698,16 @@ def make_library(tmp_path: Path, audio_files: str = "per-language", light: bool 
                  sub_langs: list[str] | None = None) -> tuple[Tree, Library]:
     tree = Tree()
     return tree, Library(tree, "x264", str(tmp_path / "log"), audio_files, light, sub_langs)
+
+
+def test_library_threads_vaapi_device_to_virtual_files(tmp_path: Path) -> None:
+    tree = Tree()
+    lib = Library(tree, "vaapi", str(tmp_path / "log"), "per-language", False,
+                  vaapi_device="/dev/dri/renderD128")
+    lib.add(DiscSource(str(tmp_path / "d")))
+    vf = movies(tree)[0]
+    assert "-vaapi_device /dev/dri/renderD128" in vf.encode_args
+    assert vf.filter_suffix == "format=nv12,hwupload"
 
 
 def test_library_per_language(tmp_path: Path) -> None:

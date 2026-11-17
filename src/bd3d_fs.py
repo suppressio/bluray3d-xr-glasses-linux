@@ -15,6 +15,7 @@ mount, no Samba), for players that browse a media server (dlna.py).
 
 Usage:
     python3 bd3d_fs.py [--mount /srv/bd3d] ~/Videos/3D [more MKVs or folders...]
+    python3 bd3d_fs.py                      # no source: watch every /dev/sr* found
 Unmount: Ctrl+C (or fusermount3 -u /srv/bd3d)
 
 Requires: edge264mvc_test, ffmpeg, ffprobe; fuse3 (libfuse3) for --share samba/both
@@ -39,7 +40,7 @@ from pathlib import Path
 from dlna import Dlna
 from langs import lang_list
 from library import LIGHT_DIR, MULTI_AUDIO_DIR, Library, Shelf
-from osplatform import DriveStatus, default_program_log, default_temp_dir, drive_status
+from osplatform import DriveStatus, default_program_log, default_temp_dir, drive_status, list_drives
 from pipeline import ENCODERS, pick_encoder
 from sources import Source, UnsupportedDiscError, discover, dump_structure, open_disc
 from tree import FileEntry, Tree
@@ -259,10 +260,11 @@ def tcp_port(value: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Expose Blu-rays (3D as Full-SBS) as virtual .ts files on a share.")
-    parser.add_argument("sources", nargs="+",
+    parser.add_argument("sources", nargs="*",
                         help="Blu-ray drives (/dev/sr0: the movie appears when a disc is "
                              "inserted), ISO files, BDMV folders, 3D MKV rips, or folders "
-                             "to scan recursively")
+                             "to scan recursively. None given: watch every optical drive "
+                             "found on this machine (/dev/sr*)")
     parser.add_argument("--version", action="version", version=f"bluray3d-xr {program_version()}")
     parser.add_argument("--mount", default="/srv/bd3d", help="mount point (default /srv/bd3d)")
     parser.add_argument("--audio-lang", default="all",
@@ -294,7 +296,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--loader-3d", default="none",
                         help="another animation for 3D movies only, side by side (3840x1080)")
     parser.add_argument("--encoder", choices=["auto", *ENCODERS], default="auto",
-                        help="auto = NVENC if available, else x264 on the CPU")
+                        help="auto (default) = NVENC, else VAAPI (Intel GPU), else x264 on "
+                             "the CPU, each tried with a real test encode; nvenc/vaapi/x264 "
+                             "forces one, stopping at startup if its test encode fails")
     parser.add_argument("--share", choices=["samba", "dlna", "both"], default="samba",
                         help="samba (default): mount the files for Samba, as before. dlna: "
                              "announce them over DLNA/UPnP instead, for players that browse a "
@@ -315,6 +319,16 @@ def build_parser() -> argparse.ArgumentParser:
                              "VIDEO_TS folder) to FILE, a new file, as JSON and exit: titles, "
                              "play items, keyframe maps, tracks; no video, keys or paths")
     return parser
+
+
+def split_sources(sources_args: list[str]) -> tuple[list[str], list[str]]:
+    """(drives, everything else) from the command line; none given: every drive
+    list_drives() finds, watched as if each had been named explicitly."""
+    if not sources_args:
+        return list_drives(), []
+    drives = [a for a in sources_args if Path(a).exists() and stat.S_ISBLK(Path(a).stat().st_mode)]
+    others = [a for a in sources_args if a not in drives]
+    return drives, others
 
 
 def write_structure(sources_args: list[str], out: str) -> None:
@@ -371,12 +385,11 @@ def main() -> None:
         log.info("log saved in %s", log_path)
     if args.dump_structure is not None:     # one disc, written out: nothing else starts
         return write_structure(sources_args, args.dump_structure)
-    encoder = pick_encoder(args.encoder)
-    log.info("video encoder: %s", encoder)
+    encoder, vaapi_device = pick_encoder(args.encoder)
+    log.info("video encoder: %s%s", encoder, f" ({vaapi_device})" if vaapi_device else "")
     audio_langs = None if audio_lang.strip().lower() in ("", "all") else lang_list(audio_lang)
 
-    drives = [a for a in sources_args if Path(a).exists() and stat.S_ISBLK(Path(a).stat().st_mode)]
-    others = [a for a in sources_args if a not in drives]
+    drives, others = split_sources(sources_args)
 
     tree = Tree()
     Source.sub_depth = args.sub_depth
@@ -384,7 +397,7 @@ def main() -> None:
     sub_langs = None if subs in ("", "all") else [] if subs == "none" else lang_list(subs_arg)
     loader, loader_3d = loader_video(loader_arg), loader_video(loader_3d_arg)
     lib = Library(tree, encoder, args.log_file, args.audio_files, args.light, sub_langs,
-                  loader, loader_3d)
+                  loader, loader_3d, vaapi_device)
     for source in discover(others, audio_langs) if others else []:
         lib.add(source)
     if not tree.files() and not drives:

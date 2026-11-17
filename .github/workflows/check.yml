@@ -33,7 +33,7 @@ jobs:
         name: ffmpeg
         run: choco install ffmpeg --no-progress -y
       - if: runner.os != 'Linux'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: ruff, pyright, shellcheck, tests
