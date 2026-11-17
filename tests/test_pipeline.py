@@ -29,6 +29,15 @@ def test_qualities() -> None:
     assert QUALITIES[("3d", "normal")].muxrate == 24_000_000
 
 
+@pytest.mark.parametrize(("kind", "video", "muxrate"), [
+    ("2d", 27_000_000, 32_000_000), ("3d", 37_000_000, 44_000_000),
+])
+def test_heavy_quality(kind: str, video: int, muxrate: int) -> None:
+    q = QUALITIES[(kind, "heavy")]
+    assert (q.name, q.video, q.muxrate) == ("heavy", video, muxrate)
+    assert ("dvd", "heavy") not in QUALITIES
+
+
 def test_encoder_args() -> None:
     assert encoder_args("x264", 20_000_000) == (
         "-c:v libx264 -preset veryfast -b:v 20000k -maxrate 20000k -bufsize 10000k "

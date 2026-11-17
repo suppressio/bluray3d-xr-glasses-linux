@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Protocol, TextIO
 
 from pipeline import (
+    QUALITIES,
     Quality,
     decode_command,
     encoder_args,
@@ -61,6 +62,7 @@ AUDIO_TRACK_MUX = 220_000            # TS bit/s per AAC 192k track, with muxer h
 MULTI_AUDIO_DIR = "Multi-audio"      # --audio-files both: where the all-tracks files go
 SUB_TAG = "sub"                      # ITAsubENG: Italian audio, English subtitles
 LIGHT_DIR = "Light"                  # lower-bitrate copies, for weak Wi-Fi
+HEAVY_DIR = "Heavy"                  # higher-bitrate copies, for good networks
 RATE_WINDOW = 20                     # seconds of continuous reading to judge the network
 SIBLING_IDLE = 3                     # a file of the same disc unread this long is left behind
 STALE_KEEP = 15                      # seconds a replaced pipeline's data still answers reads
@@ -653,14 +655,16 @@ class SidecarFile:
 class Library:
     """Turns sources into files of the tree: in the folder of their kind, one per
     audio language and/or one with all languages, the same again at a lower
-    bitrate in Light/, plus the external subtitles next to each video."""
+    bitrate in Light/ or a higher bitrate in Heavy/, plus the external subtitles
+    next to each video."""
 
     def __init__(self, tree: Tree, encoder: str, log_file: str, audio_files: str, light: bool,
                  sub_langs: list[str] | None = None, loader: str | None = None,
-                 loader_3d: str | None = None, vaapi_device: str = "") -> None:
+                 loader_3d: str | None = None, vaapi_device: str = "", *,
+                 heavy: bool = False) -> None:
         self.tree, self.encoder, self.log_file = tree, encoder, log_file
         self.loader, self.loader_3d = loader, loader_3d     # 3D movies: loader_3d if given
-        self.audio_files, self.light = audio_files, light
+        self.audio_files, self.light, self.heavy = audio_files, light, heavy
         self.sub_langs = sub_langs          # None: every language; []: no subtitle versions
         self.vaapi_device = vaapi_device    # only used when encoder == "vaapi"
 
@@ -738,6 +742,8 @@ class Library:
         added = self._add_set(source, category, "normal")
         if self.light:
             added += self._add_set(source, self.tree.folder(LIGHT_DIR, category).inode, "light")
+        if self.heavy and (source.quality_key, "heavy") in QUALITIES:
+            added += self._add_set(source, self.tree.folder(HEAVY_DIR, category).inode, "heavy")
         return added
 
     def _unique(self, source: Source) -> Source:

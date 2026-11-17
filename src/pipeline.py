@@ -33,7 +33,7 @@ FILTER_SUFFIX = {"nvenc": "", "vaapi": "format=nv12,hwupload", "x264": ""}
 
 @dataclass(frozen=True)
 class Quality:
-    name: str         # "normal" / "light"
+    name: str         # "normal" / "light" / "heavy"
     video: int        # video bit/s
     muxrate: int      # bit/s of the whole TS: video + audio + muxer headroom
 
@@ -47,8 +47,10 @@ class Quality:
 # next to the normal one instead, for rooms with weak Wi-Fi.
 QUALITIES = {
     ("3d", "normal"): Quality("normal", 20_000_000, 24_000_000),   # 3840x1080 SBS
+    ("3d", "heavy"): Quality("heavy", 37_000_000, 44_000_000),
     ("3d", "light"): Quality("light", 8_000_000, 10_000_000),
     ("2d", "normal"): Quality("normal", 12_000_000, 15_000_000),   # 1920x1080
+    ("2d", "heavy"): Quality("heavy", 27_000_000, 32_000_000),
     ("2d", "light"): Quality("light", 5_000_000, 6_500_000),
     ("dvd", "normal"): Quality("normal", 4_000_000, 5_000_000),    # 1024x576 / 854x480
     ("dvd", "light"): Quality("light", 1_800_000, 2_400_000),
