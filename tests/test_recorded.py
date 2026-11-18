@@ -250,7 +250,8 @@ def test_replay_finds_what_the_disc_holds(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert tree_of(replayed, tmp_path / "log") == expected_tree
     if disc == "dvd-unlabelled":
         fingerprint = recorded.data["fingerprint"]
-        assert {s.name for s in replayed} == {f"DVD-{fingerprint} - 1", f"DVD-{fingerprint} - 2"}
+        assert {s.name for s in replayed} == {f"E01 - DVD-{fingerprint}",
+                                              f"E02 - DVD-{fingerprint}"}
     if disc in FIXTURES:
         data = recorded.data
         stem = data["volume_id"] or f"DVD-{data['fingerprint']}"
