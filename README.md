@@ -52,7 +52,7 @@ All the procedures described here are a balanced compromise between "manual" and
 - **Optional: an NVIDIA or Intel GPU** to encode with NVENC or VAAPI. Without one the video is encoded by the CPU with x264 (on the same CPU still ~6× real time).
 - **XR glasses + a player** that opens videos from an SMB network share and plays SBS 3D ([tested ones](docs/TESTED.md)).
 - **RAM**: about 0.5 GB free while a movie plays. Nothing is written to disk: the pipeline prepares up to ~256 MB ahead of the player in memory and keeps ~190 MB behind for short jumps back, plus 16 MB (start and end) per file opened.
-- **A good Wi-Fi connection** (5 GHz recommended): 15 Mbit/s for 2D, 24 Mbit/s for 3D, less with the `Light/` copies (see [Network and quality](docs/OPTIONS.md#network-and-quality)).
+- **A good Wi-Fi connection** (5 GHz recommended): 15 Mbit/s for 2D, 24 Mbit/s for 3D, less with the `Light/` copies, up to 32 / 44 Mbit/s for the optional `Heavy/` ones (see [Network and quality](docs/OPTIONS.md#network-and-quality)).
 
 #### Decryption: bring your own keys
 Commercial Blu-rays are encrypted (AACS, some also BD+). The project **does not provide or download any key**; it uses what you have, in this order:
@@ -199,7 +199,7 @@ Then delete the project folder.
 
 - [ ] Insert the disc in the PC and wait about 15 seconds.
 - [ ] On the glasses, headset or TV, open the network share of the PC: many players find it by themselves under "local network", otherwise add its IP address (`hostname -I` on the PC tells you), guest / anonymous access.
-- [ ] Open the **Disks** folder (go back and in again if it looks empty). 3D discs are in `Blu-ray 3D/` as `ITA - <movie> - 3D SBS.ts`, normal ones in `Blu-ray/` as `ITA - <movie>.ts`: one file per audio language, plus versions with subtitles (`ITAsubENG - ...`: Italian audio, English subtitles). `Light/` has the same movies at a lower bitrate, for weak Wi-Fi.
+- [ ] Open the **Disks** folder (go back and in again if it looks empty). 3D discs are in `Blu-ray 3D/` as `ITA - <movie> - 3D SBS.ts`, normal ones in `Blu-ray/` as `ITA - <movie>.ts`: one file per audio language, plus versions with subtitles (`ITAsubENG - ...`: Italian audio, English subtitles). `Light/` has the same movies at a lower bitrate, for weak Wi-Fi; with `--heavy` (`HEAVY=on`), `Heavy/` has the 2D and 3D ones (not DVDs) at a higher bitrate, for a wired network (not verified on real discs yet, see [Network and quality](docs/OPTIONS.md#network-and-quality)).
 
 ```
 Disks/

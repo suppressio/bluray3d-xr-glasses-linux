@@ -39,3 +39,12 @@ def test_docker_uses_vendored_adapter_and_system_fuse() -> None:
     assert "ffmpeg python3 fuse3 samba tini" in DOCKERFILE
     assert "COPY src/ /app/" in DOCKERFILE
     assert "COPY --from=version /version /app/version" in DOCKERFILE
+
+
+def test_docker_heavy_option_is_off_by_default_and_reaches_the_program() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    entrypoint = (ROOT / "docker" / "entrypoint.sh").read_text(encoding="utf-8")
+    env = (ROOT / ".env.example").read_text(encoding="utf-8")
+    assert 'HEAVY: "${HEAVY:-off}"' in compose
+    assert '[ "$HEAVY" = "on" ] && set -- "$@" --heavy' in entrypoint
+    assert "\nHEAVY=off\n" in env

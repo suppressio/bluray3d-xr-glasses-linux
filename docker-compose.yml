@@ -23,6 +23,7 @@ services:
       AUDIO_LANG: "${AUDIO_LANG:-}"
       AUDIO_FILES: "${AUDIO_FILES:-per-language}"
       LIGHT: "${LIGHT:-on}"
+      HEAVY: "${HEAVY:-off}"
       SUBS: "${SUBS:-all}"
       SUB_DEPTH: "${SUB_DEPTH:-8}"
       LOADER: "${LOADER:-retrowave}"

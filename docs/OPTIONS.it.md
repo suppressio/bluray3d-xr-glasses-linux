@@ -19,6 +19,7 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 | [Lingue dei sottotitoli](#sottotitoli) | `SUBS` | `--subs ita,eng`, `all` oppure `none` | `all` |
 | [Profondità dei sottotitoli 3D](#sottotitoli) (pixel) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | [Copie a bitrate ridotto in `Light/`](#rete-e-qualità) | `LIGHT=on\|off` | `--light` / `--no-light` | attive |
+| [Copie a bitrate alto in `Heavy/`](#rete-e-qualità) | `HEAVY=on\|off` | `--heavy` / `--no-heavy` | disattive |
 | [Animazione dopo un salto](#animazione-di-caricamento-dopo-un-salto) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
 | [Encoder video](#encoder-video) | `ENCODER` | `--encoder auto\|nvenc\|vaapi\|x264` | `auto` (NVENC, poi VAAPI, poi x264) |
 | [Condivisione via Samba, DLNA, o entrambe](#dlnaupnp-invece-di-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
@@ -104,15 +105,17 @@ I sottotitoli del disco (Blu-ray, Blu-ray 3D, DVD, MKV 3D) vengono **disegnati n
 
 ## Rete e qualità
 
-Ogni file ha un **bitrate costante**: è quello che permette di far corrispondere un byte del file a un secondo del film. Quindi un file **non può adattarsi alla rete** come fa YouTube. Ogni film viene invece offerto a due bitrate:
+Ogni file ha un **bitrate costante**: è quello che permette di far corrispondere un byte del file a un secondo del film. Quindi un file **non può adattarsi alla rete** come fa YouTube. Ogni film viene invece offerto a due bitrate, tre con l'opzionale `Heavy/`:
 
-| | Normale | `Light/` |
-|---|---|---|
-| **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) |
-| **2D** (1920×1080) | 15 Mbit/s (video 12) | 6,5 Mbit/s (video 5) |
-| **DVD** (1024×576 PAL, 854×480 NTSC) | 5 Mbit/s (video 4) | 2,4 Mbit/s (video 1,8) |
+| | Normale | `Light/` | `Heavy/` (disattivo di default) |
+|---|---|---|---|
+| **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) | 44 Mbit/s (video 37) |
+| **2D** (1920×1080) | 15 Mbit/s (video 12) | 6,5 Mbit/s (video 5) | 32 Mbit/s (video 27) |
+| **DVD** (1024×576 PAL, 854×480 NTSC) | 5 Mbit/s (video 4) | 2,4 Mbit/s (video 1,8) | nessuna |
 
 Audio: AAC stereo 192 kbit/s per lingua (DTS e TrueHD non sono supportati dalla maggior parte dei player mobili); un file con più lingue (`Multi-audio/`) cresce di 0,22 Mbit/s per ogni lingua in più. Video: H.264. `--no-light` toglie le copie in `Light/`.
+
+`--heavy` (`HEAVY=on`) aggiunge una copia in `Heavy/` di ogni film 2D e 3D (tutto tranne i **DVD**), il più vicina al disco che una ricodifica in tempo reale permette: per una rete cablata, o occhiali USB sulla stessa macchina. È **disattivo di default** perché ogni file Heavy è una copia in più di ogni film nella condivisione, utile solo con un collegamento veloce; i DVD non hanno `Heavy/`. Funziona indipendentemente da `Light/` (possono essere attive entrambe). I bitrate Heavy vengono da un solo disco misurato e **non sono ancora verificati su dischi e reti reali**: se la riproduzione si ferma, usa la copia normale.
 
 Se la riproduzione **si ferma ogni pochi secondi**, il Wi-Fi non regge quel bitrate (basta un muro spesso):
 - apri lo stesso film da **`Light/`**;

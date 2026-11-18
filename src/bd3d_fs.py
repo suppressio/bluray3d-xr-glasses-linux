@@ -39,7 +39,7 @@ from pathlib import Path
 
 from dlna import Dlna
 from langs import lang_list
-from library import LIGHT_DIR, MULTI_AUDIO_DIR, Library, Shelf
+from library import HEAVY_DIR, LIGHT_DIR, MULTI_AUDIO_DIR, Library, Shelf
 from osplatform import DriveStatus, default_program_log, default_temp_dir, drive_status, list_drives
 from pipeline import ENCODERS, pick_encoder
 from sources import Source, UnsupportedDiscError, discover, dump_structure, open_disc
@@ -286,6 +286,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--light", action=argparse.BooleanOptionalAction, default=True,
                         help=f"also offer every movie at a lower bitrate in "
                              f"{LIGHT_DIR}/, for weak Wi-Fi (default: on)")
+    parser.add_argument("--heavy", action=argparse.BooleanOptionalAction, default=False,
+                        help=f"also offer every Blu-ray movie at a higher bitrate in "
+                             f"{HEAVY_DIR}/, for a wired network (default: off; not for DVDs)")
     parser.add_argument("--debug", action="store_true",
                         help="also log every jump and the player's reads after it")
     parser.add_argument("--loader", default=DEFAULT_LOADER,
@@ -397,7 +400,7 @@ def main() -> None:
     sub_langs = None if subs in ("", "all") else [] if subs == "none" else lang_list(subs_arg)
     loader, loader_3d = loader_video(loader_arg), loader_video(loader_3d_arg)
     lib = Library(tree, encoder, args.log_file, args.audio_files, args.light, sub_langs,
-                  loader, loader_3d, vaapi_device)
+                  loader, loader_3d, vaapi_device, heavy=args.heavy)
     for source in discover(others, audio_langs) if others else []:
         lib.add(source)
     if not tree.files() and not drives:
