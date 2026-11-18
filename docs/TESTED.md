@@ -87,5 +87,9 @@ From here on only discs with something special are added: a problem, an unusual 
 
 - **Linux**: Debian testing (native install); the install script also verified in clean Debian 13 and Ubuntu 24.04 containers (FFmpeg 7.1 and 6.1), and the Docker image.
 - **Decryption**: libaacs with a `KEYDB.cfg`, and MakeMKV 2.0.0 (libmmbd, AACS only); decrypted BDMV folders.
-- **Encoding**: NVIDIA NVENC and x264 on the CPU.
+- **Encoding**: NVIDIA NVENC, Intel VAAPI and x264 on the CPU (see below for VAAPI).
 - **Drive**: an internal SATA Blu-ray drive; eject and insert while the program runs.
+
+### Intel GPU: VAAPI
+
+✅ **Works, 2D and 3D.** Tried on a laptop with an Intel UHD Graphics 600 (Gemini Lake), Debian testing, `iHD` driver 25.2.3, `--encoder vaapi`. On this GPU generation the HuC firmware must be loaded (`options i915 enable_guc=2`), or the constant-bitrate encode fails. The Docker image is not tried.
