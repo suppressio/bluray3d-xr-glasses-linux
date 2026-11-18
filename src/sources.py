@@ -851,7 +851,7 @@ class DvdSource(DiscSource):
 
     @classmethod
     def all_on(cls, path: str, audio_langs: list[str] | None = None) -> list["DvdSource"]:
-        """The movie, or one source per episode ("<disc> - 1", "- 2"...)."""
+        """The movie, or one source per episode (named like Blu-ray episodes, #127)."""
         with dvd.Dvd(path) as disc:
             chosen = dvd.main_titles(disc)
         if len(chosen) == 1:
@@ -887,8 +887,8 @@ class DvdSource(DiscSource):
         self._ifo_copy: str | None = None
         self.fallback_name = not label
         self.name = _safe_name(label.replace("_", " ").title()) if label else f"DVD-{fingerprint}"
-        if episode:
-            self.name = f"{self.name} - {episode}"
+        if episode:  # as on Blu-ray (#80): S01E02 / E02 - Show (Disc 1) / E02 - name
+            self.name, _ = _episode_name(self.name, [self.name], episode, False)
         self.duration = self.title.duration
         self.frame_size, self.frame_rate = self.title.frame_size, self.title.frame_rate
         w, h = self.frame_size.split("x")

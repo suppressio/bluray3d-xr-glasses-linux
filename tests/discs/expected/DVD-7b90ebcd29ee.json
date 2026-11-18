@@ -1,21 +1,29 @@
 {
  "titles": [
-  [1, "DVD-7b90ebcd29ee - 1", 1500.0],
-  [2, "DVD-7b90ebcd29ee - 2", 1440.0]
+  [
+   1,
+   "E01 - DVD-7b90ebcd29ee",
+   1500.0
+  ],
+  [
+   2,
+   "E02 - DVD-7b90ebcd29ee",
+   1440.0
+  ]
  ],
  "tree": [
   "DVD",
-  "DVD/ENG - DVD-7b90ebcd29ee - 1.ts",
-  "DVD/ENG - DVD-7b90ebcd29ee - 2.ts",
-  "DVD/ENGsubENG - DVD-7b90ebcd29ee - 1.ts",
-  "DVD/ENGsubENG - DVD-7b90ebcd29ee - 2.ts",
-  "DVD/ENGsubITA - DVD-7b90ebcd29ee - 1.ts",
-  "DVD/ENGsubITA - DVD-7b90ebcd29ee - 2.ts",
-  "DVD/ITA - DVD-7b90ebcd29ee - 1.ts",
-  "DVD/ITA - DVD-7b90ebcd29ee - 2.ts",
-  "DVD/ITAsubENG - DVD-7b90ebcd29ee - 1.ts",
-  "DVD/ITAsubENG - DVD-7b90ebcd29ee - 2.ts",
-  "DVD/ITAsubITA - DVD-7b90ebcd29ee - 1.ts",
-  "DVD/ITAsubITA - DVD-7b90ebcd29ee - 2.ts"
+  "DVD/ENG - E01 - DVD-7b90ebcd29ee.ts",
+  "DVD/ENG - E02 - DVD-7b90ebcd29ee.ts",
+  "DVD/ENGsubENG - E01 - DVD-7b90ebcd29ee.ts",
+  "DVD/ENGsubENG - E02 - DVD-7b90ebcd29ee.ts",
+  "DVD/ENGsubITA - E01 - DVD-7b90ebcd29ee.ts",
+  "DVD/ENGsubITA - E02 - DVD-7b90ebcd29ee.ts",
+  "DVD/ITA - E01 - DVD-7b90ebcd29ee.ts",
+  "DVD/ITA - E02 - DVD-7b90ebcd29ee.ts",
+  "DVD/ITAsubENG - E01 - DVD-7b90ebcd29ee.ts",
+  "DVD/ITAsubENG - E02 - DVD-7b90ebcd29ee.ts",
+  "DVD/ITAsubITA - E01 - DVD-7b90ebcd29ee.ts",
+  "DVD/ITAsubITA - E02 - DVD-7b90ebcd29ee.ts"
  ]
 }

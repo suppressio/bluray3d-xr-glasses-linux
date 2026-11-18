@@ -1565,9 +1565,10 @@ def test_dvd_series_without_label(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     place = tmp_path / "My Series Folder"
     place.mkdir()
     disc = f"DVD-{fingerprint(UnlabeledSeries())}"
-    # one name for the disc, the episode numbers after it as before
-    assert [s.name for s in DvdSource.all_on(str(place))] == [f"{disc} - 1", f"{disc} - 2"]
-    assert library_paths([str(place)], tmp_path) == [f"DVD/{disc} - 1.ts", f"DVD/{disc} - 2.ts"]
+    # one name for the disc, numbered like Blu-ray episodes (#80, #127)
+    assert [s.name for s in DvdSource.all_on(str(place))] == [f"E01 - {disc}", f"E02 - {disc}"]
+    assert library_paths([str(place)], tmp_path) == [f"DVD/E01 - {disc}.ts",
+                                                     f"DVD/E02 - {disc}.ts"]
 
 
 def disc_files(name: str) -> list[str]:
