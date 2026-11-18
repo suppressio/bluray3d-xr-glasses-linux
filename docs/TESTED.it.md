@@ -87,5 +87,9 @@ D'ora in poi si aggiungono solo i dischi con qualcosa di particolare: un problem
 
 - **Linux**: Debian testing (installazione nativa); lo script di installazione verificato anche in container puliti di Debian 13 e Ubuntu 24.04 (FFmpeg 7.1 e 6.1), e l'immagine Docker.
 - **Decifratura**: libaacs con un `KEYDB.cfg`, e MakeMKV 2.0.0 (libmmbd, solo AACS); cartelle BDMV decifrate.
-- **Codifica**: NVIDIA NVENC e x264 sulla CPU.
+- **Codifica**: NVIDIA NVENC, Intel VAAPI e x264 sulla CPU (per VAAPI vedi sotto).
 - **Lettore**: un lettore Blu-ray SATA interno; espulsione e inserimento mentre il programma gira.
+
+### GPU Intel: VAAPI
+
+✅ **Funziona, 2D e 3D.** Provato su un portatile con Intel UHD Graphics 600 (Gemini Lake), Debian testing, driver `iHD` 25.2.3, `--encoder vaapi`. Su questa generazione di GPU va caricato il firmware HuC (`options i915 enable_guc=2`), altrimenti la codifica a bitrate costante fallisce. L'immagine Docker non è provata.
