@@ -9,6 +9,7 @@ set -- --mount /srv/bd3d --encoder "${ENCODER:-auto}" --share "$share"
 [ -n "$AUDIO_LANG" ] && set -- "$@" --audio-lang "$AUDIO_LANG"
 [ -n "$AUDIO_FILES" ] && set -- "$@" --audio-files "$AUDIO_FILES"
 [ "$LIGHT" = "off" ] && set -- "$@" --no-light
+[ "$HEAVY" = "on" ] && set -- "$@" --heavy
 [ -n "$SUBS" ] && set -- "$@" --subs "$SUBS"
 [ -n "$SUB_DEPTH" ] && set -- "$@" --sub-depth "$SUB_DEPTH"
 [ -n "$LOADER" ] && set -- "$@" --loader "$LOADER"

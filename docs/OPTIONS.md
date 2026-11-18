@@ -19,6 +19,7 @@ The defaults work: you only need this page to change what the share offers (lang
 | [Subtitle languages](#subtitles) | `SUBS` | `--subs ita,eng`, `all` or `none` | `all` |
 | [3D subtitle depth](#subtitles) (pixels) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | [Lower-bitrate copies in `Light/`](#network-and-quality) | `LIGHT=on\|off` | `--light` / `--no-light` | on |
+| [Higher-bitrate copies in `Heavy/`](#network-and-quality) | `HEAVY=on\|off` | `--heavy` / `--no-heavy` | off |
 | [Animation after a jump](#loading-animation-after-a-jump) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
 | [Video encoder](#video-encoder) | `ENCODER` | `--encoder auto\|nvenc\|vaapi\|x264` | `auto` (NVENC, then VAAPI, then x264) |
 | [Share over Samba, DLNA, or both](#dlnaupnp-instead-of-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
@@ -104,15 +105,17 @@ Subtitles from the disc (Blu-ray, 3D Blu-ray, DVD, 3D MKV) are **drawn into the 
 
 ## Network and quality
 
-Every file has a **constant bitrate**: that is what lets a byte of the file match a second of the movie. So a file **cannot adapt to the network** the way YouTube does. Instead, every movie is offered at two bitrates:
+Every file has a **constant bitrate**: that is what lets a byte of the file match a second of the movie. So a file **cannot adapt to the network** the way YouTube does. Instead, every movie is offered at two bitrates, three with the optional `Heavy/`:
 
-| | Normal | `Light/` |
-|---|---|---|
-| **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) |
-| **2D** (1920×1080) | 15 Mbit/s (video 12) | 6.5 Mbit/s (video 5) |
-| **DVD** (1024×576 PAL, 854×480 NTSC) | 5 Mbit/s (video 4) | 2.4 Mbit/s (video 1.8) |
+| | Normal | `Light/` | `Heavy/` (off by default) |
+|---|---|---|---|
+| **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) | 44 Mbit/s (video 37) |
+| **2D** (1920×1080) | 15 Mbit/s (video 12) | 6.5 Mbit/s (video 5) | 32 Mbit/s (video 27) |
+| **DVD** (1024×576 PAL, 854×480 NTSC) | 5 Mbit/s (video 4) | 2.4 Mbit/s (video 1.8) | none |
 
 Audio: AAC stereo 192 kbit/s per language (DTS/TrueHD are not supported by most mobile players); a file with several languages (`Multi-audio/`) is 0.22 Mbit/s bigger for each extra one. Video: H.264. `--no-light` removes the `Light/` copies.
+
+`--heavy` (`HEAVY=on`) adds a `Heavy/` copy of every 2D and 3D movie (everything except **DVDs**), as close to the disc as a real-time re-encode gets: for a wired network, or USB glasses on the same machine. It is **off by default** because each Heavy file is one more copy of every movie in the share, useful only on a fast link; DVDs have no `Heavy/`. It works independently of `Light/` (both can be on). The Heavy bitrates come from one measured disc and have **not yet been verified on real discs and networks**: if playback pauses, use the normal copy.
 
 If playback **pauses every few seconds**, the Wi-Fi cannot keep up with that bitrate (a thick wall is enough):
 - open the same movie from **`Light/`**;

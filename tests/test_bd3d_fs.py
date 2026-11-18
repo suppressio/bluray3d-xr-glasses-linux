@@ -575,3 +575,32 @@ def test_dump_structure_removes_its_half_written_file(monkeypatch: pytest.Monkey
     with pytest.raises(SystemExit, match=r"cannot write .*No space left on device"):
         bd3d_fs.write_structure([str(tmp_path)], str(out))
     assert not out.exists()
+
+
+@pytest.mark.parametrize(("flags", "expected"), [
+    ([], False),                    # off unless asked for: every Heavy file is one more copy
+    (["--heavy"], True),
+    (["--no-heavy"], False),
+    (["--heavy", "--no-heavy"], False),     # the last one wins, as for --light
+])
+def test_heavy_option_is_off_by_default(flags: list[str], expected: bool) -> None:
+    assert bd3d_fs.build_parser().parse_args([*flags, "x.mkv"]).heavy is expected
+
+
+@pytest.mark.parametrize(("flags", "heavy", "light"), [
+    ([], False, True),              # omitted: nothing changes
+    (["--heavy"], True, True),      # Heavy and Light are independent
+    (["--heavy", "--no-light"], True, False),
+])
+def test_main_forwards_heavy_to_the_library(monkeypatch: pytest.MonkeyPatch, flags: list[str],
+                                            heavy: bool, light: bool) -> None:
+    run = Mock(side_effect=KeyboardInterrupt)
+    monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--share", "dlna", "--log", "none",
+                                      "--loader", "none", *flags, "/dev/sr0"])
+    monkeypatch.setattr(bd3d_fs.stat, "S_ISBLK", Mock(return_value=True))
+    monkeypatch.setattr(bd3d_fs, "pick_encoder", Mock(return_value=("x264", "")))
+    monkeypatch.setattr(bd3d_fs, "run", run)
+    monkeypatch.setattr(bd3d_fs, "Dlna", Mock())
+    bd3d_fs.main()
+    lib = run.call_args.args[1]
+    assert (lib.heavy, lib.light) == (heavy, light)
