@@ -592,11 +592,13 @@ def test_heavy_option_is_off_by_default(flags: list[str], expected: bool) -> Non
     (["--heavy"], True, True),      # Heavy and Light are independent
     (["--heavy", "--no-light"], True, False),
 ])
-def test_main_forwards_heavy_to_the_library(monkeypatch: pytest.MonkeyPatch, flags: list[str],
-                                            heavy: bool, light: bool) -> None:
+def test_main_forwards_heavy_to_the_library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                            flags: list[str], heavy: bool, light: bool) -> None:
+    drive = tmp_path / "sr0"        # a real path: the runners have no /dev/sr0
+    drive.touch()
     run = Mock(side_effect=KeyboardInterrupt)
     monkeypatch.setattr(sys, "argv", ["bd3d_fs.py", "--share", "dlna", "--log", "none",
-                                      "--loader", "none", *flags, "/dev/sr0"])
+                                      "--loader", "none", *flags, str(drive)])
     monkeypatch.setattr(bd3d_fs.stat, "S_ISBLK", Mock(return_value=True))
     monkeypatch.setattr(bd3d_fs, "pick_encoder", Mock(return_value=("x264", "")))
     monkeypatch.setattr(bd3d_fs, "run", run)
