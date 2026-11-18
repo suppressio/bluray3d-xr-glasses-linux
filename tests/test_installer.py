@@ -47,4 +47,4 @@ def test_docker_heavy_option_is_off_by_default_and_reaches_the_program() -> None
     env = (ROOT / ".env.example").read_text(encoding="utf-8")
     assert 'HEAVY: "${HEAVY:-off}"' in compose
     assert '[ "$HEAVY" = "on" ] && set -- "$@" --heavy' in entrypoint
-    assert "\nHEAVY=off\n" in env
+    assert "HEAVY=off" in env.splitlines()      # splitlines: a Windows checkout may use CRLF
