@@ -166,7 +166,7 @@ Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-
 docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
 ```
 The log should now say `video encoder: nvenc`.
-> ⚠️ This variant is not tested yet (my PC has no Container Toolkit). NVENC is tested with the native path.
+> ✅ Tried with a 2D and a 3D Blu-ray (RTX 3070 Ti): 10 minutes of continuous playback each, NVENC active in the container.
 
 ##### Intel GPU / VAAPI (optional)
 Set `RENDER_GID` in `.env` to the host's `render` group (`getent group render | cut -d: -f3`), then start with both compose files:
