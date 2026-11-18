@@ -48,3 +48,9 @@ def test_docker_heavy_option_is_off_by_default_and_reaches_the_program() -> None
     assert 'HEAVY: "${HEAVY:-off}"' in compose
     assert '[ "$HEAVY" = "on" ] && set -- "$@" --heavy' in entrypoint
     assert "HEAVY=off" in env.splitlines()      # splitlines: a Windows checkout may use CRLF
+
+
+def test_dlna_compose_overlay_passes_the_drive_named_by_drive() -> None:
+    dlna = (ROOT / "docker-compose.dlna.yml").read_text(encoding="utf-8")
+    assert '"${DRIVE:-/dev/null}"' in dlna      # the drive reaches a DLNA-only container
+    assert "devices: !reset" not in dlna        # which would drop it

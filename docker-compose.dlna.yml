@@ -7,8 +7,10 @@ services:
     # to the LAN, the host network does (the HTTP port is then HTTP_PORT)
     network_mode: host
     ports: !reset []
-    # a Blu-ray drive: replace the next line with  devices: !override ["/dev/sr0"]
-    devices: !reset []
+    # the Blu-ray drive named by DRIVE in .env (no FUSE here, so /dev/fuse is dropped);
+    # with DRIVE empty the harmless /dev/null is passed instead
+    devices: !override
+      - "${DRIVE:-/dev/null}"
     cap_add: !reset []
     security_opt: !reset []
     # the DLNA device id comes from the machine id: the host's, so it survives
