@@ -407,7 +407,7 @@ _SEASON_PATTERNS = [re.compile(rf"\b{word}\s*0*(\d{{1,2}})\b", re.IGNORECASE) fo
 # a disc that names itself "Disc 2", "Vol. 1", "Teil 2"... is only part of a season:
 # its first episode number cannot be known offline (#27)
 _DISC_PART_PATTERN = re.compile(
-    r"\b(disc|disk|disco|dischi|disque|vol|volume|teil|part|parte)\.?\s*0*(\d{1,2})\b",
+    r"\b(disc|disk|disco|dischi|disque|vol|volume|teil|part|parte|d)\.?\s*0*(\d{1,2})\b",
     re.IGNORECASE)
 
 
@@ -443,7 +443,8 @@ def _parse_disc_part(*names: str) -> tuple[str, str] | None:
         m = _DISC_PART_PATTERN.search(norm)
         if m:
             show = norm[:m.start()] + " " + norm[m.end():] if i == 0 else norms[0]
-            marker = f"{m.group(1).capitalize()} {int(m.group(2))}"
+            word = "disc" if m.group(1).lower() == "d" else m.group(1)      # "D2" (labels)
+            marker = f"{word.capitalize()} {int(m.group(2))}"
             return marker, re.sub(r"\s+", " ", show).strip(" -")
     return None
 
