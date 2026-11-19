@@ -363,9 +363,10 @@ def choose_titles(parsed: list[DvdTitle]) -> list[DvdTitle]:
                if t.duration >= EPISODE_MIN and len(_segments(t)) == len(t.cells)}
     seen: set[frozenset[tuple[int, int, int]]] = set()
     for t in parsed:
-        if t.number in content and (key := frozenset(content[t.number])) in seen:
-            del content[t.number]
-        elif t.number in content:
+        if t.number in content:
+            key = frozenset(content[t.number])
+            if key in seen:
+                del content[t.number]
             seen.add(key)
     totals = {n: sum(c.values()) for n, c in content.items()}
 
