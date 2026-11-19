@@ -778,6 +778,9 @@ def test_bluray_uniform_lang_label_episode_without_audio(
     ("Il Prigioniero Disco 1", ("Disco 1", "Il Prigioniero")),
     ("Rick and Morty Staffel 1 Disc 2", ("Disc 2", "Rick and Morty Staffel 1")),
     ("Show Vol. 2", ("Vol 2", "Show")),
+    ("UTOPIA_S2_D2", ("Disc 2", "UTOPIA S2")),     # "D2": the short form some labels use
+    ("Dune Part 2", ("Part 2", "Dune")),
+    ("Dune 2", None),
     ("Firefly", None),
 ])
 def test_parse_disc_part(name: str, expected: tuple[str, str] | None) -> None:
