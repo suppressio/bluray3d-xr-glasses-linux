@@ -188,6 +188,7 @@ def test_two_cuts_of_a_film_are_not_episodes() -> None:
 
 @pytest.mark.parametrize(("disc", "numbers"), [
     ("ALIAS_SEASON_1", [2, 4, 5, 6]),        # a cell jumping back at the end: still episodes
+    ("ALIAS_SEASON_1_3EP", [1, 2, 6]),       # another disc of it: 3 episodes, the first a long one
     ("UTOPIA_S2_D2", [3, 4, 5]),             # title 2 plays the three others
     ("C4DVD10476", [9, 33, 54]),             # 94 long titles, 3 real (protection); 77 = play-all
     ("FUTURAMA_DISC_2", [1, 2, 3, 4, 5]),
