@@ -1,5 +1,5 @@
 [project]
-name = "bluray3d-xr"
+name = "spinema"
 version = "0"
 description = "3D Blu-ray, Blu-ray and DVD as virtual constant-bitrate .ts files on a network share"
 requires-python = ">=3.12"

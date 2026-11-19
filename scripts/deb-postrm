@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-mark_begin="# >>> bluray3d-xr >>>"
-mark_end="# <<< bluray3d-xr <<<"
+mark_begin="# >>> spinema >>>"
+mark_end="# <<< spinema <<<"
 
 case "$1" in
     remove|purge)
@@ -21,6 +21,6 @@ case "$1" in
         ;;
 esac
 
-if [ "$1" = purge ] && getent group bluray3d-xr >/dev/null; then
-    groupdel bluray3d-xr || true
+if [ "$1" = purge ] && getent group spinema >/dev/null; then
+    groupdel spinema || true
 fi

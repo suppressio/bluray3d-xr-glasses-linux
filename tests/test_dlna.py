@@ -66,7 +66,7 @@ def server() -> Iterator[DlnaServer]:
             return b"x" * min(size, self.size - offset)
 
     tree.add(Movie())  # type: ignore[arg-type]
-    srv = DlnaServer(("127.0.0.1", 0), tree, "bluray3d-xr", "uuid-1", "http://127.0.0.1:8200")
+    srv = DlnaServer(("127.0.0.1", 0), tree, "spinema", "uuid-1", "http://127.0.0.1:8200")
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
     try:
@@ -90,7 +90,7 @@ def get(server: DlnaServer, method: str, path: str, body: bytes = b"",
 def test_description_xml(server: DlnaServer) -> None:
     status, body = get(server, "GET", "/description.xml")
     assert status == 200
-    assert "<friendlyName>bluray3d-xr</friendlyName>" in body
+    assert "<friendlyName>spinema</friendlyName>" in body
     assert "uuid:uuid-1" in body
 
 

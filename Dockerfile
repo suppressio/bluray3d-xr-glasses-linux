@@ -13,7 +13,7 @@ RUN git clone "$EDGE264_REPO" /edge264 \
  && git -C /edge264 checkout "$EDGE264_COMMIT" \
  && make -C /edge264 -j"$(nproc)"
 
-# the release (git tag) being built, e.g. v1.0.0, for bluray3d-xr --version and the log;
+# the release (git tag) being built, e.g. v1.0.0, for spinema --version and the log;
 # its own stage, so a new commit does not rebuild edge264
 FROM edge264 AS version
 COPY .git /repo/.git

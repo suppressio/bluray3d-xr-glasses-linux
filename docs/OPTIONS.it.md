@@ -7,7 +7,7 @@
 Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiare cosa offre la cartella condivisa (lingue, sottotitoli, qualità) o come si comporta. Torna al [README](../README.it.md).
 
 **Dove si mettono le opzioni:**
-- strada nativa: sulla riga di comando, per esempio `bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0`;
+- strada nativa: sulla riga di comando, per esempio `spinema --audio-lang ita,eng --subs ita,eng /dev/sr0`;
 - Docker: nel file `.env` (vedi `.env.example`), poi `docker compose up -d`.
 
 | Opzione | `.env` (Docker) | Riga di comando (nativo) | Predefinito |
@@ -25,7 +25,7 @@ Le impostazioni predefinite funzionano: questa pagina serve solo se vuoi cambiar
 | [Condivisione via Samba, DLNA, o entrambe](#dlnaupnp-invece-di-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
 | [Porta DLNA/HTTP](#dlnaupnp-invece-di-samba) | `HTTP_PORT` | `--http-port` | `8201` |
 | Punto di montaggio | — | `--mount` | `/srv/bd3d` |
-| [File di log del programma](#log) | — | `--log percorso` o `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
+| [File di log del programma](#log) | — | `--log percorso` o `none` | `~/.local/state/spinema/spinema.log` |
 | [Log della pipeline](#log) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 | [Log dei salti](#log) | — | `--debug` | spento |
 | [Scrivere la struttura di un disco e uscire](#la-struttura-di-un-disco) | — | `--dump-structure file.json` | spento |
@@ -46,13 +46,13 @@ Oltre al lettore, il programma accetta lo stesso contenuto in altre forme (anche
 | Cartella | `~/Video/3D` | esplorata con tutte le sottocartelle, per tutto quanto sopra |
 
 ```console
-bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Video/3D
+spinema --audio-lang ita,eng /dev/sr0 ~/Video/3D
 ```
 
 **Nessuna sorgente sulla riga di comando:** il programma controlla ogni lettore ottico che trova (`/dev/sr0`, `/dev/sr1`...), come se ciascuno fosse stato indicato esplicitamente:
 
 ```console
-bluray3d-xr --audio-lang ita,eng
+spinema --audio-lang ita,eng
 ```
 
 Senza alcun lettore (e niente altro indicato), si ferma con "no source found".
@@ -74,11 +74,11 @@ I contenuti extra di un disco (making-of, scene eliminate...) vanno in una sotto
 Per default i file sono montati solo per Samba, la cartella `[Disks]` (`--share samba`). `--share dlna` annuncia gli stessi file via DLNA/UPnP invece che via SMB, per i player che esplorano un media server invece di aprire una cartella di rete (smart TV, Kodi, Moon VR…); in questa modalità non servono né FUSE né Samba. `--share both` fa entrambe le cose insieme, per esempio per servire una TV via DLNA e un telefono via SMB dallo stesso programma.
 
 ```console
-bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
+spinema --share dlna --audio-lang ita,eng /dev/sr0
 ```
 
 - Il server ascolta su `--http-port` (predefinito `8201`). Apri `http://<ip-pc>:8201/` in un browser per vedere le stesse cartelle come una pagina semplice: un modo rapido per controllare che funzioni, e qualsiasi player che apre un video da un URL può usarlo direttamente.
-- Sul player, cerca "bluray3d-xr" tra i media server DLNA che trova in rete (nessun indirizzo IP da digitare): entra in `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, le stesse cartelle della condivisione SMB.
+- Sul player, cerca "spinema" tra i media server DLNA che trova in rete (nessun indirizzo IP da digitare): entra in `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, le stesse cartelle della condivisione SMB.
 - Il salto funziona come su SMB: un byte del file corrisponde sempre a un secondo preciso del film, quindi un salto riavvia la pipeline da lì, che il player legga via SMB o via HTTP.
 - Docker, solo DLNA: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — niente Samba, niente FUSE, niente porta 445 (il lettore indicato da `DRIVE` in `.env` viene passato da solo, nessuna riga da decommentare); usa la rete dell'host, perché la scoperta SSDP è multicast (la porta si imposta con `HTTP_PORT` in `.env`). DLNA insieme a Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, anche questo sulla rete dell'host, quindi Samba usa direttamente la porta 445 dell'host (`SMB_PORT` non vale).
 - Installazione nativa: `scripts/install.sh --share dlna` salta del tutto Samba e i pacchetti FUSE di sistema, il mount FUSE e `smb.conf`. Il percorso Samba usa l'adapter vendored `mfusepy.py` con il runtime di sistema `fuse3`; `scripts/install.sh --share both` installa entrambi i percorsi. Rilanciarlo con `both` dopo un'installazione `dlna` aggiunge le parti Samba/FUSE che aveva saltato. `scripts/update.sh` mantiene il tipo scelto all'installazione.
@@ -158,7 +158,7 @@ Docker: `ENCODER` in `.env`, più il file compose aggiuntivo giusto per raggiung
 
 ## Log
 
-- Il log del programma dice quali film compaiono, da dove parte ogni pipeline e se la rete e il disco reggono. Va nel terminale ed è anche salvato, con la data, in `~/.local/state/bluray3d-xr/bluray3d-xr.log` (fino a 5 MB, poi tre copie vecchie `.1` `.2` `.3`); `--log` lo salva altrove, `--log none` per niente. Con Docker: `docker compose logs`.
+- Il log del programma dice quali film compaiono, da dove parte ogni pipeline e se la rete e il disco reggono. Va nel terminale ed è anche salvato, con la data, in `~/.local/state/spinema/spinema.log` (fino a 5 MB, poi tre copie vecchie `.1` `.2` `.3`); `--log` lo salva altrove, `--log none` per niente. Con Docker: `docker compose logs`.
 - `--log-file` è l'output di FFmpeg e dei decoder, una sezione per pipeline (oltre i 10 MB la parte vecchia passa in `.1`): il primo posto dove guardare se l'immagine è sbagliata.
 - `--debug` registra anche ogni salto e le letture del player nei 20 secondi successivi: quanto ha aspettato e se sembrava in pausa. Anche il comando completo di ogni pipeline, per rilanciarlo a mano ([DEVELOPMENT.it.md](DEVELOPMENT.it.md#smontare-una-pipeline)).
 
@@ -167,7 +167,7 @@ Docker: `ENCODER` in `.env`, più il file compose aggiuntivo giusto per raggiung
 `--dump-structure FILE` legge un disco (un lettore con il disco dentro, una ISO, una cartella BDMV o VIDEO_TS), ne scrive la struttura in `FILE` come JSON ed esce: non condivide, non monta e non codifica niente.
 
 ```console
-bluray3d-xr --dump-structure tron.json /dev/sr0
+spinema --dump-structure tron.json /dev/sr0
 ```
 
 - **Cosa contiene:** ciò da cui il programma sceglie il film o gli episodi e su cui fa i salti, come lo leggono dai file di navigazione del disco, prima di ogni scelta. Blu-ray: tutti i titoli che libbluray elenca, con i loro play item (clip, tempo di inizio e di fine, tracce audio e sottotitoli con le lingue), e la mappa dei keyframe (EP_map) e gli extent di ogni clip che usano. DVD: tutti i titoli, con celle, tracce e lingue, e per ogni title set l'inizio di ogni VOBU con il tempo dato dal suo navigation pack. I tempi mantengono la precisione del disco. Il file comincia con la versione del formato (`"format": 1`).

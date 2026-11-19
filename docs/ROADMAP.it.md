@@ -38,7 +38,7 @@ Cosa è fatto:
   rovinati vengono saltati, partono anche i titoli che si aprono con secondi senza
   audio, il seek funziona nei titoli che riproducono due volte una cella.
 
-**I prossimi passi** sono tracciati come [Issue e Milestone su GitHub](https://github.com/suppressio/bluray3d-xr-glasses-linux/milestones).
+**I prossimi passi** sono tracciati come [Issue e Milestone su GitHub](https://github.com/suppressio/spinema/milestones).
 
 ## La decifratura
 
@@ -61,7 +61,7 @@ progetto **non distribuisce e non scarica mai chiavi**):
    essere installato, funzionante e registrato (chiave beta gratuita, da
    rinnovare periodicamente). Il BD+ solo leggendo dall'inizio (dopo un salto
    l'immagine si rovina), quindi il BD+ tramite libmmbd viene rifiutato
-   ([#2](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/2)).
+   ([#2](https://github.com/suppressio/spinema/issues/2)).
 3. **ISO o cartella BDMV già decifrati**: nessuna chiave mentre guardi (il
    disco è stato decifrato una volta, con qualsiasi strumento). È una copia
    completa (circa 45 GB), quindi di nuovo un passaggio intermedio, ma senza

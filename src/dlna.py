@@ -20,11 +20,11 @@ from tree import Tree
 
 log = logging.getLogger("dlna")
 
-FRIENDLY_NAME = "bluray3d-xr"
+FRIENDLY_NAME = "spinema"
 # a Browse request is a few flat tags: anything bigger is not a renderer
 MAX_SOAP_BODY = 64 * 1024
 MACHINE_ID = "/etc/machine-id"
-SERVER_HEADER = "Linux/1.0 UPnP/1.0 bluray3d-xr/1.0"
+SERVER_HEADER = "Linux/1.0 UPnP/1.0 spinema/1.0"
 
 
 class DlnaHandler(TreeHttpHandler):
@@ -133,7 +133,7 @@ def install_id(machine_id_file: str = MACHINE_ID) -> str:
 def device_uuid(seed: str) -> str:
     """Stable across restarts (renderers remember a device by its UUID), not
     random: derived from what identifies this install (install_id())."""
-    return str(uuid_module.uuid5(uuid_module.NAMESPACE_DNS, f"bluray3d-xr/{seed}"))
+    return str(uuid_module.uuid5(uuid_module.NAMESPACE_DNS, f"spinema/{seed}"))
 
 
 class Dlna:

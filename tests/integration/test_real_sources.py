@@ -9,7 +9,7 @@ The first run on a disc records a reference: what the program finds on it
 (title, duration, languages, keyframes) and fingerprints of what it reads from
 it (the stream handed to the decoders, the decoded 3D frames). Later runs
 compare against it, so a change that alters a single byte of that output fails.
-The reference stays in ~/.cache/bluray3d-xr/reference/ (hashes only, no disc
+The reference stays in ~/.cache/spinema/reference/ (hashes only, no disc
 content); BD3D_UPDATE_REFERENCE=1 records it again after an intended change.
 
 The encoded output (NVENC/x264) is not compared byte for byte, only checked:
@@ -41,8 +41,8 @@ if sys.platform == "win32":
 
 pytestmark = pytest.mark.integration
 
-REFERENCE_DIR = Path.home() / ".cache" / "bluray3d-xr" / "reference"
-EDGE264_DIRS = ["/opt/bluray3d-xr/bin", str(Path.home() / ".local" / "bin")]
+REFERENCE_DIR = Path.home() / ".cache" / "spinema" / "reference"
+EDGE264_DIRS = ["/opt/spinema/bin", str(Path.home() / ".local" / "bin")]
 
 
 @pytest.fixture(scope="module", autouse=True)

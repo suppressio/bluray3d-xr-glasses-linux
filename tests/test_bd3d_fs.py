@@ -51,7 +51,7 @@ def test_program_version(tmp_path: Path) -> None:
 
 
 def test_log_to_file(tmp_path: Path) -> None:
-    path = tmp_path / "state" / "bluray3d-xr.log"
+    path = tmp_path / "state" / "spinema.log"
     root = logging.getLogger()
     before = list(root.handlers)
     try:

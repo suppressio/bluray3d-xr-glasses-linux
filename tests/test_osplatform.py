@@ -191,11 +191,11 @@ def test_default_program_log_under_xdg_state_home(monkeypatch: pytest.MonkeyPatc
     # regardless of where this runs
     monkeypatch.setattr(osplatform, "MACOS", False)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-    assert default_program_log() == tmp_path / "bluray3d-xr" / "bluray3d-xr.log"
+    assert default_program_log() == tmp_path / "spinema" / "spinema.log"
 
 
 def test_default_program_log_falls_back_to_dot_local_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(osplatform, "MACOS", False)
     monkeypatch.delenv("XDG_STATE_HOME", raising=False)
-    assert default_program_log() == Path.home() / ".local" / "state" / "bluray3d-xr" \
-        / "bluray3d-xr.log"
+    assert default_program_log() == Path.home() / ".local" / "state" / "spinema" \
+        / "spinema.log"
