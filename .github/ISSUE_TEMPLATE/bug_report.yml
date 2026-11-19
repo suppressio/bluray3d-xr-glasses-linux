@@ -20,8 +20,8 @@ body:
     id: version
     attributes:
       label: Version
-      description: "`bluray3d-xr --version` (Docker: the first line of `docker compose logs`)."
-      placeholder: bluray3d-xr v1.1.1
+      description: "`spinema --version` (Docker: the first line of `docker compose logs`)."
+      placeholder: spinema v1.1.1
     validations:
       required: true
 
@@ -89,13 +89,13 @@ body:
     id: options
     attributes:
       label: Command line or .env options
-      placeholder: bluray3d-xr --audio-lang ita,eng --subs ita /dev/sr0
+      placeholder: spinema --audio-lang ita,eng --subs ita /dev/sr0
 
   - type: textarea
     id: log
     attributes:
       label: Program log
-      description: "From the start, or at least around the problem. Since v1.1.2 it is saved in `~/.local/state/bluray3d-xr/bluray3d-xr.log`; otherwise copy it from the terminal (Docker: `docker compose logs`)."
+      description: "From the start, or at least around the problem. Since v1.1.2 it is saved in `~/.local/state/spinema/spinema.log` (before the rename to Spinema: `~/.local/state/bluray3d-xr/bluray3d-xr.log`); otherwise copy it from the terminal (Docker: `docker compose logs`)."
       render: text
     validations:
       required: true

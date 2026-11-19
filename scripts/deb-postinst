@@ -1,14 +1,19 @@
 #!/bin/sh
 set -e
 
-group=bluray3d-xr
+group=spinema
 mount=/srv/bd3d
 smb_conf=/etc/samba/smb.conf
-mark_begin="# >>> bluray3d-xr >>>"
-mark_end="# <<< bluray3d-xr <<<"
+mark_begin="# >>> spinema >>>"
+mark_end="# <<< spinema <<<"
 
 if ! getent group "$group" >/dev/null; then
-    groupadd --system "$group"
+    # the package was called bluray3d-xr before the rename: keep its group (and members)
+    if grep -q '^bluray3d-xr:' /etc/group; then
+        groupmod --new-name "$group" bluray3d-xr
+    else
+        groupadd --system "$group"
+    fi
 fi
 install -d -o root -g "$group" -m 2775 "$mount"
 
@@ -23,12 +28,14 @@ fi
 # writes smb.conf without smbd or testparm
 command -v smbd >/dev/null || exit 0
 if [ ! -f "$smb_conf" ]; then
-    echo "bluray3d-xr: $smb_conf not found, [Disks] share not added: run 'sudo dpkg-reconfigure bluray3d-xr' once Samba is configured" >&2
+    echo "spinema: $smb_conf not found, [Disks] share not added: run 'sudo dpkg-reconfigure spinema' once Samba is configured" >&2
     exit 0
 fi
 if grep -qF "$mark_begin" "$smb_conf"; then
     sed -i "/^${mark_begin}\$/,/^${mark_end}\$/d" "$smb_conf"
 fi
+# the same share added by a native install from before the rename (bluray3d-xr)
+sed -i '/^# >>> bluray3d-xr >>>$/,/^# <<< bluray3d-xr <<<$/d' "$smb_conf"
 cat >> "$smb_conf" <<SHARE
 
 $mark_begin

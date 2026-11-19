@@ -1,6 +1,9 @@
 🌐 [English](README.md) | **Italiano**
 
-# Blu-ray e DVD su ogni schermo di casa, 3D compreso, da Linux
+# Spinema
+
+Blu-ray e DVD su ogni schermo di casa, 3D compreso, da Linux.
+
 #### _Metti un disco nel lettore del PC Linux e guardalo su qualunque dispositivo di casa: TV, tablet, telefono, occhiali XR. Il PC legge, decifra e decodifica il disco al volo e lo serve in rete locale come un normale file video. I Blu-ray 3D diventano 3D affiancato vero per gli occhiali XR (VITURE & co.). Niente rip, niente conversione, niente spazio su disco._
 
 ***Nota:*** _Qualsiasi player capace di aprire video da una cartella di rete (SMB), o di esplorare invece un media server DLNA/UPnP ([docs/OPTIONS.it.md](docs/OPTIONS.it.md#dlnaupnp-invece-di-samba)), dovrebbe funzionare; per il 3D deve anche mostrare il video affiancato. Dispositivi, player e dischi provati finora, con una guida per ciascuno: [**docs/TESTED.it.md**](docs/TESTED.it.md)._
@@ -77,14 +80,14 @@ I DVD (CSS) vengono decifrati da **libdvdcss**, che installi tu: su Debian/Ubunt
 
 Su Debian o Ubuntu, dal pacchetto della release:
 
-- [ ] Scarica il `.deb` per il tuo sistema dalle [release](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases), poi installalo:
+- [ ] Scarica il `.deb` per il tuo sistema dalle [release](https://github.com/suppressio/spinema/releases), poi installalo:
 ```console
-sudo apt install ./bluray3d-xr_<versione>_amd64.deb
+sudo apt install ./spinema_<versione>_amd64.deb
 ```
 apt installa quello che serve al programma (FFmpeg, libbluray, libaacs, libdvdread...); edge264 è dentro il pacchetto. Le chiavi e libdvdcss sono tuoi: vedi [Decifratura](#decifratura-le-chiavi-le-porti-tu).
 - [ ] Aggiungi il tuo utente al gruppo del pacchetto per poter leggere i file montati; esci e rientra nella sessione perché la modifica abbia effetto:
 ```console
-sudo adduser "$USER" bluray3d-xr
+sudo adduser "$USER" spinema
 ```
 
 - [ ] Il tuo utente deve poter leggere il lettore (su Debian/Ubuntu: il gruppo `cdrom`, di solito già assegnato agli utenti desktop).
@@ -94,11 +97,11 @@ sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
 ```
 - [ ] Avvialo quando vuoi guardare qualcosa:
 ```console
-bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
+spinema --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
 Quando inserisci un disco compaiono i suoi file; ogni riga `pipeline from` è il player che parte o salta:
 ```
-11:23:59 bluray3d-xr v1.0.0
+11:23:59 spinema v1.0.0
 11:24:00 video encoder: nvenc
 11:24:00 watching /dev/sr0: insert a disc
 11:24:00 mounted on /srv/bd3d — Ctrl+C to unmount
@@ -118,8 +121,8 @@ Si ferma con `Ctrl+C`. Aggiornare e disinstallare: [più sotto](#aggiornare-e-di
 
 Per una copia di lavoro del progetto, o per seguire la versione in sviluppo. [`scripts/install.sh`](scripts/install.sh), avviato come utente normale, installa i pacchetti, compila edge264, installa il comando e aggiunge a Samba la condivisione `[Disks]` in sola lettura e ad accesso ospite (Debian/Ubuntu):
 ```console
-git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
-cd bluray3d-xr-glasses-linux
+git clone https://github.com/suppressio/spinema.git
+cd spinema
 ./scripts/install.sh
 ```
 
@@ -131,8 +134,8 @@ Per le altre distribuzioni, o se preferisci non toccare il sistema: Samba, FUSE 
 
 - [ ] Scarica il progetto:
 ```console
-git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
-cd bluray3d-xr-glasses-linux
+git clone https://github.com/suppressio/spinema.git
+cd spinema
 ```
 - [ ] Crea le impostazioni:
 ```console
@@ -181,14 +184,16 @@ Se sul PC gira già Samba, il container non può prendere la porta 445. I player
 
 ### Aggiornare e disinstallare
 
-**Aggiornare**, quando esce una versione nuova (vedi [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases)); `bluray3d-xr --version` dice quale hai:
-- pacchetto della release: scarica il nuovo `.deb` e installalo con `sudo apt install ./bluray3d-xr_<versione>_amd64.deb`;
-- strada nativa: `./scripts/update.sh` nella cartella del progetto. Scarica l'ultima versione e copia il programma in `/opt/bluray3d-xr`; ripete tutto `install.sh` solo quando serve (è cambiato edge264, o non c'è nulla di installato). Alla fine scrive "Updated from vX to vY" e l'elenco delle modifiche. Se il programma è acceso, fermalo e riavvialo.
+**Aggiornare**, quando esce una versione nuova (vedi [Releases](https://github.com/suppressio/spinema/releases)); `spinema --version` dice quale hai:
+- pacchetto della release: scarica il nuovo `.deb` e installalo con `sudo apt install ./spinema_<versione>_amd64.deb`;
+- strada nativa: `./scripts/update.sh` nella cartella del progetto. Scarica l'ultima versione e copia il programma in `/opt/spinema`; ripete tutto `install.sh` solo quando serve (è cambiato edge264, o non c'è nulla di installato). Alla fine scrive "Updated from vX to vY" e l'elenco delle modifiche. Se il programma è acceso, fermalo e riavvialo.
 - Docker: `git pull && docker compose up -d --build`.
 
+**Se vieni da `bluray3d-xr`**: Spinema è il nuovo nome del progetto (comando, pacchetto e `/opt/bluray3d-xr` si chiamavano `bluray3d-xr`). Il nuovo `.deb` sostituisce il vecchio pacchetto e ne tiene il gruppo; per l'installazione nativa esegui `./scripts/update.sh` due volte (la prima è ancora lo script vecchio, che aggiorna sul posto; la seconda sposta l'installazione e la sua condivisione Samba); Docker ricostruisce l'immagine con il nome nuovo (prima `docker compose down` nella cartella vecchia se hai clonato di nuovo; `docker image rm bluray3d-xr:local` libera l'immagine vecchia). Ferma il programma prima di aggiornare. Poi avvia il nuovo comando `spinema`. Con il `.deb`, se più avanti elimini del tutto il vecchio pacchetto (`sudo apt purge bluray3d-xr`, resta elencato come `rc`), esegui poi `sudo dpkg-reconfigure spinema`: il purge del vecchio pacchetto toglie `/srv/bd3d`. I vecchi log restano in `~/.local/state/bluray3d-xr/`. Due cose da sapere: script, unit o alias che chiamano `bluray3d-xr` vanno cambiati in `spinema`, e i player DLNA lo mostrano come un server nuovo (la voce vecchia è morta).
+
 **Disinstallare**:
-- pacchetto della release: `sudo apt remove bluray3d-xr` rimuove la condivisione e `/srv/bd3d`; `sudo apt purge bluray3d-xr` rimuove anche il gruppo `bluray3d-xr`. La riga `user_allow_other` resta in `/etc/fuse.conf`.
-- strada nativa: `./scripts/uninstall.sh`. Smonta e cancella `/srv/bd3d`, toglie la condivisione `[Disks]` da `smb.conf` (solo il blocco che aveva aggiunto: le tue condivisioni restano), `/opt/bluray3d-xr` e il comando `bluray3d-xr`. Restano i pacchetti apt (FFmpeg, Samba, libbluray...) e la riga `user_allow_other` in `/etc/fuse.conf`, perché possono servire ad altro: se non servono, toglili con apt.
+- pacchetto della release: `sudo apt remove spinema` rimuove la condivisione e `/srv/bd3d`; `sudo apt purge spinema` rimuove anche il gruppo `spinema`. La riga `user_allow_other` resta in `/etc/fuse.conf`.
+- strada nativa: `./scripts/uninstall.sh`. Smonta e cancella `/srv/bd3d`, toglie la condivisione `[Disks]` da `smb.conf` (solo il blocco che aveva aggiunto: le tue condivisioni restano), `/opt/spinema` e il comando `spinema`. Restano i pacchetti apt (FFmpeg, Samba, libbluray...) e la riga `user_allow_other` in `/etc/fuse.conf`, perché possono servire ad altro: se non servono, toglili con apt.
 - Docker: `docker compose down --rmi all` ferma il container e cancella la sua immagine.
 
 Poi cancella la cartella del progetto.
@@ -227,9 +232,9 @@ Passo passo per il 3D Player VITURE, il lettore di sistema del PICO 4 e VLC, e c
 
 Le impostazioni predefinite offrono tutto quello che c'è sul disco. Di solito si vogliono solo le proprie lingue:
 ```console
-bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
+spinema --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
-(Docker: `AUDIO_LANG=ita,eng` e `SUBS=ita,eng` nel file `.env`.) Senza indicare né un lettore né una cartella: `bluray3d-xr` da solo controlla ogni lettore ottico che trova (`/dev/sr0`, `/dev/sr1`...). Tutte le altre opzioni, e file ISO, cartelle BDMV/VIDEO_TS o rip MKV al posto del lettore: [**docs/OPTIONS.it.md**](docs/OPTIONS.it.md).
+(Docker: `AUDIO_LANG=ita,eng` e `SUBS=ita,eng` nel file `.env`.) Senza indicare né un lettore né una cartella: `spinema` da solo controlla ogni lettore ottico che trova (`/dev/sr0`, `/dev/sr1`...). Tutte le altre opzioni, e file ISO, cartelle BDMV/VIDEO_TS o rip MKV al posto del lettore: [**docs/OPTIONS.it.md**](docs/OPTIONS.it.md).
 
 ---
 

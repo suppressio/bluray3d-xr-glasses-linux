@@ -12,17 +12,17 @@ How to run the program from a clone, where things are in the code, what the test
 
 1. Run the native install once (the [native script](../README.md#native-script-from-a-clone) in the README), including the Samba share. It installs everything a clone needs as well:
    - the system packages (FFmpeg, libbluray, libdvdread, fuse3; Samba when using the Samba share);
-   - the edge264 decoder in `/opt/bluray3d-xr/bin`;
+   - the edge264 decoder in `/opt/spinema/bin`;
    - the mount point `/srv/bd3d`;
    - `user_allow_other` in `/etc/fuse.conf`.
 2. Start the program from the clone instead of the installed copy:
 
    ```bash
    cd src
-   PATH=/opt/bluray3d-xr/bin:$PATH python3 bd3d_fs.py --debug /dev/sr0
+   PATH=/opt/spinema/bin:$PATH python3 bd3d_fs.py --debug /dev/sr0
    ```
 
-   The first log line gives the version, e.g. `bluray3d-xr v1.1.0-2-gabc1234`: two commits after v1.1.0.
+   The first log line gives the version, e.g. `spinema v1.1.0-2-gabc1234`: two commits after v1.1.0.
 3. Stop it with **Ctrl+C**: it unmounts `/srv/bd3d` and removes its temporary files.
 
 - **Only one copy at a time.** The installed one and the one in the clone use the same mount point. The second refuses to start, with a message that says so.
@@ -127,7 +127,7 @@ They run on the disc in the drive (`BD3D_TEST_DRIVE`, default `/dev/sr0`) or on 
 - **decoded 3D frames:** 48 frames at 50%, decoded by edge264 (3D only);
 - **the virtual file:** a piece read through the real pipeline, with the right streams, picture size and timestamps.
 
-The first run on a disc records a reference in `~/.cache/bluray3d-xr/reference/`: hashes only, no disc content. Later runs must match it byte for byte. After a change that is meant to alter the output (a new filter, a different stream order), record it again:
+The first run on a disc records a reference in `~/.cache/spinema/reference/`: hashes only, no disc content. Later runs must match it byte for byte. After a change that is meant to alter the output (a new filter, a different stream order), record it again:
 
 ```bash
 BD3D_UPDATE_REFERENCE=1 scripts/check.sh --integration
@@ -150,14 +150,14 @@ Which tests matter for which change:
 
 ### The program's log
 
-It goes to the terminal and to `~/.local/state/bluray3d-xr/bluray3d-xr.log`, with the date (`--log` to change it; with Docker: `docker compose logs -f`). The lines to know:
+It goes to the terminal and to `~/.local/state/spinema/spinema.log`, with the date (`--log` to change it; with Docker: `docker compose logs -f`). The lines to know:
 
 | Line | Meaning |
 |---|---|
-| `bluray3d-xr v1.1.0` | the version: the first thing to ask for in a bug report |
+| `spinema v1.1.0` | the version: the first thing to ask for in a bug report |
 | `video encoder: nvenc` | NVENC or x264, chosen at start |
 | `watching /dev/sr0: insert a disc` | a drive is watched, even when it is empty |
-| `DLNA: bluray3d-xr announced at http://192.168.1.5:8201/description.xml` | `--share dlna`/`both`: the HTTP+SSDP server started, with the URL a renderer fetches its description from |
+| `DLNA: spinema announced at http://192.168.1.5:8201/description.xml` | `--share dlna`/`both`: the HTTP+SSDP server started, with the URL a renderer fetches its description from |
 | `/dev/sr0: disc inserted, opening it` / `disc ejected` | the drive saw a disc go in or out |
 | `+ Blu-ray 3D/ITA - Movie - 3D SBS.ts (120 min, 24.0 Mbit/s, audio …)` | a file appeared: its length, bitrate and tracks |
 | `- …` | a file went away (eject) |
@@ -189,7 +189,7 @@ It goes to the terminal and to `~/.local/state/bluray3d-xr/bluray3d-xr.log`, wit
 
 ## Taking a pipeline apart
 
-The `--debug` command of a pipeline gives the playlist, title and tracks. Each stage can then be run alone, from `src/`, with `PATH=/opt/bluray3d-xr/bin:$PATH`. `ffplay` shows the result; on Debian it is a package of its own (`sudo apt install ffplay`).
+The `--debug` command of a pipeline gives the playlist, title and tracks. Each stage can then be run alone, from `src/`, with `PATH=/opt/spinema/bin:$PATH`. `ffplay` shows the result; on Debian it is a package of its own (`sudo apt install ffplay`).
 
 ```bash
 # 2D Blu-ray: the filtered stream, straight into a player

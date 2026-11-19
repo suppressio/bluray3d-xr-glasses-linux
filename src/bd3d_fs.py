@@ -265,7 +265,7 @@ def build_parser() -> argparse.ArgumentParser:
                              "inserted), ISO files, BDMV folders, 3D MKV rips, or folders "
                              "to scan recursively. None given: watch every optical drive "
                              "found on this machine (/dev/sr*)")
-    parser.add_argument("--version", action="version", version=f"bluray3d-xr {program_version()}")
+    parser.add_argument("--version", action="version", version=f"spinema {program_version()}")
     parser.add_argument("--mount", default="/srv/bd3d", help="mount point (default /srv/bd3d)")
     parser.add_argument("--audio-lang", default="all",
                         help="audio languages to offer, e.g. ita,eng, or all (default: every "
@@ -316,7 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="output of the pipelines (FFmpeg, decoders), one section each")
     parser.add_argument("--log", default=str(default_program_log()),
                         help="the program's log is also saved here (default "
-                             "~/.local/state/bluray3d-xr/bluray3d-xr.log), or none")
+                             "~/.local/state/spinema/spinema.log), or none")
     parser.add_argument("--dump-structure", metavar="FILE",
                         help="write the structure of the one disc given (drive, ISO, BDMV or "
                              "VIDEO_TS folder) to FILE, a new file, as JSON and exit: titles, "
@@ -383,7 +383,7 @@ def main() -> None:
     log_path: str = args.log
     log_to_file(log_path)
 
-    log.info("bluray3d-xr %s", program_version())
+    log.info("spinema %s", program_version())
     if log_path != "none":
         log.info("log saved in %s", log_path)
     if args.dump_structure is not None:     # one disc, written out: nothing else starts

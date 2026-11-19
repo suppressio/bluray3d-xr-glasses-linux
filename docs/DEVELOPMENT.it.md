@@ -12,17 +12,17 @@ Come avviare il programma da un clone, dove stanno le cose nel codice, cosa cont
 
 1. Fai una volta l'installazione nativa (lo [script nativo](../README.it.md#script-nativo-da-una-copia-del-progetto) nel README), compresa la condivisione Samba. Installa anche tutto quello che serve a un clone:
    - i pacchetti di sistema (FFmpeg, libbluray, libdvdread, fuse3; Samba quando usi la condivisione Samba);
-   - il decoder edge264 in `/opt/bluray3d-xr/bin`;
+   - il decoder edge264 in `/opt/spinema/bin`;
    - il punto di montaggio `/srv/bd3d`;
    - `user_allow_other` in `/etc/fuse.conf`.
 2. Avvia il programma dal clone invece che dalla copia installata:
 
    ```bash
    cd src
-   PATH=/opt/bluray3d-xr/bin:$PATH python3 bd3d_fs.py --debug /dev/sr0
+   PATH=/opt/spinema/bin:$PATH python3 bd3d_fs.py --debug /dev/sr0
    ```
 
-   La prima riga del log dà la versione, per esempio `bluray3d-xr v1.1.0-2-gabc1234`: due commit dopo la v1.1.0.
+   La prima riga del log dà la versione, per esempio `spinema v1.1.0-2-gabc1234`: due commit dopo la v1.1.0.
 3. Fermalo con **Ctrl+C**: smonta `/srv/bd3d` e cancella i suoi file temporanei.
 
 - **Una copia alla volta.** Quella installata e quella del clone usano lo stesso punto di montaggio. La seconda non parte, e un messaggio lo spiega.
@@ -127,7 +127,7 @@ Girano sul disco nel lettore (`BD3D_TEST_DRIVE`, predefinito `/dev/sr0`) o su un
 - **fotogrammi 3D decodificati:** 48 fotogrammi al 50%, decodificati da edge264 (solo 3D);
 - **il file virtuale:** un pezzo letto attraverso la pipeline vera, con i flussi, la dimensione dell'immagine e i tempi giusti.
 
-La prima volta su un disco registra un riferimento in `~/.cache/bluray3d-xr/reference/`: solo impronte, niente contenuto del disco. Le volte successive il risultato deve coincidere byte per byte. Dopo una modifica che deve cambiare il risultato (un filtro nuovo, un altro ordine dei flussi), registralo di nuovo:
+La prima volta su un disco registra un riferimento in `~/.cache/spinema/reference/`: solo impronte, niente contenuto del disco. Le volte successive il risultato deve coincidere byte per byte. Dopo una modifica che deve cambiare il risultato (un filtro nuovo, un altro ordine dei flussi), registralo di nuovo:
 
 ```bash
 BD3D_UPDATE_REFERENCE=1 scripts/check.sh --integration
@@ -150,14 +150,14 @@ Quali test contano per quale modifica:
 
 ### Il log del programma
 
-Va nel terminale e in `~/.local/state/bluray3d-xr/bluray3d-xr.log`, con la data (`--log` per cambiarlo; con Docker: `docker compose logs -f`). Le righe da conoscere:
+Va nel terminale e in `~/.local/state/spinema/spinema.log`, con la data (`--log` per cambiarlo; con Docker: `docker compose logs -f`). Le righe da conoscere:
 
 | Riga | Significato |
 |---|---|
-| `bluray3d-xr v1.1.0` | la versione: la prima cosa da chiedere in una segnalazione |
+| `spinema v1.1.0` | la versione: la prima cosa da chiedere in una segnalazione |
 | `video encoder: nvenc` | NVENC o x264, scelto all'avvio |
 | `watching /dev/sr0: insert a disc` | un lettore è sorvegliato, anche se è vuoto |
-| `DLNA: bluray3d-xr announced at http://192.168.1.5:8201/description.xml` | `--share dlna`/`both`: il server HTTP+SSDP è partito, con l'URL da cui un renderer scarica la sua descrizione |
+| `DLNA: spinema announced at http://192.168.1.5:8201/description.xml` | `--share dlna`/`both`: il server HTTP+SSDP è partito, con l'URL da cui un renderer scarica la sua descrizione |
 | `/dev/sr0: disc inserted, opening it` / `disc ejected` | il lettore ha visto entrare o uscire un disco |
 | `+ Blu-ray 3D/ITA - Film - 3D SBS.ts (120 min, 24.0 Mbit/s, audio …)` | è comparso un file: durata, bitrate e tracce |
 | `- …` | un file è sparito (espulsione) |
@@ -189,7 +189,7 @@ Va nel terminale e in `~/.local/state/bluray3d-xr/bluray3d-xr.log`, con la data 
 
 ## Smontare una pipeline
 
-Il comando di una pipeline stampato da `--debug` dà playlist, titolo e tracce. Ogni passaggio si può poi eseguire da solo, da `src/`, con `PATH=/opt/bluray3d-xr/bin:$PATH`. `ffplay` mostra il risultato; su Debian è un pacchetto a parte (`sudo apt install ffplay`).
+Il comando di una pipeline stampato da `--debug` dà playlist, titolo e tracce. Ogni passaggio si può poi eseguire da solo, da `src/`, con `PATH=/opt/spinema/bin:$PATH`. `ffplay` mostra il risultato; su Debian è un pacchetto a parte (`sudo apt install ffplay`).
 
 ```bash
 # Blu-ray 2D: il flusso filtrato, dritto in un player

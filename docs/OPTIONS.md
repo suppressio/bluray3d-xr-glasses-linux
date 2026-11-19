@@ -7,7 +7,7 @@
 The defaults work: you only need this page to change what the share offers (languages, subtitles, quality) or how it behaves. Back to the [README](../README.md).
 
 **Where options go:**
-- native path: on the command line, e.g. `bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0`;
+- native path: on the command line, e.g. `spinema --audio-lang ita,eng --subs ita,eng /dev/sr0`;
 - Docker: in `.env` (see `.env.example`), then `docker compose up -d`.
 
 | Option | `.env` (Docker) | Command line (native) | Default |
@@ -25,7 +25,7 @@ The defaults work: you only need this page to change what the share offers (lang
 | [Share over Samba, DLNA, or both](#dlnaupnp-instead-of-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
 | [DLNA/HTTP port](#dlnaupnp-instead-of-samba) | `HTTP_PORT` | `--http-port` | `8201` |
 | Mount point | — | `--mount` | `/srv/bd3d` |
-| [Program log file](#logs) | — | `--log path` or `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
+| [Program log file](#logs) | — | `--log path` or `none` | `~/.local/state/spinema/spinema.log` |
 | [Pipeline log](#logs) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 | [Jump log](#logs) | — | `--debug` | off |
 | [Write a disc's structure and exit](#a-discs-structure) | — | `--dump-structure file.json` | off |
@@ -46,13 +46,13 @@ Besides a drive, the program accepts the same content in other forms (all at onc
 | Folder | `~/Videos/3D` | scanned recursively for all of the above |
 
 ```console
-bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
+spinema --audio-lang ita,eng /dev/sr0 ~/Videos/3D
 ```
 
 **No source named on the command line:** the program watches every optical drive it finds (`/dev/sr0`, `/dev/sr1`...), as if each had been named explicitly:
 
 ```console
-bluray3d-xr --audio-lang ita,eng
+spinema --audio-lang ita,eng
 ```
 
 With no drive at all (and nothing else named), it stops with "no source found".
@@ -74,11 +74,11 @@ A disc's bonus content (making-of, deleted scenes...) goes in an `Extra/` subfol
 By default the files are only mounted for Samba, the `[Disks]` share (`--share samba`). `--share dlna` announces the same files over DLNA/UPnP instead, for players that browse a media server rather than opening a network share (smart TVs, Kodi, Moon VR...); neither FUSE nor Samba is needed in this mode. `--share both` does both at once, e.g. to serve a TV over DLNA and a phone over SMB from the same program.
 
 ```console
-bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
+spinema --share dlna --audio-lang ita,eng /dev/sr0
 ```
 
 - The server listens on `--http-port` (default `8201`). Open `http://<pc-ip>:8201/` in a browser to see the same folders as a plain page: a quick way to check it is working, and any player that opens a video by URL can use it directly.
-- On the player, look for "bluray3d-xr" among the DLNA/media servers it finds on the network (no IP address to type): browse into `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, the same folders as the SMB share.
+- On the player, look for "spinema" among the DLNA/media servers it finds on the network (no IP address to type): browse into `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, the same folders as the SMB share.
 - Seeking works the same way as over SMB: a byte of the file is still a precise second of the movie, so a jump restarts the pipeline from there regardless of whether the player reads it over SMB or HTTP.
 - Docker, DLNA only: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — no Samba, no FUSE, no port 445 (a Blu-ray drive named by `DRIVE` in `.env` is passed on by itself, no line to uncomment); it uses the host network, since SSDP discovery is multicast (`HTTP_PORT` in `.env` sets the port). DLNA together with Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, also on the host network, so Samba uses the host's port 445 directly (`SMB_PORT` does not apply).
 - Native install: `scripts/install.sh --share dlna` skips Samba and system FUSE packages, the FUSE mount and `smb.conf` entirely. The Samba path uses the vendored `mfusepy.py` adapter with the system `fuse3` runtime; `scripts/install.sh --share both` installs both paths. Running it again with `both` after a `dlna` install adds the Samba/FUSE pieces it had skipped. `scripts/update.sh` keeps the kind chosen at install time.
@@ -158,7 +158,7 @@ Docker: `ENCODER` in `.env`, plus the matching compose override to reach the GPU
 
 ## Logs
 
-- The program's log says which movies appear, which pipeline starts where, and whether the network and the disc keep up. It goes to the terminal and is also saved, with the date, in `~/.local/state/bluray3d-xr/bluray3d-xr.log` (up to 5 MB, then three older copies `.1` `.2` `.3`); `--log` saves it elsewhere, `--log none` not at all. With Docker: `docker compose logs`.
+- The program's log says which movies appear, which pipeline starts where, and whether the network and the disc keep up. It goes to the terminal and is also saved, with the date, in `~/.local/state/spinema/spinema.log` (up to 5 MB, then three older copies `.1` `.2` `.3`); `--log` saves it elsewhere, `--log none` not at all. With Docker: `docker compose logs`.
 - `--log-file` is FFmpeg's and the decoders' output, one section per pipeline (the older one moves to `.1` beyond 10 MB): the first place to look when the picture is wrong.
 - `--debug` also logs every jump and the player's reads in the 20 seconds after it: how long it waited, and whether it looked paused. Also the full command of each pipeline, to run it by hand ([DEVELOPMENT.md](DEVELOPMENT.md#taking-a-pipeline-apart)).
 
@@ -167,7 +167,7 @@ Docker: `ENCODER` in `.env`, plus the matching compose override to reach the GPU
 `--dump-structure FILE` reads one disc (a drive with the disc in it, an ISO, a BDMV or VIDEO_TS folder), writes its structure to `FILE` as JSON and exits: nothing is shared, mounted or encoded.
 
 ```console
-bluray3d-xr --dump-structure tron.json /dev/sr0
+spinema --dump-structure tron.json /dev/sr0
 ```
 
 - **What it holds:** what the program picks the movie or the episodes from and seeks with, as read from the disc's navigation files, before any choice. Blu-ray: every title libbluray lists, with its play items (clip, in and out time, audio and subtitle tracks and their languages), and the keyframe map (EP_map) and extents of every clip they use. DVD: every title, with its cells, tracks and languages, and for each title set the start of every VOBU with the time its navigation pack gives. Times keep the disc's own precision. The file starts with its format version (`"format": 1`).

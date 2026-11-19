@@ -615,7 +615,7 @@ Tutti i link citati sopra, nell'ordine in cui compaiono la prima volta.
 
 ## L'adapter FUSE: mfusepy su libfuse3
 
-> Misurato il 2026-11-03 per la [#129](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/129), l'approccio della [#7](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/7): [mfusepy](https://github.com/mxmlnkn/mfusepy) 3.1.1 può sostituire pyfuse3 su Linux? È l'adapter su cui contano i port per macOS e Windows. Su un PC Debian testing (Ryzen 9 5900X), libfuse 3.18.3, con un `VirtualFile` finto preso da `tests/test_library.py` (nessun disco). `src/fuse_fs.py` si basa su questi risultati.
+> Misurato il 2026-11-03 per la [#129](https://github.com/suppressio/spinema/issues/129), l'approccio della [#7](https://github.com/suppressio/spinema/issues/7): [mfusepy](https://github.com/mxmlnkn/mfusepy) 3.1.1 può sostituire pyfuse3 su Linux? È l'adapter su cui contano i port per macOS e Windows. Su un PC Debian testing (Ryzen 9 5900X), libfuse 3.18.3, con un `VirtualFile` finto preso da `tests/test_library.py` (nessun disco). `src/fuse_fs.py` si basa su questi risultati.
 
 ### In breve
 

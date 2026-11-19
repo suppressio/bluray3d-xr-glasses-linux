@@ -28,43 +28,43 @@ make -C "$edge264" -j"$(nproc)" V=no CC=/usr/bin/gcc \
 strip --strip-unneeded "$edge264/edge264mvc_test" "$edge264/libedge264mvc.so.2"
 
 install -d "$package/DEBIAN" \
-    "$package/opt/bluray3d-xr/app" \
-    "$package/opt/bluray3d-xr/loaders" \
-    "$package/opt/bluray3d-xr/bin" \
+    "$package/opt/spinema/app" \
+    "$package/opt/spinema/loaders" \
+    "$package/opt/spinema/bin" \
     "$package/usr/bin" \
-    "$package/usr/share/doc/bluray3d-xr" \
+    "$package/usr/share/doc/spinema" \
     "$package/usr/share/lintian/overrides"
-install -m 644 "$REPO_DIR"/src/*.py "$package/opt/bluray3d-xr/app/"
-install -m 644 "$REPO_DIR"/loaders/*.mp4 "$package/opt/bluray3d-xr/loaders/"
-install -m 755 "$edge264/edge264mvc_test" "$package/opt/bluray3d-xr/bin/"
-install -m 644 "$edge264/libedge264mvc.so.2" "$package/opt/bluray3d-xr/bin/"
-install -m 644 "$edge264/LICENSE_BSD.txt" "$package/usr/share/doc/bluray3d-xr/"
-install -m 644 "$REPO_DIR/LICENSE" "$package/usr/share/doc/bluray3d-xr/copyright"
-printf '%s\n' "$app_version" > "$package/opt/bluray3d-xr/app/version"
-printf '%s\n' "$edge264_commit" > "$package/opt/bluray3d-xr/bin/edge264.commit"
-chmod 644 "$package/opt/bluray3d-xr/app/version" "$package/opt/bluray3d-xr/bin/edge264.commit"
+install -m 644 "$REPO_DIR"/src/*.py "$package/opt/spinema/app/"
+install -m 644 "$REPO_DIR"/loaders/*.mp4 "$package/opt/spinema/loaders/"
+install -m 755 "$edge264/edge264mvc_test" "$package/opt/spinema/bin/"
+install -m 644 "$edge264/libedge264mvc.so.2" "$package/opt/spinema/bin/"
+install -m 644 "$edge264/LICENSE_BSD.txt" "$package/usr/share/doc/spinema/"
+install -m 644 "$REPO_DIR/LICENSE" "$package/usr/share/doc/spinema/copyright"
+printf '%s\n' "$app_version" > "$package/opt/spinema/app/version"
+printf '%s\n' "$edge264_commit" > "$package/opt/spinema/bin/edge264.commit"
+chmod 644 "$package/opt/spinema/app/version" "$package/opt/spinema/bin/edge264.commit"
 
 {
-    printf 'bluray3d-xr (%s) unstable; urgency=medium\n\n' "$package_version"
+    printf 'spinema (%s) unstable; urgency=medium\n\n' "$package_version"
     printf '  * Automated release package build.\n\n'
     printf ' -- Suppressio <suppressio@users.noreply.github.com>  %s\n' "$(date -R)"
-} | gzip -9n > "$package/usr/share/doc/bluray3d-xr/changelog.gz"
+} | gzip -9n > "$package/usr/share/doc/spinema/changelog.gz"
 
-cat > "$package/usr/share/lintian/overrides/bluray3d-xr" <<'OVERRIDES'
-bluray3d-xr: dir-or-file-in-opt
-bluray3d-xr: read-in-maintainer-script
+cat > "$package/usr/share/lintian/overrides/spinema" <<'OVERRIDES'
+spinema: dir-or-file-in-opt
+spinema: read-in-maintainer-script
 OVERRIDES
-chmod 644 "$package/usr/share/doc/bluray3d-xr/changelog.gz" \
-    "$package/usr/share/lintian/overrides/bluray3d-xr"
+chmod 644 "$package/usr/share/doc/spinema/changelog.gz" \
+    "$package/usr/share/lintian/overrides/spinema"
 
-cat > "$package/usr/bin/bluray3d-xr" <<'WRAPPER'
+cat > "$package/usr/bin/spinema" <<'WRAPPER'
 #!/bin/sh
-PATH="/opt/bluray3d-xr/bin:$PATH" exec python3 /opt/bluray3d-xr/app/bd3d_fs.py "$@"
+PATH="/opt/spinema/bin:$PATH" exec python3 /opt/spinema/app/bd3d_fs.py "$@"
 WRAPPER
-chmod 755 "$package/usr/bin/bluray3d-xr"
+chmod 755 "$package/usr/bin/spinema"
 
 cat > "$package/DEBIAN/control" <<CONTROL
-Package: bluray3d-xr
+Package: spinema
 Version: $package_version
 Section: video
 Priority: optional
@@ -72,6 +72,8 @@ Architecture: amd64
 Maintainer: Suppressio <suppressio@users.noreply.github.com>
 Depends: libc6, python3 (>= 3.12), ffmpeg, libbluray4 | libbluray2, libaacs0, libbdplus0, libdvdread8t64 | libdvdread8
 Recommends: fuse3, samba
+Replaces: bluray3d-xr
+Conflicts: bluray3d-xr
 Description: Stream Blu-ray and DVD movies over the home network, including 3D
  Read discs on Linux and serve them to network players as ordinary video files.
 CONTROL
@@ -81,7 +83,7 @@ install -m 755 "$REPO_DIR/scripts/deb-postrm" "$package/DEBIAN/postrm"
 echo "interest-noawait /usr/sbin/smbd" > "$package/DEBIAN/triggers"
 
 mkdir -p "$OUTPUT_DIR"
-deb="$OUTPUT_DIR/bluray3d-xr_${package_version}_amd64.deb"
+deb="$OUTPUT_DIR/spinema_${package_version}_amd64.deb"
 dpkg-deb --build --root-owner-group -Zxz "$package" "$deb"
 if command -v lintian >/dev/null; then
     lintian --fail-on error "$deb"
