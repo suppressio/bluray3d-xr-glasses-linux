@@ -21,7 +21,6 @@ import bisect
 import ctypes
 import ctypes.util
 import functools
-import itertools
 import os
 import threading
 import time
@@ -332,28 +331,68 @@ class IfoReader(Protocol):
 
 EPISODE_MIN = 20 * 60              # seconds: shorter titles are extras
 EPISODE_RATIO = 0.5                # titles at least this share of the longest: episodes
+CONTAINED = 0.8                    # share of a title inside another: it is part of it
+DISJOINT = 0.5                     # sharing less than this of the shorter: different content
 
 
-def _forward(title: DvdTitle) -> bool:
-    """The title plays the disc from start to end, each cell once. Copy
-    protections of the 2000s-2010s (UK series discs...) add dozens of fake titles
-    that replay the same cells in a scrambled order."""
-    firsts = [c.first for c in title.cells]
-    return all(b > a for a, b in itertools.pairwise(firsts))
+def _segments(title: DvdTitle) -> dict[tuple[int, int, int], float]:
+    """The content of a title: seconds of each cell, by (VTS, first, last sector)."""
+    return {(title.vts, c.first, c.last): c.duration for c in title.cells}
 
 
-def _cell_set(title: DvdTitle) -> set[tuple[int, int]]:
-    return {(c.first, c.last) for c in title.cells}
+def _shared(a: dict[tuple[int, int, int], float], b: dict[tuple[int, int, int], float]) -> float:
+    return sum(a[k] for k in a.keys() & b.keys())
+
+
+def choose_titles(parsed: list[DvdTitle]) -> list[DvdTitle]:
+    """What to offer from the disc: the movie, or the episodes of a series.
+
+    Judged on the content of the titles (cells and their time), not on their
+    order or on the menus; passes in this order:
+    1. short titles (extras) and titles replaying a cell (fake titles of copy
+       protections: a real title plays each cell once) are left out;
+    2. titles with the same cells are one: the first;
+    3. a title with >= 80% of its time inside each of two or more others that
+       barely overlap each other is a "play all": left out;
+    4. titles sharing half of the shorter one's time are versions (cuts) of one
+       thing: the longest;
+    5. of the rest, those of similar length (>= half the longest) are the episodes
+       in title order, if more than one; else the longest is the movie.
+    A disc where nothing passes gets its longest title."""
+    content = {t.number: _segments(t) for t in parsed
+               if t.duration >= EPISODE_MIN and len(_segments(t)) == len(t.cells)}
+    seen: set[frozenset[tuple[int, int, int]]] = set()
+    for t in parsed:
+        if t.number in content and (key := frozenset(content[t.number])) in seen:
+            del content[t.number]
+        elif t.number in content:
+            seen.add(key)
+    totals = {n: sum(c.values()) for n, c in content.items()}
+
+    def play_all(n: int) -> bool:
+        inside = [m for m in content
+                  if m != n and _shared(content[m], content[n]) >= CONTAINED * totals[m]]
+        return sum(1 for m in inside if all(
+            _shared(content[m], content[o]) < DISJOINT * min(totals[m], totals[o])
+            for o in inside if o != m)) >= 2
+
+    units = [n for n in content if not play_all(n)]
+    groups: list[int] = []                    # the longest of each group of versions
+    for n in sorted(units, key=lambda n: (-totals[n], n)):
+        if not any(_shared(content[n], content[g]) >= DISJOINT * min(totals[n], totals[g])
+                   for g in groups):
+            groups.append(n)
+    by_number = {t.number: t for t in parsed}
+    kept = [by_number[n] for n in groups]
+    if not kept:
+        return [max(parsed, key=lambda t: t.duration)]
+    longest = max(kept, key=lambda t: t.duration)
+    episodes = [t for t in kept if t.duration >= EPISODE_RATIO * longest.duration]
+    return sorted(episodes, key=lambda t: t.number) if len(episodes) > 1 else [longest]
 
 
 def main_titles(dvd: IfoReader) -> list[DvdTitle]:
-    """What to offer from the disc: the movie, or the episodes of a series.
-
-    Titles that jump back on the disc or replay cells are left out (fake titles
-    of copy protections), so are the short ones (extras) and "play all" titles
-    made of others. If several of the rest are of similar length they are the
-    episodes, in title order; otherwise the longest is the movie. A disc where
-    nothing passes those tests gets its longest title, as before."""
+    """The titles of the disc worth offering (see choose_titles)."""
     ifos: dict[int, bytes] = {}
     parsed: list[DvdTitle] = []
     for number, vts, ttn in titles(dvd.ifo(0)):
@@ -365,18 +404,7 @@ def main_titles(dvd: IfoReader) -> list[DvdTitle]:
             continue
     if not parsed:
         raise OSError("no title found on the DVD")
-    candidates: dict[frozenset[tuple[int, int]], DvdTitle] = {}
-    for t in parsed:                           # the same content twice: the first title
-        if t.duration >= EPISODE_MIN and _forward(t):
-            candidates.setdefault(frozenset(_cell_set(t)), t)
-    units = list(candidates.values())
-    units = [t for t in units                  # a "play all" contains other titles
-             if sum(1 for o in units if o is not t and _cell_set(o) <= _cell_set(t)) < 2]
-    if not units:
-        return [max(parsed, key=lambda t: t.duration)]
-    longest = max(units, key=lambda t: t.duration)
-    episodes = [t for t in units if t.duration >= EPISODE_RATIO * longest.duration]
-    return sorted(episodes, key=lambda t: t.number) if len(episodes) > 1 else [longest]
+    return choose_titles(parsed)
 
 
 @dataclass

@@ -1,0 +1,28 @@
+{
+ "titles": [
+  [
+   9,
+   "E01 - C4Dvd10476",
+   3594.48
+  ],
+  [
+   33,
+   "E02 - C4Dvd10476",
+   2917.48
+  ],
+  [
+   54,
+   "E03 - C4Dvd10476",
+   3030.48
+  ]
+ ],
+ "tree": [
+  "DVD",
+  "DVD/E01 - C4Dvd10476.ts",
+  "DVD/E02 - C4Dvd10476.ts",
+  "DVD/E03 - C4Dvd10476.ts",
+  "DVD/subENG - E01 - C4Dvd10476.ts",
+  "DVD/subENG - E02 - C4Dvd10476.ts",
+  "DVD/subENG - E03 - C4Dvd10476.ts"
+ ]
+}
