@@ -2,28 +2,17 @@
  "titles": [
   [
    1,
-   "E01 - Alien (Disc 1)",
+   "Alien Disc 1",
    6710.92
-  ],
-  [
-   2,
-   "E02 - Alien (Disc 1)",
-   6665.24
   ]
  ],
  "tree": [
   "DVD",
-  "DVD/ENG - E01 - Alien (Disc 1).ts",
-  "DVD/ENG - E02 - Alien (Disc 1).ts",
-  "DVD/ENGsubENG - E01 - Alien (Disc 1).ts",
-  "DVD/ENGsubENG - E02 - Alien (Disc 1).ts",
-  "DVD/ENGsubITA - E01 - Alien (Disc 1).ts",
-  "DVD/ENGsubITA - E02 - Alien (Disc 1).ts",
-  "DVD/ITA - E01 - Alien (Disc 1).ts",
-  "DVD/ITA - E02 - Alien (Disc 1).ts",
-  "DVD/ITAsubENG - E01 - Alien (Disc 1).ts",
-  "DVD/ITAsubENG - E02 - Alien (Disc 1).ts",
-  "DVD/ITAsubITA - E01 - Alien (Disc 1).ts",
-  "DVD/ITAsubITA - E02 - Alien (Disc 1).ts"
+  "DVD/ENG - Alien Disc 1.ts",
+  "DVD/ENGsubENG - Alien Disc 1.ts",
+  "DVD/ENGsubITA - Alien Disc 1.ts",
+  "DVD/ITA - Alien Disc 1.ts",
+  "DVD/ITAsubENG - Alien Disc 1.ts",
+  "DVD/ITAsubITA - Alien Disc 1.ts"
  ]
 }
