@@ -30,7 +30,7 @@ from library import (
     VirtualFile,
     null_padding,
 )
-from pipeline import Quality
+from pipeline import QUALITIES, Quality
 from sources import Source, SubTrack
 from tree import ROOT_ID, Folder, Tree, read_as
 
@@ -800,3 +800,61 @@ def test_library_extra_subfolder(tmp_path: Path) -> None:
     tree, lib = make_library(tmp_path, audio_files="both", sub_langs=[])
     lib.add(extra)
     assert "Blu-ray/Extra/Multi-audio/Show - Extra 1.ts" in paths(tree)
+
+
+@pytest.mark.parametrize("kind", ["2d", "3d", "dvd"])
+@pytest.mark.parametrize("light", [False, True])
+@pytest.mark.parametrize("extra", [False, True])
+def test_library_heavy_layout(tmp_path: Path, kind: str, light: bool, extra: bool) -> None:
+    tree = Tree()
+    lib = Library(tree, "x264", str(tmp_path / "log"), "both", light, heavy=True)
+    source = DiscSource(str(tmp_path / "d"))
+    source.quality_key = kind
+    source.two_d = kind != "3d"
+    source.category = {"2d": "Blu-ray", "3d": "Blu-ray 3D", "dvd": "DVD"}[kind]
+    source.subfolder = "Extra" if extra else ""
+    (tmp_path / "sidecar").write_text("1\n")
+    source.sidecars = [(".ita.srt", str(tmp_path / "sidecar"))]
+    added = lib.add(source)
+    # Each enabled quality mirrors normal, including subtitles, sidecars and multi-audio.
+    base = source.category + ("/Extra" if extra else "")
+    normal = [p.removeprefix(base + "/") for p in paths(tree)
+              if p.startswith(base + "/") and not p.startswith((base + "/Light", base + "/Heavy"))]
+    for level, enabled in (("Light", light), ("Heavy", kind != "dvd")):
+        prefix = f"{base}/{level}"
+        copies = [p.removeprefix(prefix + "/") for p in paths(tree)
+                  if p.startswith(prefix + "/")]
+        assert copies == normal if enabled else copies == []
+        assert (prefix in paths(tree)) == enabled
+    for vf in movies(tree):
+        q = QUALITIES[(kind, vf.quality.name)]
+        assert vf.muxrate == q.muxrate + (len(vf.source.audio_langs) - 1) * AUDIO_TRACK_MUX
+        assert vf.size == int(vf.source.duration * vf.bytes_per_sec) // TS_PACKET * TS_PACKET
+    lib.remove(added)
+    assert paths(tree) == []
+
+
+@pytest.mark.parametrize("kind", ["2d", "3d"])
+def test_heavy_seek_mapping(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str) -> None:
+    q = QUALITIES[(kind, "heavy")]
+    bps = q.bytes_per_sec
+
+    def decode(source: Source, start: float, output_args: str, filter_suffix: str = "") -> str:
+        assert f"-muxrate {q.muxrate}" in output_args
+        assert f"-b:v {q.video // 1000}k" in output_args
+        return fake_decode(source, start, output_args, filter_suffix)
+
+    # Scale the numbered-packet producer to the actual Heavy byte/time mapping.
+    monkeypatch.setattr(sys.modules[__name__], "BPS", bps)
+    monkeypatch.setattr(library, "decode_command", decode)
+    vf = VirtualFile(10, FakeSource(str(tmp_path / "d")), "x264", q, str(tmp_path / "log"))
+    _running.append(vf)
+    assert vf.size == int(vf.source.duration * bps) // TS_PACKET * TS_PACKET
+    assert_movie(vf.read(0, 4096), 0)
+    offset = int(123.6 * bps) + 17
+    assert_movie(vf.read(offset, 4096), offset)
+    gen = vf.gens[-1]
+    assert gen.base % TS_PACKET == 0 and gen.base <= offset and gen.covers(offset)
+    before = list(vf.gens)
+    assert_movie(vf.read(offset, 4096), offset)
+    assert vf.gens == before

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Update a native install (scripts/install.sh) to the latest version of this
-# repository: pulls it, then copies the program to /opt/bluray3d-xr. The system
+# repository: pulls it, then copies the program to /opt/spinema. The system
 # setup (packages, Samba share, FUSE) is left alone; when the pinned edge264
 # version changed, or nothing is installed yet, it runs install.sh instead.
 set -euo pipefail
 
-PREFIX=/opt/bluray3d-xr
+PREFIX=/opt/spinema
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
 
 [ "$(id -u)" -ne 0 ] || { echo "Run as your normal user, not as root."; exit 1; }
@@ -21,7 +21,11 @@ pinned=$(sed -n 's/^EDGE264_COMMIT=//p' "$REPO_DIR/scripts/install.sh")
 if [ ! -x "$PREFIX/bin/edge264mvc_test" ] || [ "$(cat "$PREFIX/bin/edge264.commit" 2>/dev/null)" != "$pinned" ]; then
     echo "edge264 or the installation itself needs setting up: running install.sh"
     # keep the --share kind of the existing install (none recorded: install.sh's default)
-    share=$(cat "$PREFIX/app/share" 2>/dev/null || true)
+    # (an install from before the rename, bluray3d-xr, still has it under its old prefix)
+    share=
+    for file in "$PREFIX/app/share" /opt/bluray3d-xr/app/share; do
+        if [ -s "$file" ]; then share=$(head -n 1 "$file"); break; fi
+    done
     exec "$REPO_DIR/scripts/install.sh" ${share:+--share "$share"}
 fi
 
@@ -38,5 +42,5 @@ if [ -n "$old" ] && git -C "$REPO_DIR" rev-parse --verify --quiet "$old^{commit}
     git -C "$REPO_DIR" log --oneline "$old..HEAD" | sed 's/^/  /'
 fi
 if pgrep -f "$PREFIX/app/bd3d_fs.py" >/dev/null; then
-    echo "bluray3d-xr is running: stop it (Ctrl+C) and start it again to use the new version."
+    echo "spinema is running: stop it (Ctrl+C) and start it again to use the new version."
 fi

@@ -1,6 +1,9 @@
 🌐 **English** | [Italiano](README.it.md)
 
-# Blu-rays and DVDs on every screen at home, 3D included, from Linux
+# Spinema
+
+Blu-rays and DVDs on every screen at home, 3D included, from Linux.
+
 #### _Put a disc in your Linux PC's drive and watch it on any device at home: TV, tablet, phone, XR glasses. The PC reads, decrypts and decodes the disc on the fly and serves it over the LAN as an ordinary video file. 3D Blu-rays become real side-by-side 3D for XR glasses (VITURE & co.). No rip, no conversion, no disk space._
 
 ***Note:*** _Any player able to open videos from a network share (SMB), or browse a DLNA/UPnP media server instead ([docs/OPTIONS.md](docs/OPTIONS.md#dlnaupnp-instead-of-samba)), should work; for 3D it must also show side-by-side video. Devices, players and discs tested so far, with a guide for each: [**docs/TESTED.md**](docs/TESTED.md)._
@@ -36,7 +39,7 @@ The PC reads the disc and decodes the MVC **while you watch**, and serves the re
 
 - **Insert the disc, the movie appears.** About 15 seconds after closing the tray the file shows up in the share, named after the disc; eject the disc and it goes away.
 - **3D Blu-rays, 2D Blu-rays and DVDs.** Same flow for all: 3D discs go in the `Blu-ray 3D/` folder, 2D Blu-rays in `Blu-ray/`, DVDs in `DVD/`.
-- **TV series.** A Blu-ray with several episodes names each one `S01E05 - Show.ts`, in play-all order, with the season read from the disc's own name ([details](docs/OPTIONS.md#tv-series)).
+- **TV series.** A Blu-ray with several episodes names each one `S01E05 - Show.ts`, in play-all order, with the season read from the disc's own name ([details](docs/OPTIONS.md#tv-series)); `--lookup` also names each episode with its real title, found online on [TheDiscDB](https://thediscdb.com) ([details](docs/OPTIONS.md#online-episode-lookup)).
 - **Any device at home.** A TV, tablet or phone with a player that opens network shares plays the Blu-rays and DVDs; the 3D files need a player that shows side-by-side 3D (XR glasses, VR headsets). Several devices can watch at once, even the same disc in two languages.
 - **Nothing is written to disk.** The `.ts` file shows a size of ~22 GB but takes no space: every piece is produced when the player reads it.
 - **Seeking works.** The file has a constant bitrate, so every byte matches a precise second of the movie. When the player jumps, the PC restarts reading the disc from there (a few seconds: the optical drive has to move).
@@ -52,7 +55,7 @@ All the procedures described here are a balanced compromise between "manual" and
 - **Optional: an NVIDIA or Intel GPU** to encode with NVENC or VAAPI. Without one the video is encoded by the CPU with x264 (on the same CPU still ~6× real time).
 - **XR glasses + a player** that opens videos from an SMB network share and plays SBS 3D ([tested ones](docs/TESTED.md)).
 - **RAM**: about 0.5 GB free while a movie plays. Nothing is written to disk: the pipeline prepares up to ~256 MB ahead of the player in memory and keeps ~190 MB behind for short jumps back, plus 16 MB (start and end) per file opened.
-- **A good Wi-Fi connection** (5 GHz recommended): 15 Mbit/s for 2D, 24 Mbit/s for 3D, less with the `Light/` copies (see [Network and quality](docs/OPTIONS.md#network-and-quality)).
+- **A good Wi-Fi connection** (5 GHz recommended): 15 Mbit/s for 2D, 24 Mbit/s for 3D, less with the `Light/` copies, up to 32 / 44 Mbit/s for the optional `Heavy/` ones (see [Network and quality](docs/OPTIONS.md#network-and-quality)).
 
 #### Decryption: bring your own keys
 Commercial Blu-rays are encrypted (AACS, some also BD+). The project **does not provide or download any key**; it uses what you have, in this order:
@@ -77,14 +80,14 @@ DVDs (CSS) are decrypted by **libdvdcss**, which you install yourself: on Debian
 
 On Debian or Ubuntu, from the release package:
 
-- [ ] Download the `.deb` for your system from [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases), then install it:
+- [ ] Download the `.deb` for your system from [Releases](https://github.com/suppressio/spinema/releases), then install it:
 ```console
-sudo apt install ./bluray3d-xr_<version>_amd64.deb
+sudo apt install ./spinema_<version>_amd64.deb
 ```
 apt installs what the program needs (FFmpeg, libbluray, libaacs, libdvdread...); edge264 is inside the package. The keys and libdvdcss are yours: see [Decryption](#decryption-bring-your-own-keys).
 - [ ] Add your user to the package's group so you can read the mounted files; log out and back in for the change to take effect:
 ```console
-sudo adduser "$USER" bluray3d-xr
+sudo adduser "$USER" spinema
 ```
 
 - [ ] Your user must be able to read the drive (on Debian/Ubuntu: the `cdrom` group, usually already set for desktop users).
@@ -94,11 +97,11 @@ sudo ufw allow from 192.168.1.0/24 to any port 445 proto tcp
 ```
 - [ ] Start it when you want to watch something:
 ```console
-bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
+spinema --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
 When a disc goes in, its files appear; every `pipeline from` line is the player starting or jumping:
 ```
-11:23:59 bluray3d-xr v1.0.0
+11:23:59 spinema v1.0.0
 11:24:00 video encoder: nvenc
 11:24:00 watching /dev/sr0: insert a disc
 11:24:00 mounted on /srv/bd3d — Ctrl+C to unmount
@@ -118,8 +121,8 @@ Stop it with `Ctrl+C`. Updating and uninstalling: [below](#updating-and-uninstal
 
 For a working clone, or to follow the development version. [`scripts/install.sh`](scripts/install.sh), run as your normal user, installs the packages, compiles edge264, installs the command and adds the read-only guest share `[Disks]` to Samba (Debian/Ubuntu):
 ```console
-git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
-cd bluray3d-xr-glasses-linux
+git clone https://github.com/suppressio/spinema.git
+cd spinema
 ./scripts/install.sh
 ```
 
@@ -131,8 +134,8 @@ For other distributions, or if you prefer not to touch the system: Samba, system
 
 - [ ] Get the project:
 ```console
-git clone https://github.com/suppressio/bluray3d-xr-glasses-linux.git
-cd bluray3d-xr-glasses-linux
+git clone https://github.com/suppressio/spinema.git
+cd spinema
 ```
 - [ ] Create your settings:
 ```console
@@ -166,7 +169,7 @@ Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-
 docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
 ```
 The log should now say `video encoder: nvenc`.
-> ⚠️ This variant is not tested yet (my PC has no Container Toolkit). NVENC is tested with the native path.
+> ✅ Tried with a 2D and a 3D Blu-ray (RTX 3070 Ti): 10 minutes of continuous playback each, NVENC active in the container.
 
 ##### Intel GPU / VAAPI (optional)
 Set `RENDER_GID` in `.env` to the host's `render` group (`getent group render | cut -d: -f3`), then start with both compose files:
@@ -181,14 +184,16 @@ If the PC already runs Samba, the container cannot take port 445. Players on pho
 
 ### Updating and uninstalling
 
-**Updating**, when a new version is out (see [Releases](https://github.com/suppressio/bluray3d-xr-glasses-linux/releases)); `bluray3d-xr --version` tells which one you have:
-- release package: download the new `.deb` and install it with `sudo apt install ./bluray3d-xr_<version>_amd64.deb`;
-- native: `./scripts/update.sh` in the project folder. It downloads the latest version and copies the program to `/opt/bluray3d-xr`; it runs the whole `install.sh` again only when needed (edge264 changed, or nothing is installed). It ends with "Updated from vX to vY" and the list of changes. If the program is running, stop it and start it again.
+**Updating**, when a new version is out (see [Releases](https://github.com/suppressio/spinema/releases)); `spinema --version` tells which one you have:
+- release package: download the new `.deb` and install it with `sudo apt install ./spinema_<version>_amd64.deb`;
+- native: `./scripts/update.sh` in the project folder. It downloads the latest version and copies the program to `/opt/spinema`; it runs the whole `install.sh` again only when needed (edge264 changed, or nothing is installed). It ends with "Updated from vX to vY" and the list of changes. If the program is running, stop it and start it again.
 - Docker: `git pull && docker compose up -d --build`.
 
+**Coming from `bluray3d-xr`**: Spinema is the new name of the project (the command, the package and `/opt/bluray3d-xr` were called `bluray3d-xr`). The new `.deb` replaces the old package and keeps its group; for the native install run `./scripts/update.sh` twice (the first run is still the old script, which updates in place; the second moves the install and its Samba share over); Docker rebuilds the image under the new name (after `docker compose down` in the old folder if you cloned again; `docker image rm bluray3d-xr:local` frees the old image). Stop the program before updating. Then start the new `spinema` command. With the `.deb`, if you later purge the old package (`sudo apt purge bluray3d-xr`, it stays listed as `rc`), run `sudo dpkg-reconfigure spinema` afterwards: the old package's purge removes `/srv/bd3d`. Old logs stay in `~/.local/state/bluray3d-xr/`. Two things to know: scripts, units or aliases that call `bluray3d-xr` must be changed to `spinema`, and DLNA players list it as a new server (the old entry is dead).
+
 **Uninstalling**:
-- release package: `sudo apt remove bluray3d-xr` removes the share and `/srv/bd3d`; `sudo apt purge bluray3d-xr` also removes the `bluray3d-xr` group. The `user_allow_other` line stays in `/etc/fuse.conf`.
-- native: `./scripts/uninstall.sh`. It unmounts `/srv/bd3d` and removes it, removes the `[Disks]` share from `smb.conf` (only the block it added: your own shares stay), `/opt/bluray3d-xr` and the `bluray3d-xr` command. The apt packages (FFmpeg, Samba, libbluray...) and the `user_allow_other` line in `/etc/fuse.conf` stay, since other software may use them: remove them with apt if nothing needs them.
+- release package: `sudo apt remove spinema` removes the share and `/srv/bd3d`; `sudo apt purge spinema` also removes the `spinema` group. The `user_allow_other` line stays in `/etc/fuse.conf`.
+- native: `./scripts/uninstall.sh`. It unmounts `/srv/bd3d` and removes it, removes the `[Disks]` share from `smb.conf` (only the block it added: your own shares stay), `/opt/spinema` and the `spinema` command. The apt packages (FFmpeg, Samba, libbluray...) and the `user_allow_other` line in `/etc/fuse.conf` stay, since other software may use them: remove them with apt if nothing needs them.
 - Docker: `docker compose down --rmi all` stops the container and deletes its image.
 
 Then delete the project folder.
@@ -199,7 +204,7 @@ Then delete the project folder.
 
 - [ ] Insert the disc in the PC and wait about 15 seconds.
 - [ ] On the glasses, headset or TV, open the network share of the PC: many players find it by themselves under "local network", otherwise add its IP address (`hostname -I` on the PC tells you), guest / anonymous access.
-- [ ] Open the **Disks** folder (go back and in again if it looks empty). 3D discs are in `Blu-ray 3D/` as `ITA - <movie> - 3D SBS.ts`, normal ones in `Blu-ray/` as `ITA - <movie>.ts`: one file per audio language, plus versions with subtitles (`ITAsubENG - ...`: Italian audio, English subtitles). `Light/` has the same movies at a lower bitrate, for weak Wi-Fi.
+- [ ] Open the **Disks** folder (go back and in again if it looks empty). 3D discs are in `Blu-ray 3D/` as `ITA - <movie> - 3D SBS.ts`, normal ones in `Blu-ray/` as `ITA - <movie>.ts`: one file per audio language, plus versions with subtitles (`ITAsubENG - ...`: Italian audio, English subtitles). `Light/` has the same movies at a lower bitrate, for weak Wi-Fi; with `--heavy` (`HEAVY=on`), `Heavy/` has the 2D and 3D ones (not DVDs) at a higher bitrate, for a wired network (not verified on real discs yet, see [Network and quality](docs/OPTIONS.md#network-and-quality)).
 
 ```
 Disks/
@@ -227,9 +232,9 @@ Step by step for the VITURE 3D Player, the PICO 4's own player and VLC, and what
 
 The defaults offer everything on the disc. Most people want only their languages:
 ```console
-bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0
+spinema --audio-lang ita,eng --subs ita,eng /dev/sr0
 ```
-(Docker: `AUDIO_LANG=ita,eng` and `SUBS=ita,eng` in `.env`.) No drive or folder named at all: `bluray3d-xr` on its own watches every optical drive it finds (`/dev/sr0`, `/dev/sr1`...). Every other option, and ISO files, BDMV/VIDEO_TS folders or MKV rips instead of a drive: [**docs/OPTIONS.md**](docs/OPTIONS.md).
+(Docker: `AUDIO_LANG=ita,eng` and `SUBS=ita,eng` in `.env`.) No drive or folder named at all: `spinema` on its own watches every optical drive it finds (`/dev/sr0`, `/dev/sr1`...). Every other option, and ISO files, BDMV/VIDEO_TS folders or MKV rips instead of a drive: [**docs/OPTIONS.md**](docs/OPTIONS.md).
 
 ---
 
@@ -261,4 +266,5 @@ How the program reads, decodes and serves a disc: [docs/ARCHITECTURE.md](docs/AR
 
 - [edge264-mvc](https://github.com/jens-duttke/edge264-mvc) (BSD), fork of [edge264](https://github.com/tvlabs/edge264): the MVC decoder that makes all this possible;
 - [libbluray / libaacs](https://www.videolan.org/developers/libbluray.html), [FFmpeg](https://ffmpeg.org/), [Samba](https://www.samba.org/), [libfuse](https://github.com/libfuse/libfuse), [MakeMKV](https://www.makemkv.com/);
+- [TheDiscDB](https://thediscdb.com): the community database of disc contents behind `--lookup`'s episode titles;
 - [Play 3D Blu-ray in SBS directly from the disc…](https://cybereality.com/play-3d-blu-ray-in-sbs-directly-from-the-disc-for-playback-on-3d-monitors-xr-glasses-and-vr-headsets-using-free-and-open-source-tools/) (cybereality): a Windows approach (LAV Filters + madVR).

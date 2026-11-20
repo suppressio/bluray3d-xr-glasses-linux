@@ -8,7 +8,7 @@ set -euo pipefail
 
 deb=$(realpath "$1")
 mode=$2
-app=/opt/bluray3d-xr/app
+app=/opt/spinema/app
 
 control=$(dpkg-deb -f "$deb" Depends Recommends)
 echo "$control"
@@ -31,7 +31,7 @@ for package in python3-pyfuse3 python3-trio; do
 done
 grep -q '^# Permission to use, copy, modify, and distribute this software' "$app/mfusepy.py"
 
-bluray3d-xr --version
+spinema --version
 # the DLNA path imports no FUSE module
 python3 -c "import sys; sys.path.insert(0, '$app'); import bd3d_fs"
 
@@ -70,13 +70,13 @@ else:
 PY
 fi
 
-apt-get remove -y bluray3d-xr
+apt-get remove -y spinema
 # "! cmd" does not trip set -e: fail explicitly
-if grep -qsF '# >>> bluray3d-xr >>>' /etc/samba/smb.conf; then exit 1; fi
+if grep -qsF '# >>> spinema >>>' /etc/samba/smb.conf; then exit 1; fi
 test ! -e /srv/bd3d
 if [ "$mode" = recommends ]; then
     grep -qxF user_allow_other /etc/fuse.conf
 fi
-apt-get purge -y bluray3d-xr
-if getent group bluray3d-xr; then exit 1; fi
+apt-get purge -y spinema
+if getent group spinema; then exit 1; fi
 echo "install test passed: $mode"

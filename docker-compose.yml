@@ -2,8 +2,8 @@
 services:
   bd3d:
     build: .
-    image: bluray3d-xr:local
-    container_name: bluray3d-xr
+    image: spinema:local
+    container_name: spinema
     ports:
       # SMB. The host must not run its own Samba on 445 at the same time.
       - "${SMB_PORT:-445}:445"
@@ -23,12 +23,14 @@ services:
       AUDIO_LANG: "${AUDIO_LANG:-}"
       AUDIO_FILES: "${AUDIO_FILES:-per-language}"
       LIGHT: "${LIGHT:-on}"
+      HEAVY: "${HEAVY:-off}"
       SUBS: "${SUBS:-all}"
       SUB_DEPTH: "${SUB_DEPTH:-8}"
       LOADER: "${LOADER:-retrowave}"
       ENCODER: "${ENCODER:-auto}"
       SHARE: "${SHARE:-samba}"
       HTTP_PORT: "${HTTP_PORT:-8201}"
+      LOOKUP: "${LOOKUP:-off}"
     # FUSE inside the container needs the device and SYS_ADMIN
     devices:
       - /dev/fuse

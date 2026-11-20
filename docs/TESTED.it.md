@@ -4,7 +4,7 @@
 
 > Resoconti sul campo, aggiornati man mano che si provano dispositivi, player e dischi. I dischi compaiono solo se hanno avuto un problema o una particolarità.
 
-Con cosa è stato provato finora questo progetto, e come è andata. Il [README](../README.it.md) spiega i passi generali; qui ci sono i dettagli per ogni dispositivo e player, e i dischi che hanno insegnato qualcosa. Altre segnalazioni sono benvenute: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
+Con cosa è stato provato finora questo progetto, e come è andata. Il [README](../README.it.md) spiega i passi generali; qui ci sono i dettagli per ogni dispositivo e player, e i dischi che hanno insegnato qualcosa. Altre segnalazioni sono benvenute: [It works with my device or player](https://github.com/suppressio/spinema/issues/new/choose).
 
 - [Dispositivi e player](#dispositivi-e-player)
   - [VITURE Pro XR + Pro Neckband: 3D Player ufficiale](#viture-pro-xr--pro-neckband-3d-player-ufficiale)
@@ -75,7 +75,7 @@ Con VLC su un Wi-Fi debole aiuta alzare la sua cache di rete ([Rete e qualità](
 | **Ready Player One** | Blu-ray 2D | Sottotitoli dal disco; riprodotto anche in VLC su un PICO. |
 | **Cowboy Bebop** (disco 1) | Blu-ray 2D | 5 episodi in un unico titolo "riproduci tutto" da 120 minuti: esce come un solo file. |
 | **Rick and Morty**, stagione 1 (edizione tedesca) | Blu-ray 2D | 11 episodi in italiano e inglese, più una copia di ognuno solo in inglese e un extra: gli episodi escono come "S01E01 - Rick and Morty"…"S01E11 - Rick and Morty" (la stagione letta dal "Staffel 1" del disco), gli altri 12 titoli in `Extra/`. L'elenco degli episodi si legge aprendo il disco una volta sola (2 s invece di 50). |
-| **Predator 2** | Blu-ray 2D | **BD+** (generazione 4): si vede tramite libaacs + libbdplus con la sua tabella di conversione, nessun errore di decodifica né dall'inizio né dopo un salto. libbdplus senza la tabella, e MakeMKV (libmmbd) dopo un salto, rovinano l'immagine: in entrambi i casi il programma salta il disco. Vedi [#2](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/2) e [#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87). |
+| **Predator 2** | Blu-ray 2D | **BD+** (generazione 4): si vede tramite libaacs + libbdplus con la sua tabella di conversione, nessun errore di decodifica né dall'inizio né dopo un salto. libbdplus senza la tabella, e MakeMKV (libmmbd) dopo un salto, rovinano l'immagine: in entrambi i casi il programma salta il disco. Vedi [#2](https://github.com/suppressio/spinema/issues/2) e [#87](https://github.com/suppressio/spinema/issues/87). |
 | **Ritorno al futuro** | DVD (PAL) | Sugli occhiali come un file locale, sottotitoli OK. |
 | **Utopia**, stagione 1 disco 1 | DVD (PAL) | Un disco di una serie inglese con una protezione a decine di titoli finti, e un punto rovinato: gli episodi escono giusti, il punto rovinato viene saltato. |
 
@@ -87,5 +87,9 @@ D'ora in poi si aggiungono solo i dischi con qualcosa di particolare: un problem
 
 - **Linux**: Debian testing (installazione nativa); lo script di installazione verificato anche in container puliti di Debian 13 e Ubuntu 24.04 (FFmpeg 7.1 e 6.1), e l'immagine Docker.
 - **Decifratura**: libaacs con un `KEYDB.cfg`, e MakeMKV 2.0.0 (libmmbd, solo AACS); cartelle BDMV decifrate.
-- **Codifica**: NVIDIA NVENC e x264 sulla CPU.
+- **Codifica**: NVIDIA NVENC, Intel VAAPI e x264 sulla CPU (per VAAPI vedi sotto).
 - **Lettore**: un lettore Blu-ray SATA interno; espulsione e inserimento mentre il programma gira.
+
+### GPU Intel: VAAPI
+
+✅ **Funziona, 2D e 3D.** Provato su un portatile con Intel UHD Graphics 600 (Gemini Lake), Debian testing, driver `iHD` 25.2.3, `--encoder vaapi`. Su questa generazione di GPU va caricato il firmware HuC (`options i915 enable_guc=2`), altrimenti la codifica a bitrate costante fallisce. L'immagine Docker non è provata.

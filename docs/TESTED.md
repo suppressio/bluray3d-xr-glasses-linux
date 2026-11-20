@@ -4,7 +4,7 @@
 
 > Field reports, updated as devices, players and discs are tried. Discs are listed only when they had a problem or a peculiarity.
 
-What this project has been tried with so far, and how it went. The [README](../README.md) covers the general steps; here are the details for each device and player, and the discs that taught something. More reports are welcome: [It works with my device or player](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/new/choose).
+What this project has been tried with so far, and how it went. The [README](../README.md) covers the general steps; here are the details for each device and player, and the discs that taught something. More reports are welcome: [It works with my device or player](https://github.com/suppressio/spinema/issues/new/choose).
 
 - [Devices and players](#devices-and-players)
   - [VITURE Pro XR + Pro Neckband: official 3D Player](#viture-pro-xr--pro-neckband-official-3d-player)
@@ -75,7 +75,7 @@ With VLC on a weak Wi-Fi, raising its network cache helps ([Network and quality]
 | **Ready Player One** | Blu-ray 2D | Subtitles from the disc; also played in VLC on a PICO. |
 | **Cowboy Bebop** (disc 1) | Blu-ray 2D | 5 episodes in one 120-minute "play all" title: plays as one file. |
 | **Rick and Morty**, season 1 (German edition) | Blu-ray 2D | 11 episodes in Italian and English, plus an English-only copy of each and a bonus: the episodes come out as "S01E01 - Rick and Morty" to "S01E11 - Rick and Morty" (the season from the disc's own "Staffel 1"), the other 12 titles in `Extra/`. The episode list is read with a single disc open (2 s instead of 50). |
-| **Predator 2** | Blu-ray 2D | **BD+** (generation 4): plays through libaacs + libbdplus with its conversion table, no decoding errors from the start or after a seek. libbdplus without the table, and MakeMKV (libmmbd) after a seek, break up the picture: the program skips the disc in both cases. See [#2](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/2) and [#87](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/87). |
+| **Predator 2** | Blu-ray 2D | **BD+** (generation 4): plays through libaacs + libbdplus with its conversion table, no decoding errors from the start or after a seek. libbdplus without the table, and MakeMKV (libmmbd) after a seek, break up the picture: the program skips the disc in both cases. See [#2](https://github.com/suppressio/spinema/issues/2) and [#87](https://github.com/suppressio/spinema/issues/87). |
 | **Back to the Future** | DVD (PAL) | Played on the glasses like a local file, subtitles OK. |
 | **Utopia**, series 1 disc 1 | DVD (PAL) | A UK series disc with a copy protection of dozens of fake titles, and a damaged spot: the episodes come out right, the damaged spot is skipped. |
 
@@ -87,5 +87,9 @@ From here on only discs with something special are added: a problem, an unusual 
 
 - **Linux**: Debian testing (native install); the install script also verified in clean Debian 13 and Ubuntu 24.04 containers (FFmpeg 7.1 and 6.1), and the Docker image.
 - **Decryption**: libaacs with a `KEYDB.cfg`, and MakeMKV 2.0.0 (libmmbd, AACS only); decrypted BDMV folders.
-- **Encoding**: NVIDIA NVENC and x264 on the CPU.
+- **Encoding**: NVIDIA NVENC, Intel VAAPI and x264 on the CPU (see below for VAAPI).
 - **Drive**: an internal SATA Blu-ray drive; eject and insert while the program runs.
+
+### Intel GPU: VAAPI
+
+✅ **Works, 2D and 3D.** Tried on a laptop with an Intel UHD Graphics 600 (Gemini Lake), Debian testing, `iHD` driver 25.2.3, `--encoder vaapi`. On this GPU generation the HuC firmware must be loaded (`options i915 enable_guc=2`), or the constant-bitrate encode fails. The Docker image is not tried.

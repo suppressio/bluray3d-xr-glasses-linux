@@ -7,7 +7,7 @@
 The defaults work: you only need this page to change what the share offers (languages, subtitles, quality) or how it behaves. Back to the [README](../README.md).
 
 **Where options go:**
-- native path: on the command line, e.g. `bluray3d-xr --audio-lang ita,eng --subs ita,eng /dev/sr0`;
+- native path: on the command line, e.g. `spinema --audio-lang ita,eng --subs ita,eng /dev/sr0`;
 - Docker: in `.env` (see `.env.example`), then `docker compose up -d`.
 
 | Option | `.env` (Docker) | Command line (native) | Default |
@@ -19,12 +19,14 @@ The defaults work: you only need this page to change what the share offers (lang
 | [Subtitle languages](#subtitles) | `SUBS` | `--subs ita,eng`, `all` or `none` | `all` |
 | [3D subtitle depth](#subtitles) (pixels) | `SUB_DEPTH` | `--sub-depth 8` | `8` |
 | [Lower-bitrate copies in `Light/`](#network-and-quality) | `LIGHT=on\|off` | `--light` / `--no-light` | on |
+| [Higher-bitrate copies in `Heavy/`](#network-and-quality) | `HEAVY=on\|off` | `--heavy` / `--no-heavy` | off |
 | [Animation after a jump](#loading-animation-after-a-jump) | `LOADER` | `--loader retrowave\|simple\|none\|video.mp4`, `--loader-3d video.mp4` | `retrowave` |
 | [Video encoder](#video-encoder) | `ENCODER` | `--encoder auto\|nvenc\|vaapi\|x264` | `auto` (NVENC, then VAAPI, then x264) |
 | [Share over Samba, DLNA, or both](#dlnaupnp-instead-of-samba) | `SHARE` | `--share samba\|dlna\|both` | `samba` |
 | [DLNA/HTTP port](#dlnaupnp-instead-of-samba) | `HTTP_PORT` | `--http-port` | `8201` |
+| [Online episode titles](#online-episode-lookup) | `LOOKUP=on\|off` | `--lookup` | off |
 | Mount point | — | `--mount` | `/srv/bd3d` |
-| [Program log file](#logs) | — | `--log path` or `none` | `~/.local/state/bluray3d-xr/bluray3d-xr.log` |
+| [Program log file](#logs) | — | `--log path` or `none` | `~/.local/state/spinema/spinema.log` |
 | [Pipeline log](#logs) | — | `--log-file` | `/tmp/bd3d-pipeline.log` |
 | [Jump log](#logs) | — | `--debug` | off |
 | [Write a disc's structure and exit](#a-discs-structure) | — | `--dump-structure file.json` | off |
@@ -45,13 +47,13 @@ Besides a drive, the program accepts the same content in other forms (all at onc
 | Folder | `~/Videos/3D` | scanned recursively for all of the above |
 
 ```console
-bluray3d-xr --audio-lang ita,eng /dev/sr0 ~/Videos/3D
+spinema --audio-lang ita,eng /dev/sr0 ~/Videos/3D
 ```
 
 **No source named on the command line:** the program watches every optical drive it finds (`/dev/sr0`, `/dev/sr1`...), as if each had been named explicitly:
 
 ```console
-bluray3d-xr --audio-lang ita,eng
+spinema --audio-lang ita,eng
 ```
 
 With no drive at all (and nothing else named), it stops with "no source found".
@@ -68,18 +70,31 @@ A 3D disc is never a series when a 3D "play all" title covers every part: that i
 
 A disc's bonus content (making-of, deleted scenes...) goes in an `Extra/` subfolder, numbered apart from the episodes and named after the show just like them, e.g. `Rick and Morty - Extra 1.ts`.
 
+## Online episode lookup
+
+By default an episode's file name only has its season/episode numbers, read offline from the disc (above). `--lookup` (Docker: `LOOKUP=on`) also looks up each episode's real title online, so the name becomes `S01E05 - Rick and Morty - Rixty Minutes.ts`:
+
+```console
+spinema --lookup /dev/sr0
+```
+
+- **[TheDiscDB](https://thediscdb.com)** is the source: it identifies the disc by its content (a fingerprint of its stream files, no title or label involved) and, when the disc is in its community database, maps each playlist straight to its episode title. No API key, no setup. Only the same edition matches: the season disc of a box set and the stand-alone release of that season are different discs to TheDiscDB, so one can be found and the other not.
+- **Asked on every insert, nothing stored**: one request per disc (well under a second), no local cache. A disc added to TheDiscDB later, or a title corrected there, shows up the next time the disc goes in.
+- **Never breaks playback**: no match, an unknown disc, or a network problem all fall back silently to the offline name (`S01E05 - Show`, or `E05 - Show (Disc 1)` when the disc names no season), with one line in the log; `--lookup` queries TheDiscDB only for a Blu-ray read as a series, never for a single movie.
+- Blu-ray only, like the season detection above; a DVD's episodes keep their current naming regardless of `--lookup`.
+
 ## DLNA/UPnP instead of Samba
 
 By default the files are only mounted for Samba, the `[Disks]` share (`--share samba`). `--share dlna` announces the same files over DLNA/UPnP instead, for players that browse a media server rather than opening a network share (smart TVs, Kodi, Moon VR...); neither FUSE nor Samba is needed in this mode. `--share both` does both at once, e.g. to serve a TV over DLNA and a phone over SMB from the same program.
 
 ```console
-bluray3d-xr --share dlna --audio-lang ita,eng /dev/sr0
+spinema --share dlna --audio-lang ita,eng /dev/sr0
 ```
 
 - The server listens on `--http-port` (default `8201`). Open `http://<pc-ip>:8201/` in a browser to see the same folders as a plain page: a quick way to check it is working, and any player that opens a video by URL can use it directly.
-- On the player, look for "bluray3d-xr" among the DLNA/media servers it finds on the network (no IP address to type): browse into `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, the same folders as the SMB share.
+- On the player, look for "spinema" among the DLNA/media servers it finds on the network (no IP address to type): browse into `Blu-ray 3D/`, `Blu-ray/`, `DVD/`, the same folders as the SMB share.
 - Seeking works the same way as over SMB: a byte of the file is still a precise second of the movie, so a jump restarts the pipeline from there regardless of whether the player reads it over SMB or HTTP.
-- Docker, DLNA only: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — no Samba, no FUSE, no port 445; it uses the host network, since SSDP discovery is multicast (`HTTP_PORT` in `.env` sets the port). DLNA together with Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, also on the host network, so Samba uses the host's port 445 directly (`SMB_PORT` does not apply).
+- Docker, DLNA only: `docker compose -f docker-compose.yml -f docker-compose.dlna.yml up -d --build` — no Samba, no FUSE, no port 445 (a Blu-ray drive named by `DRIVE` in `.env` is passed on by itself, no line to uncomment); it uses the host network, since SSDP discovery is multicast (`HTTP_PORT` in `.env` sets the port). DLNA together with Samba: `docker compose -f docker-compose.yml -f docker-compose.both.yml up -d --build`, also on the host network, so Samba uses the host's port 445 directly (`SMB_PORT` does not apply).
 - Native install: `scripts/install.sh --share dlna` skips Samba and system FUSE packages, the FUSE mount and `smb.conf` entirely. The Samba path uses the vendored `mfusepy.py` adapter with the system `fuse3` runtime; `scripts/install.sh --share both` installs both paths. Running it again with `both` after a `dlna` install adds the Samba/FUSE pieces it had skipped. `scripts/update.sh` keeps the kind chosen at install time.
 
 ## Audio languages
@@ -104,15 +119,17 @@ Subtitles from the disc (Blu-ray, 3D Blu-ray, DVD, 3D MKV) are **drawn into the 
 
 ## Network and quality
 
-Every file has a **constant bitrate**: that is what lets a byte of the file match a second of the movie. So a file **cannot adapt to the network** the way YouTube does. Instead, every movie is offered at two bitrates:
+Every file has a **constant bitrate**: that is what lets a byte of the file match a second of the movie. So a file **cannot adapt to the network** the way YouTube does. Instead, every movie is offered at two bitrates, three with the optional `Heavy/`:
 
-| | Normal | `Light/` |
-|---|---|---|
-| **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) |
-| **2D** (1920×1080) | 15 Mbit/s (video 12) | 6.5 Mbit/s (video 5) |
-| **DVD** (1024×576 PAL, 854×480 NTSC) | 5 Mbit/s (video 4) | 2.4 Mbit/s (video 1.8) |
+| | Normal | `Light/` | `Heavy/` (off by default) |
+|---|---|---|---|
+| **3D** (Full-SBS 3840×1080) | 24 Mbit/s (video 20) | 10 Mbit/s (video 8) | 44 Mbit/s (video 37) |
+| **2D** (1920×1080) | 15 Mbit/s (video 12) | 6.5 Mbit/s (video 5) | 32 Mbit/s (video 27) |
+| **DVD** (1024×576 PAL, 854×480 NTSC) | 5 Mbit/s (video 4) | 2.4 Mbit/s (video 1.8) | none |
 
 Audio: AAC stereo 192 kbit/s per language (DTS/TrueHD are not supported by most mobile players); a file with several languages (`Multi-audio/`) is 0.22 Mbit/s bigger for each extra one. Video: H.264. `--no-light` removes the `Light/` copies.
+
+`--heavy` (`HEAVY=on`) adds a `Heavy/` copy of every 2D and 3D movie (everything except **DVDs**), as close to the disc as a real-time re-encode gets: for a wired network, or USB glasses on the same machine. It is **off by default** because each Heavy file is one more copy of every movie in the share, useful only on a fast link; DVDs have no `Heavy/`. It works independently of `Light/` (both can be on). The Heavy bitrates come from one measured disc and have **not yet been verified on real discs and networks**: if playback pauses, use the normal copy.
 
 If playback **pauses every few seconds**, the Wi-Fi cannot keep up with that bitrate (a thick wall is enough):
 - open the same movie from **`Light/`**;
@@ -155,7 +172,7 @@ Docker: `ENCODER` in `.env`, plus the matching compose override to reach the GPU
 
 ## Logs
 
-- The program's log says which movies appear, which pipeline starts where, and whether the network and the disc keep up. It goes to the terminal and is also saved, with the date, in `~/.local/state/bluray3d-xr/bluray3d-xr.log` (up to 5 MB, then three older copies `.1` `.2` `.3`); `--log` saves it elsewhere, `--log none` not at all. With Docker: `docker compose logs`.
+- The program's log says which movies appear, which pipeline starts where, and whether the network and the disc keep up. It goes to the terminal and is also saved, with the date, in `~/.local/state/spinema/spinema.log` (up to 5 MB, then three older copies `.1` `.2` `.3`); `--log` saves it elsewhere, `--log none` not at all. With Docker: `docker compose logs`.
 - `--log-file` is FFmpeg's and the decoders' output, one section per pipeline (the older one moves to `.1` beyond 10 MB): the first place to look when the picture is wrong.
 - `--debug` also logs every jump and the player's reads in the 20 seconds after it: how long it waited, and whether it looked paused. Also the full command of each pipeline, to run it by hand ([DEVELOPMENT.md](DEVELOPMENT.md#taking-a-pipeline-apart)).
 
@@ -164,7 +181,7 @@ Docker: `ENCODER` in `.env`, plus the matching compose override to reach the GPU
 `--dump-structure FILE` reads one disc (a drive with the disc in it, an ISO, a BDMV or VIDEO_TS folder), writes its structure to `FILE` as JSON and exits: nothing is shared, mounted or encoded.
 
 ```console
-bluray3d-xr --dump-structure tron.json /dev/sr0
+spinema --dump-structure tron.json /dev/sr0
 ```
 
 - **What it holds:** what the program picks the movie or the episodes from and seeks with, as read from the disc's navigation files, before any choice. Blu-ray: every title libbluray lists, with its play items (clip, in and out time, audio and subtitle tracks and their languages), and the keyframe map (EP_map) and extents of every clip they use. DVD: every title, with its cells, tracks and languages, and for each title set the start of every VOBU with the time its navigation pack gives. Times keep the disc's own precision. The file starts with its format version (`"format": 1`).

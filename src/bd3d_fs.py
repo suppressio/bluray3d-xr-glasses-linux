@@ -39,7 +39,7 @@ from pathlib import Path
 
 from dlna import Dlna
 from langs import lang_list
-from library import LIGHT_DIR, MULTI_AUDIO_DIR, Library, Shelf
+from library import HEAVY_DIR, LIGHT_DIR, MULTI_AUDIO_DIR, Library, Shelf
 from osplatform import DriveStatus, default_program_log, default_temp_dir, drive_status, list_drives
 from pipeline import ENCODERS, pick_encoder
 from sources import Source, UnsupportedDiscError, discover, dump_structure, open_disc
@@ -114,7 +114,7 @@ library_changing = threading.Lock()
 
 
 def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
-                 stop: threading.Event) -> None:
+                lookup_enabled: bool, stop: threading.Event) -> None:
     """A movie appears when a disc is inserted and disappears when it is ejected."""
     entries: list[FileEntry] = []
     state = "empty"                  # empty -> loaded / failed -> (eject) -> empty
@@ -130,7 +130,7 @@ def watch_drive(device: str, library: Shelf, audio_langs: list[str] | None,
             log.info("%s: %s", device, "disc inserted, opening it" if state == "empty"
                      else f"opening it again (attempt {attempts} of {OPEN_ATTEMPTS})")
             try:
-                found = open_disc(device, audio_langs)
+                found = open_disc(device, audio_langs, lookup_enabled=lookup_enabled)
                 with library_changing:
                     if stop.is_set():    # stopped while the disc was read: main() is
                         return           # tearing the library down, add nothing to it
@@ -182,7 +182,7 @@ def terminate_on_signal(stop: threading.Event, use_fuse: bool) -> None:
 
 
 def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] | None,
-        use_fuse: bool) -> None:
+        use_fuse: bool, lookup_enabled: bool) -> None:
     stop = threading.Event()
     failed: list[Exception] = []
 
@@ -198,7 +198,8 @@ def run(tree: Tree, library: Library, drives: list[str], audio_langs: list[str] 
     terminate_on_signal(stop, use_fuse)
     threads = [threading.Thread(target=worker, args=(idle_watchdog, tree), daemon=True,
                                 name="idle watchdog")]
-    threads += [threading.Thread(target=worker, args=(watch_drive, device, library, audio_langs),
+    threads += [threading.Thread(target=worker,
+                                 args=(watch_drive, device, library, audio_langs, lookup_enabled),
                                  daemon=True, name=device)
                 for device in drives]
     for t in threads:
@@ -265,7 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
                              "inserted), ISO files, BDMV folders, 3D MKV rips, or folders "
                              "to scan recursively. None given: watch every optical drive "
                              "found on this machine (/dev/sr*)")
-    parser.add_argument("--version", action="version", version=f"bluray3d-xr {program_version()}")
+    parser.add_argument("--version", action="version", version=f"spinema {program_version()}")
     parser.add_argument("--mount", default="/srv/bd3d", help="mount point (default /srv/bd3d)")
     parser.add_argument("--audio-lang", default="all",
                         help="audio languages to offer, e.g. ita,eng, or all (default: every "
@@ -286,8 +287,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--light", action=argparse.BooleanOptionalAction, default=True,
                         help=f"also offer every movie at a lower bitrate in "
                              f"{LIGHT_DIR}/, for weak Wi-Fi (default: on)")
+    parser.add_argument("--heavy", action=argparse.BooleanOptionalAction, default=False,
+                        help=f"also offer every Blu-ray movie at a higher bitrate in "
+                             f"{HEAVY_DIR}/, for a wired network (default: off; not for DVDs)")
     parser.add_argument("--debug", action="store_true",
                         help="also log every jump and the player's reads after it")
+    parser.add_argument("--lookup", action="store_true",
+                        help="name series episodes with their real title, looked up online "
+                             "on TheDiscDB: off by default, so no network is touched unless "
+                             "given; asked again on every insert, and falls back silently to "
+                             "the offline name (S01E05 or E05) on no match or a network error. "
+                             "Blu-ray only")
     parser.add_argument("--loader", default=DEFAULT_LOADER,
                         help="the animation shown in a loop after a jump until the movie is "
                              f"ready: {DEFAULT_LOADER} (default, 3D on 3D movies), simple, "
@@ -313,7 +323,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="output of the pipelines (FFmpeg, decoders), one section each")
     parser.add_argument("--log", default=str(default_program_log()),
                         help="the program's log is also saved here (default "
-                             "~/.local/state/bluray3d-xr/bluray3d-xr.log), or none")
+                             "~/.local/state/spinema/spinema.log), or none")
     parser.add_argument("--dump-structure", metavar="FILE",
                         help="write the structure of the one disc given (drive, ISO, BDMV or "
                              "VIDEO_TS folder) to FILE, a new file, as JSON and exit: titles, "
@@ -372,6 +382,7 @@ def main() -> None:
     loader_3d_arg: str = args.loader_3d
     mount: str = args.mount
     share: str = args.share
+    lookup_enabled: bool = args.lookup
     use_fuse, use_dlna = share in ("samba", "both"), share in ("dlna", "both")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -380,7 +391,7 @@ def main() -> None:
     log_path: str = args.log
     log_to_file(log_path)
 
-    log.info("bluray3d-xr %s", program_version())
+    log.info("spinema %s", program_version())
     if log_path != "none":
         log.info("log saved in %s", log_path)
     if args.dump_structure is not None:     # one disc, written out: nothing else starts
@@ -397,8 +408,9 @@ def main() -> None:
     sub_langs = None if subs in ("", "all") else [] if subs == "none" else lang_list(subs_arg)
     loader, loader_3d = loader_video(loader_arg), loader_video(loader_3d_arg)
     lib = Library(tree, encoder, args.log_file, args.audio_files, args.light, sub_langs,
-                  loader, loader_3d, vaapi_device)
-    for source in discover(others, audio_langs) if others else []:
+                  loader, loader_3d, vaapi_device, heavy=args.heavy)
+    for source in discover(others, audio_langs,
+                           lookup_enabled=lookup_enabled) if others else []:
         lib.add(source)
     if not tree.files() and not drives:
         raise SystemExit("no source found")
@@ -422,7 +434,7 @@ def main() -> None:
                          "stop it, or try a different --http-port)"
                          if args.http_port == 8200 else "")
                 raise SystemExit(f"DLNA: cannot start on port {args.http_port}: {e}{hint}") from e
-        run(tree, lib, drives, audio_langs, use_fuse)
+        run(tree, lib, drives, audio_langs, use_fuse, lookup_enabled)
     except KeyboardInterrupt:
         pass
     finally:

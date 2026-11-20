@@ -12,20 +12,20 @@
 #   - apt packages: ffmpeg python3 libbluray libaacs libbdplus libdvdread
 #                   (+ build tools for edge264), and with --share samba/both:
 #                   fuse3 samba
-#   - /opt/bluray3d-xr            edge264 decoder + the program
-#   - /usr/local/bin/bluray3d-xr  command to start it
+#   - /opt/spinema                edge264 decoder + the program
+#   - /usr/local/bin/spinema      command to start it
 #   - /srv/bd3d                   mount point of the virtual files (--share samba/both)
 #   - /etc/fuse.conf              enables user_allow_other (--share samba/both)
 #   - /etc/samba/smb.conf         adds the read-only guest share [Disks] (--share samba/both)
 set -euo pipefail
 
-PREFIX=/opt/bluray3d-xr
+PREFIX=/opt/spinema
 MOUNT=/srv/bd3d
 EDGE264_REPO=https://github.com/jens-duttke/edge264-mvc.git
 # edge264-mvc release v2026.10.19
 EDGE264_COMMIT=f181792e842ce4e99e2ef4a41bfd30c1c1514b42
-MARK_BEGIN="# >>> bluray3d-xr >>>"
-MARK_END="# <<< bluray3d-xr <<<"
+MARK_BEGIN="# >>> spinema >>>"
+MARK_END="# <<< spinema <<<"
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
 ME=$(id -un)
 
@@ -45,8 +45,47 @@ esac
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 
+write_command() {
+    sudo tee /usr/local/bin/spinema >/dev/null <<WRAP
+#!/bin/sh
+PATH="$PREFIX/bin:\$PATH" exec python3 "$PREFIX/app/bd3d_fs.py" "\$@"
+WRAP
+    sudo chmod 755 /usr/local/bin/spinema
+}
+
 [ "$(id -u)" -ne 0 ] || { echo "Run as your normal user, not as root."; exit 1; }
 command -v apt-get >/dev/null || { echo "This script supports Debian/Ubuntu (apt) only."; exit 1; }
+
+# An install from before the project was renamed (it was called bluray3d-xr):
+# move it over, so that the edge264 build is kept and the Samba share is not duplicated.
+OLD_NAME=bluray3d-xr
+if [ -d "/opt/$OLD_NAME" ] && dpkg -S "/opt/$OLD_NAME" >/dev/null 2>&1; then
+    echo "/opt/$OLD_NAME belongs to the $OLD_NAME package: install the new spinema .deb instead."
+    exit 1
+fi
+if pgrep -f "/opt/$OLD_NAME/app/bd3d_fs.py" >/dev/null; then
+    echo "$OLD_NAME is running: stop it (Ctrl+C), then run this again."
+    exit 1
+fi
+if [ -d "/opt/$OLD_NAME" ]; then
+    if [ -e "$PREFIX" ]; then
+        echo "Both /opt/$OLD_NAME and $PREFIX exist: leaving the old one alone (remove it by hand when you no longer need it)."
+    else
+        step "Migrating the $OLD_NAME install to $PREFIX"
+        sudo mv "/opt/$OLD_NAME" "$PREFIX"
+        # the command moves with it, so that a failure further down leaves a working one
+        write_command
+        sudo rm -f "/usr/local/bin/$OLD_NAME"
+    fi
+fi
+if grep -qsF "# >>> $OLD_NAME >>>" /etc/samba/smb.conf; then
+    if grep -qF "$MARK_BEGIN" /etc/samba/smb.conf; then
+        # the share is already there under the new name: drop the old copy
+        sudo sed -i "/^# >>> $OLD_NAME >>>\$/,/^# <<< $OLD_NAME <<<\$/d" /etc/samba/smb.conf
+    else
+        sudo sed -i "s/^# >>> $OLD_NAME >>>\$/$MARK_BEGIN/; s/^# <<< $OLD_NAME <<<\$/$MARK_END/" /etc/samba/smb.conf
+    fi
+fi
 
 step "1/5 Packages"
 sudo apt-get update
@@ -84,16 +123,12 @@ step "3/5 Program"
 sudo install -d "$PREFIX/app"
 sudo install -m 644 "$REPO_DIR"/src/*.py "$PREFIX/app/"
 sudo install -D -m 644 -t "$PREFIX/loaders" "$REPO_DIR"/loaders/*.mp4
-# the release (git tag) installed, e.g. v1.0.0; shown by bluray3d-xr --version
+# the release (git tag) installed, e.g. v1.0.0; shown by spinema --version
 version=$(git -C "$REPO_DIR" describe --tags --always 2>/dev/null || echo unknown)
 echo "$version" | sudo tee "$PREFIX/app/version" >/dev/null
 # the --share kind chosen, so that update.sh re-runs this script with the same one
 echo "$SHARE" | sudo tee "$PREFIX/app/share" >/dev/null
-sudo tee /usr/local/bin/bluray3d-xr >/dev/null <<WRAP
-#!/bin/sh
-PATH="$PREFIX/bin:\$PATH" exec python3 "$PREFIX/app/bd3d_fs.py" "\$@"
-WRAP
-sudo chmod 755 /usr/local/bin/bluray3d-xr
+write_command
 
 step "4/5 FUSE mount point"
 if [ "$SHARE" = dlna ]; then
@@ -150,8 +185,8 @@ share_flag=""
 cat <<DONE
 
 Done. Start it with:
-    bluray3d-xr$share_flag --audio-lang eng --subs eng /dev/sr0       # the disc in the drive
-    bluray3d-xr$share_flag --audio-lang eng /path/to/your/movies      # ISO, BDMV/VIDEO_TS folders, MKV rips
+    spinema$share_flag --audio-lang eng --subs eng /dev/sr0       # the disc in the drive
+    spinema$share_flag --audio-lang eng /path/to/your/movies      # ISO, BDMV/VIDEO_TS folders, MKV rips
 Every option: docs/OPTIONS.md
 DONE
 # decryption hints only for what is missing: the key file libaacs reads, the libraries the program looks for
@@ -175,8 +210,8 @@ case "$SHARE" in
     samba)
         printf 'Then on the glasses open the network share \\\\%s\\Disks\n' "$(hostname -I | awk '{print $1}')" ;;
     dlna)
-        printf 'Then on the glasses look for "bluray3d-xr" among the DLNA/media servers it finds on the network\n' ;;
+        printf 'Then on the glasses look for "spinema" among the DLNA/media servers it finds on the network\n' ;;
     both)
-        printf 'Then on the glasses open the network share \\\\%s\\Disks, or look for "bluray3d-xr" among the DLNA/media servers it finds\n' "$(hostname -I | awk '{print $1}')" ;;
+        printf 'Then on the glasses open the network share \\\\%s\\Disks, or look for "spinema" among the DLNA/media servers it finds\n' "$(hostname -I | awk '{print $1}')" ;;
 esac
 echo "Stop it with Ctrl+C."

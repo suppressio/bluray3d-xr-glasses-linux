@@ -126,8 +126,8 @@ def test_soap_fault_is_well_formed_xml() -> None:
 
 
 def test_device_description_has_both_services() -> None:
-    description = didl.device_description("bluray3d-xr", "abc-123")
-    assert "<friendlyName>bluray3d-xr</friendlyName>" in description
+    description = didl.device_description("spinema", "abc-123")
+    assert "<friendlyName>spinema</friendlyName>" in description
     assert "uuid:abc-123" in description
     assert description.count("<service>") == 2
     assert didl.CONTENT_DIRECTORY in description
@@ -194,7 +194,7 @@ def test_update_id_follows_the_tree(tree: Tree) -> None:
 
 
 def test_no_eventing_is_advertised() -> None:
-    description = didl.device_description("bluray3d-xr", "u")
+    description = didl.device_description("spinema", "u")
     assert "<eventSubURL></eventSubURL>" in description and "/evt/" not in description
     for scpd in (didl.CONTENT_DIRECTORY_SCPD, didl.CONNECTION_MANAGER_SCPD):
         assert 'sendEvents="yes"' not in scpd

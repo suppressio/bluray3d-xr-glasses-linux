@@ -200,7 +200,7 @@ _mounted: _Mount | None = None
 def mount(tree: Tree, mount_point: str) -> None:
     global _mounted  # noqa: PLW0603  one mount per program
     if os.path.ismount(mount_point):
-        raise SystemExit(f"{mount_point} is already in use: is bluray3d-xr already running? "
+        raise SystemExit(f"{mount_point} is already in use: is spinema already running? "
                          f"(if not: fusermount3 -u {mount_point})")
     m = _Mount(Bd3dFS(tree), mount_point)
     m.thread.start()

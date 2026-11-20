@@ -1,0 +1,28 @@
+{
+ "titles": [
+  [
+   3,
+   "E01 - Utopia S2 (Disc 2)",
+   2956.48
+  ],
+  [
+   4,
+   "E02 - Utopia S2 (Disc 2)",
+   2955.48
+  ],
+  [
+   5,
+   "E03 - Utopia S2 (Disc 2)",
+   3158.48
+  ]
+ ],
+ "tree": [
+  "DVD",
+  "DVD/E01 - Utopia S2 (Disc 2).ts",
+  "DVD/E02 - Utopia S2 (Disc 2).ts",
+  "DVD/E03 - Utopia S2 (Disc 2).ts",
+  "DVD/subENG - E01 - Utopia S2 (Disc 2).ts",
+  "DVD/subENG - E02 - Utopia S2 (Disc 2).ts",
+  "DVD/subENG - E03 - Utopia S2 (Disc 2).ts"
+ ]
+}

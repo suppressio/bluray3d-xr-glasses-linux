@@ -98,7 +98,7 @@ def soap_fault(code: int, message: str) -> str:
 
 
 def _container_xml(tree: Tree, folder: Folder) -> str:
-    title = escape(folder.name or "bluray3d-xr")
+    title = escape(folder.name or "spinema")
     child_count = len(_browsable(tree, folder.inode))
     return (
         f'<container id="{_object_id(tree, folder.inode)}" '
@@ -233,8 +233,8 @@ def device_description(friendly_name: str, udn: str) -> str:
         "<device>"
         f"<deviceType>{DEVICE_TYPE}</deviceType>"
         f"<friendlyName>{escape(friendly_name)}</friendlyName>"
-        "<manufacturer>bluray3d-xr</manufacturer>"
-        "<modelName>bluray3d-xr</modelName>"
+        "<manufacturer>spinema</manufacturer>"
+        "<modelName>spinema</modelName>"
         f"<UDN>uuid:{udn}</UDN>"
         "<serviceList>"
         "<service>"

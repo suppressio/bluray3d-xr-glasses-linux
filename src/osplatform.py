@@ -115,6 +115,6 @@ def default_temp_dir() -> str:
 def default_program_log() -> Path:
     """Where the program's own log is saved by default (--log to change it)."""
     if MACOS:
-        return Path.home() / "Library" / "Logs" / "bluray3d-xr" / "bluray3d-xr.log"
+        return Path.home() / "Library" / "Logs" / "spinema" / "spinema.log"
     state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(state) / "bluray3d-xr" / "bluray3d-xr.log"
+    return Path(state) / "spinema" / "spinema.log"

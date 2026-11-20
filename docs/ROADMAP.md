@@ -37,7 +37,7 @@ What's done:
   with seconds without audio start, seeking works in titles that play a cell
   twice.
 
-**What's next** is tracked as [GitHub Issues and Milestones](https://github.com/suppressio/bluray3d-xr-glasses-linux/milestones).
+**What's next** is tracked as [GitHub Issues and Milestones](https://github.com/suppressio/spinema/milestones).
 
 ## Decryption
 
@@ -56,7 +56,7 @@ Three backends, tried in this order (the project **never ships or downloads keys
    almost everything, but it is proprietary: it runs `makemkvcon` internally,
    so MakeMKV must be installed, working, and registered (free beta key,
    renewed periodically). BD+ only on a read from the start (after a seek the
-   picture breaks up), so BD+ through libmmbd is refused ([#2](https://github.com/suppressio/bluray3d-xr-glasses-linux/issues/2)).
+   picture breaks up), so BD+ through libmmbd is refused ([#2](https://github.com/suppressio/spinema/issues/2)).
 3. **Already-decrypted ISO / BDMV folder** — no keys at runtime (the disc was
    decrypted once, with any tool). A full copy (~45 GB), so an intermediate
    step again, but no dependency while watching.

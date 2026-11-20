@@ -1,5 +1,7 @@
 import ctypes
+import json
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -148,18 +150,23 @@ def test_a_movie() -> None:
     assert chosen([run(12, 0), run(110, 100_000), run(45, 200_000)]) == [2]
 
 
+def in_one_title_set(*cells: list[DvdCell]) -> list[DvdTitle]:
+    """Titles of one VTS, whose cell sectors are the same space."""
+    return [parse_title(vts_ifo(c, [], []), n, 1, 1) for n, c in enumerate(cells, 1)]
+
+
 def test_a_series_with_play_all() -> None:
     episodes = [run(45, 0), run(50, 100_000), run(48, 200_000)]
     play_all = [c for e in episodes for c in e]
-    assert chosen([play_all, *episodes, run(5, 300_000)]) == [2, 3, 4]
+    titles = in_one_title_set(play_all, *episodes, run(5, 300_000))
+    assert [t.number for t in dvd.choose_titles(titles)] == [2, 3, 4]
 
 
 def test_a_protected_series() -> None:
     """Fake titles: the same cells replayed, or in a scrambled order."""
     e1, e2, e3 = run(45, 0), run(50, 100_000), run(48, 200_000)
-    replayed = e1 + e2 + e1 + e3
-    scrambled = e3 + e1 + e2
-    assert chosen([replayed, e1, scrambled, e2, e3]) == [2, 4, 5]
+    fakes = in_one_title_set(e1 + e2 + e1 + e3, e1, e3 + e1 + e2, e2, e3)
+    assert [t.number for t in dvd.choose_titles(fakes)] == [2, 4, 5]
 
 
 def test_nothing_looks_right() -> None:
@@ -170,8 +177,29 @@ def test_nothing_looks_right() -> None:
 
 def test_the_same_content_twice() -> None:
     movie = run(110, 0)
-    assert chosen([movie, list(movie)]) == [1]
+    assert [t.number for t in dvd.choose_titles(in_one_title_set(movie, list(movie)))] == [1]
 
+
+def test_two_cuts_of_a_film_are_not_episodes() -> None:
+    cut, extra = run(110, 0), DvdCell(600.0, 90_000, 99_999, 9, 1)
+    theatrical, director = in_one_title_set(cut, [*cut[:2], extra, cut[2]])
+    assert [t.number for t in dvd.choose_titles([theatrical, director])] == [2]
+
+
+@pytest.mark.parametrize(("disc", "numbers"), [
+    ("ALIAS_SEASON_1", [2, 4, 5, 6]),        # a cell jumping back at the end: still episodes
+    ("ALIAS_SEASON_1_3EP", [1, 2, 6]),       # another disc of it: 3 episodes, the first a long one
+    ("UTOPIA_S2_D2", [3, 4, 5]),             # title 2 plays the three others
+    ("C4DVD10476", [9, 33, 54]),             # 94 long titles, 3 real (protection); 77 = play-all
+    ("FUTURAMA_DISC_2", [1, 2, 3, 4, 5]),
+    ("ALIEN_DISC_1", [1]),                   # one film in two cuts, not two episodes
+    ("DVD-7b90ebcd29ee", [1, 2])])
+def test_titles_of_recorded_discs(disc: str, numbers: list[int]) -> None:
+    data = json.loads((Path(__file__).parent / "discs" / f"{disc}.json")
+                      .read_text(encoding="utf-8"))
+    parsed = [DvdTitle(t["number"], t["vts"], t["duration"], [dvd.Cell(**c) for c in t["cells"]])
+              for t in data["titles"] if "error" not in t]
+    assert [t.number for t in dvd.choose_titles(parsed)] == numbers
 
 
 def test_vob_read_is_tried_again(monkeypatch: pytest.MonkeyPatch) -> None:
