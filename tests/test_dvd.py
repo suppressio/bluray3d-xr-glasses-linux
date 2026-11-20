@@ -257,3 +257,61 @@ def test_seek_in_a_cell_played_twice() -> None:
     assert nav.cell == 2 and nav.time == pytest.approx(72.0) and nav.sector == 300
     nav = seek(vobs, t, 12.3)                          # the first time
     assert nav.cell == 0 and nav.time == pytest.approx(12.0)
+
+
+def _dir_record(name: bytes, extent: int, size: int, is_dir: bool = False) -> bytes:
+    """One ISO9660 directory record."""
+    body = bytearray(33 + len(name) + (1 - len(name) % 2))
+    body[0] = len(body)
+    body[2:6] = extent.to_bytes(4, "little")
+    body[10:14] = size.to_bytes(4, "little")
+    body[25] = 2 if is_dir else 0
+    body[32] = len(name)
+    body[33:33 + len(name)] = name
+    return bytes(body)
+
+
+def _iso(files: dict[str, int]) -> bytes:
+    """A minimal ISO9660 image: the volume descriptor, the root with VIDEO_TS/ and
+    VIDEO_TS/ with `files` (name -> size; no content, only the listing matters)."""
+    sector = dvd.SECTOR
+    image = bytearray(sector * 21)
+    root, video_ts = 18, 19
+    image[16 * sector:16 * sector + 6] = b"\x01CD001"
+    image[16 * sector + 156:16 * sector + 190] = _dir_record(b"\x00", root, sector, True)
+    records = _dir_record(b"\x00", root, sector, True) + _dir_record(b"\x01", root, sector, True)
+    image[root * sector:root * sector + 200] = (
+        records + _dir_record(b"VIDEO_TS", video_ts, sector, True)).ljust(200, b"\0")
+    listing = _dir_record(b"\x00", video_ts, sector, True) + \
+        _dir_record(b"\x01", root, sector, True)
+    listing += b"".join(_dir_record(f"{n};1".encode(), 20, s) for n, s in files.items())
+    image[video_ts * sector:video_ts * sector + len(listing)] = listing
+    return bytes(image)
+
+
+FILES = {"VIDEO_TS.IFO": 12_288, "VTS_01_0.IFO": 69_632, "VTS_01_1.VOB": 1_073_739_776,
+         "VTS_02_0.VOB": 0}
+
+
+def test_video_ts_sizes_from_an_image(tmp_path: Path) -> None:
+    """#69: every file of VIDEO_TS/ with its size, an empty one too (TheDiscDB's
+    fingerprint counts it; libdvdread does not list it), read from the disc's
+    ISO9660 file system: a drive or an ISO image alike."""
+    iso = tmp_path / "disc.iso"
+    iso.write_bytes(_iso(FILES))
+    assert dvd.video_ts_sizes(str(iso)) == FILES
+
+
+def test_video_ts_sizes_from_a_folder(tmp_path: Path) -> None:
+    folder = tmp_path / "Movie" / "VIDEO_TS"
+    folder.mkdir(parents=True)
+    for name, size in {"VIDEO_TS.IFO": 10, "VTS_02_0.VOB": 0}.items():
+        (folder / name).write_bytes(b"x" * size)
+    assert dvd.video_ts_sizes(str(tmp_path / "Movie")) == {"VIDEO_TS.IFO": 10, "VTS_02_0.VOB": 0}
+
+
+def test_video_ts_sizes_not_a_dvd(tmp_path: Path) -> None:
+    other = tmp_path / "other.iso"
+    other.write_bytes(b"\0" * dvd.SECTOR * 20)
+    with pytest.raises(OSError, match="no ISO9660"):
+        dvd.video_ts_sizes(str(other))

@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
-from typing import Protocol, Self
+from typing import BinaryIO, Protocol, Self
 
 from langs import lang as to_lang
 from osplatform import load_library
@@ -35,7 +35,7 @@ from osplatform import load_library
 SECTOR = 2048
 READ_ATTEMPTS = 4
 SLOW_FAILURE = 2.0                  # seconds
-DVD_READ_INFO_FILE, DVD_READ_INFO_BACKUP_FILE, DVD_READ_MENU_VOBS, DVD_READ_TITLE_VOBS = 0, 1, 2, 3
+DVD_READ_INFO_FILE, DVD_READ_TITLE_VOBS = 0, 3
 
 AUDIO_FORMATS = {0: "ac3", 2: "mp2", 3: "mp2", 4: "lpcm", 6: "dts"}
 
@@ -58,9 +58,7 @@ def _dvdread() -> ctypes.CDLL:
             ("DVDReadBlocks", ctypes.c_ssize_t,
              [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_void_p]),
             ("DVDUDFVolumeInfo", ctypes.c_int,
-             [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]),
-            ("DVDFileStat", ctypes.c_int,
-             [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_void_p])):
+             [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint])):
         getattr(lib, n).restype = res
         getattr(lib, n).argtypes = args
     return lib
@@ -145,10 +143,53 @@ class VobFile:
             self._h = None
 
 
-class _DvdStat(ctypes.Structure):
-    """libdvdread's dvd_stat_t: a file's size, or a title's VOB parts and their sizes."""
-    _fields_ = [("size", ctypes.c_int64), ("nr_parts", ctypes.c_int),
-                ("parts_size", ctypes.c_int64 * 9)]
+def _iso9660_dir(f: BinaryIO, extent: int, length: int) -> dict[str, tuple[int, int, bool]]:
+    """name -> (extent, size, is a folder) of an ISO9660 directory; a record never
+    crosses a sector, a zero length byte means the rest of the sector is empty."""
+    f.seek(extent * SECTOR)
+    data = f.read(length)
+    entries: dict[str, tuple[int, int, bool]] = {}
+    pos = 0
+    while pos < len(data):
+        size = data[pos]
+        if size == 0:
+            pos = (pos // SECTOR + 1) * SECTOR
+            continue
+        record = data[pos:pos + size]
+        name = record[33:33 + record[32]]
+        if name not in (b"\x00", b"\x01"):            # "." and ".."
+            entries[name.decode("ascii", "replace").split(";")[0]] = (
+                int.from_bytes(record[2:6], "little"), int.from_bytes(record[10:14], "little"),
+                bool(record[25] & 2))
+        pos += size
+    return entries
+
+
+def video_ts_sizes(path: str) -> dict[str, int]:
+    """Name -> size of every file directly in VIDEO_TS/, an empty one too, for
+    TheDiscDB's fingerprint (#69), which counts them all. A folder: its files. A
+    drive or an ISO image: the listing of its ISO9660 file system (every DVD-Video
+    has one next to UDF), read straight from it; libdvdread lists no empty file."""
+    p = Path(path)
+    if p.is_dir():
+        folder = next((c for c in p.iterdir() if c.name.upper() == "VIDEO_TS" and c.is_dir()),
+                      None)
+        if folder is None:
+            raise OSError(f"no VIDEO_TS folder in {path}")
+        return {c.name.upper(): c.stat().st_size for c in folder.iterdir() if c.is_file()}
+    with p.open("rb") as f:
+        f.seek(16 * SECTOR)
+        pvd = f.read(SECTOR)
+        if pvd[1:6] != b"CD001":
+            raise OSError(f"no ISO9660 file system on {path}")
+        root = pvd[156:190]
+        top = _iso9660_dir(f, int.from_bytes(root[2:6], "little"),
+                           int.from_bytes(root[10:14], "little"))
+        if "VIDEO_TS" not in top or not top["VIDEO_TS"][2]:
+            raise OSError(f"no VIDEO_TS folder on {path}")
+        extent, length, _ = top["VIDEO_TS"]
+        return {name: size for name, (_, size, is_dir) in _iso9660_dir(f, extent, length).items()
+                if not is_dir}
 
 
 class Dvd:
@@ -180,27 +221,6 @@ class Dvd:
             n: int = _dvdread().DVDReadBytes(f, buf, size)
             _dvdread().DVDCloseFile(f)
         return buf.raw[:max(0, n)]
-
-    def file_sizes(self) -> dict[str, int]:
-        """Name -> size of every file of VIDEO_TS/ (IFO, BUP, VOB) as the disc's file
-        system gives it, for TheDiscDB's fingerprint (#69). A file the disc does not
-        have (a title set's menu VOB, often) is simply not listed."""
-        vmg = self.ifo(0)
-        sizes: dict[str, int] = {}
-        stat = _DvdStat()
-        with self._lock:
-            for vts in range(_u16(vmg, 0x3E) + 1):     # VMGI_MAT: number of title sets
-                base = "VIDEO_TS" if vts == 0 else f"VTS_{vts:02d}_0"
-                for domain, ext in ((DVD_READ_INFO_FILE, "IFO"),
-                                    (DVD_READ_INFO_BACKUP_FILE, "BUP"),
-                                    (DVD_READ_MENU_VOBS, "VOB")):
-                    if _dvdread().DVDFileStat(self._dvd, vts, domain, ctypes.byref(stat)) == 0:
-                        sizes[f"{base}.{ext}"] = stat.size
-                if vts and _dvdread().DVDFileStat(self._dvd, vts, DVD_READ_TITLE_VOBS,
-                                                  ctypes.byref(stat)) == 0:
-                    for part in range(stat.nr_parts):
-                        sizes[f"VTS_{vts:02d}_{part + 1}.VOB"] = stat.parts_size[part]
-        return sizes
 
     def title_vobs(self, vts: int) -> VobFile:
         with self._lock:
