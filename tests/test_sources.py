@@ -127,10 +127,12 @@ def test_episode_name_online_title(raw_names: list[str], online_title: str | Non
     assert _episode_name("Firefly", raw_names, 1, False, online_title) == expected
 
 
-def test_episode_name_extra_ignores_online_title() -> None:
-    """An extra's online title, if any, is not used: extras keep #39's own naming."""
+def test_episode_name_extra_with_online_title() -> None:
+    """An extra keeps #39's numbering, and its online title (#69) is appended as an
+    episode's is."""
     assert _episode_name("Show", ["Show"], 2, True, "Behind the Scenes") == \
-        ("Show - Extra 2", "Extra")
+        ("Show - Extra 2 - Behind the Scenes", "Extra")
+    assert _episode_name("Show", ["Show"], 2, True) == ("Show - Extra 2", "Extra")
 
 
 A = [AudioStream(1, "truehd", "eng"), AudioStream(2, "dts-hd ma", "eng"),
@@ -1877,7 +1879,7 @@ def test_bluray_lookup_roles_override_offline_split(
     assert [(s.playlist, s.name, s.subfolder) for s in found] == [
         ("00002", "S01E01 - Rick and Morty - Pilot", ""),
         ("00001", "S01E02 - Rick and Morty - Lawnmower Dog", ""),
-        ("00003", "Rick and Morty - Extra 1", "Extra")]
+        ("00003", "Rick and Morty - Extra 1 - Animatic", "Extra")]
 
 
 def test_bluray_lookup_roles_episode_numbers_on_a_later_disc(
@@ -2094,7 +2096,7 @@ def test_dvd_lookup_roles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         "03": Role("Extra", "Gag Reel", None, None)})
     assert [(s.title.number, s.name, s.subfolder) for s in found] == [
         (2, "S01E01 - Alias - Truth Be Told", ""), (1, "S01E02 - Alias - So It Begins", ""),
-        (3, "Alias - Extra 1", "Extra")]
+        (3, "Alias - Extra 1 - Gag Reel", "Extra")]
 
 
 def test_dvd_lookup_titles_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
