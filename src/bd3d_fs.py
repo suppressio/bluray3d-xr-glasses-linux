@@ -293,11 +293,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--debug", action="store_true",
                         help="also log every jump and the player's reads after it")
     parser.add_argument("--lookup", action="store_true",
-                        help="name series episodes with their real title, looked up online "
-                             "on TheDiscDB: off by default, so no network is touched unless "
-                             "given; asked again on every insert, and falls back silently to "
-                             "the offline name (S01E05 or E05) on no match or a network error. "
-                             "Blu-ray only")
+                        help="look the disc up online on TheDiscDB: which title is the movie, "
+                             "an episode or an extra, and the episodes' real titles. Off by "
+                             "default, so no network is touched unless given; asked again on "
+                             "every insert, and falls back silently to the offline choice and "
+                             "names (S01E05 or E05) on no match or a network error. Blu-ray "
+                             "and DVD")
     parser.add_argument("--loader", default=DEFAULT_LOADER,
                         help="the animation shown in a loop after a jump until the movie is "
                              f"ready: {DEFAULT_LOADER} (default, 3D on 3D movies), simple, "

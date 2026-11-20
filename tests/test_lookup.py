@@ -1,5 +1,6 @@
 """lookup.py (#84): the TheDiscDB client, all against a fake
 HTTP layer (urllib.request.urlopen) — no real network call is made by these tests."""
+import hashlib
 import http.client
 import json
 import logging
@@ -263,3 +264,27 @@ def test_query_asks_for_roles(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lookup.urllib.request, "urlopen", urlopen)
     lookup.disc_roles("HASH9", ["00070"])
     assert "titles { sourceFile itemType season episode item { title } }" in seen[0]["query"]
+
+
+def test_content_hash_sorts_by_name() -> None:
+    """TheDiscDB's fingerprint, the same for Blu-ray and DVD: MD5 of each file's size,
+    8 bytes little-endian, in name order (VIDEO_TS.* before VTS_01_*), hex uppercase."""
+    sizes = {"VTS_01_1.VOB": 1_073_709_056, "VIDEO_TS.IFO": 12_288, "VTS_01_0.IFO": 69_632,
+             "VIDEO_TS.BUP": 12_288}
+    order = ["VIDEO_TS.BUP", "VIDEO_TS.IFO", "VTS_01_0.IFO", "VTS_01_1.VOB"]
+    expected = hashlib.md5(b"".join(sizes[n].to_bytes(8, "little") for n in order),
+                           usedforsecurity=False).hexdigest().upper()
+    assert lookup.content_hash(sizes) == expected
+    assert lookup.content_hash({}) is None
+
+
+def test_dvd_titles_are_keyed_by_number(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A DVD's titles come as their title number ("01"), a Blu-ray's as playlists; a
+    bare .m2ts clip is neither."""
+    fake_http(monkeypatch, thediscdb=roles_answer(("HASH1", [
+        ("01", "Pilot", "Episode", "1", "1"), ("2", "Truth Be Told", "Episode", "1", "2"),
+        ("00040.m2ts", "Clip", "Extra", "", "")])))
+    assert lookup.disc_roles("HASH1", ["01", "02", "00040"]) == {
+        "01": lookup.Role("Episode", "Pilot", 1, 1),
+        "02": lookup.Role("Episode", "Truth Be Told", 1, 2)}
+

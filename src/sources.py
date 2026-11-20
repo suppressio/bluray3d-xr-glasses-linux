@@ -501,25 +501,33 @@ def _content_hash(disc: bluray.Disc) -> str | None:
     the stream itself. None if the folder or a clip cannot be read, so the
     caller skips TheDiscDB instead of failing the disc over it."""
     try:
-        names = sorted(n for n in disc.list_dir("BDMV/STREAM") if n.lower().endswith(".m2ts"))
-        digest = hashlib.md5(usedforsecurity=False)
-        for name in names:
-            clpi = disc.read_file(f"BDMV/CLIPINF/{name[:-5]}.clpi")
-            digest.update((parse_clpi(clpi).num_packets * 192).to_bytes(8, "little"))
-        return digest.hexdigest().upper() if names else None
+        names = [n for n in disc.list_dir("BDMV/STREAM") if n.lower().endswith(".m2ts")]
+        return lookup.content_hash({
+            n: parse_clpi(disc.read_file(f"BDMV/CLIPINF/{n[:-5]}.clpi")).num_packets * 192
+            for n in names})
     except (OSError, ValueError, IndexError) as e:
         log.info("content hash failed, skipping TheDiscDB: %s", e)
         return None
 
 
-def _online_roles(path: str, disc: bluray.Disc,
-                  titles: list[bluray.Title]) -> dict[str, lookup.Role]:
-    """What TheDiscDB knows of this disc's playlists for --lookup (#84, #69), by the
-    disc's content hash: their roles (main movie, episode, extra) and titles. Empty
-    on no match or any problem: the offline choice and naming (#27) keep going
-    either way, logged here once instead of failing the disc over it."""
-    content_hash = _content_hash(disc)
-    roles = lookup.disc_roles(content_hash, [t.playlist for t in titles]) if content_hash else {}
+def _dvd_content_hash(disc: "dvd.Dvd") -> str | None:
+    """TheDiscDB's fingerprint of a DVD (#69): every file of VIDEO_TS/, see
+    lookup.content_hash(). None if the disc's files cannot be listed."""
+    try:
+        return lookup.content_hash(disc.file_sizes())
+    except OSError as e:
+        log.info("content hash failed, skipping TheDiscDB: %s", e)
+        return None
+
+
+def _online_roles(path: str, content_hash: str | None, ids: list[str]
+                  ) -> dict[str, lookup.Role]:
+    """What TheDiscDB knows of a disc's titles (Blu-ray playlists or DVD title
+    numbers) for --lookup (#84, #69), by the disc's content hash: their roles (main
+    movie, episode, extra) and titles. Empty on no match or any problem: the offline
+    choice and naming (#27) keep going either way, logged here once instead of
+    failing the disc over it."""
+    roles = lookup.disc_roles(content_hash, ids) if content_hash else {}
     log.info("%s: %s", path, "found on TheDiscDB" if roles else
              "nothing found on TheDiscDB, using the offline names")
     return roles
@@ -530,19 +538,21 @@ def _is_3d(items: list[PlayItem] | None) -> bool:
 
 
 @dataclass
-class _RoleChoice:
+class _RoleChoice[T]:
     """What a disc holds by TheDiscDB's roles (#69): a main movie, episodes in order,
     extras."""
-    movie: bluray.Title | None
-    episodes: list[bluray.Title]
-    extras: list[bluray.Title]
+    movie: T | None
+    episodes: list[T]
+    extras: list[T]
 
 
-def _choice_by_role(titles: list[bluray.Title], roles: dict[str, lookup.Role],
-                    items_by_playlist: dict[str, list[PlayItem]], sigs: dict[str, str],
-                    has_3d: bool) -> _RoleChoice | None:
-    """The disc as TheDiscDB catalogues it (#69), or None when its roles do not make a
-    whole, unambiguous picture and the offline choice must decide instead:
+def _choice_by_role[T](titles: list[T], roles: dict[str, lookup.Role],
+                       key: Callable[[T], str], sig: Callable[[T], object],
+                       is_3d: Callable[[T], bool], has_3d: bool) -> _RoleChoice[T] | None:
+    """The disc as TheDiscDB catalogues it (#69), Blu-ray or DVD alike (`key` names a
+    title as TheDiscDB does, `sig` tells variants of one title apart by their opening
+    clip), or None when its roles do not make a whole, unambiguous picture and the
+    offline choice must decide instead:
     - episodes in its season/episode order, one per episode (of the variants, the 3D
       one on a 3D disc); each needs an episode number of 1 or more, and either every
       episode has a season or none has;
@@ -550,43 +560,39 @@ def _choice_by_role(titles: list[bluray.Title], roles: dict[str, lookup.Role],
     - its other catalogued titles as extras, one per opening clip like offline;
     - a catalogued title with no kind (the releases disagree on it) has nowhere to go.
     Titles it does not catalogue are left out."""
-    catalogued = [t for t in titles if t.playlist in roles]
-    if not any(roles[t.playlist].kind for t in catalogued) or \
-            any(roles[t.playlist].kind is None for t in catalogued):
+    catalogued = [t for t in titles if key(t) in roles]
+    kind_of = {key(t): roles[key(t)].kind for t in catalogued}
+    if not any(kind_of.values()) or any(k is None for k in kind_of.values()):
         return None
-    kind_of = {t.playlist: roles[t.playlist].kind for t in catalogued}
-    candidates = [t for t in catalogued if kind_of[t.playlist] == "Episode"]
-    named_movies = [t for t in catalogued if kind_of[t.playlist] == "MainMovie"]
-    movies = [t for t in named_movies
-              if not has_3d or _is_3d(items_by_playlist.get(t.playlist))]
+    candidates = [t for t in catalogued if kind_of[key(t)] == "Episode"]
+    named_movies = [t for t in catalogued if kind_of[key(t)] == "MainMovie"]
+    movies = [t for t in named_movies if not has_3d or is_3d(t)]
     if named_movies and len(movies) != 1:
         return None
     movie = movies[0] if movies else None
     if not candidates:
-        return _RoleChoice(movie, [], []) if movie else None
-    numbers = [roles[t.playlist] for t in candidates]
+        return _RoleChoice(movie, [], []) if movie is not None else None
+    numbers = [roles[key(t)] for t in candidates]
     if any(r.episode is None or r.episode < 1 for r in numbers) or \
             len({r.season is None for r in numbers}) > 1:
         return None
 
-    def order(t: bluray.Title) -> tuple[int, int, bool, str]:
-        r = roles[t.playlist]
-        two_d_last = has_3d and not _is_3d(items_by_playlist.get(t.playlist))
-        return (r.season or 0, r.episode or 0, two_d_last, t.playlist)
+    def order(t: T) -> tuple[int, int, bool, str]:
+        r = roles[key(t)]
+        return (r.season or 0, r.episode or 0, has_3d and not is_3d(t), key(t))
 
-    episodes: list[bluray.Title] = []
+    episodes: list[T] = []
     seen: set[tuple[int | None, int | None]] = set()
     for t in sorted(candidates, key=order):
-        r = roles[t.playlist]
+        r = roles[key(t)]
         if (r.season, r.episode) not in seen:
             seen.add((r.season, r.episode))
             episodes.append(t)
-    extras: list[bluray.Title] = []
-    seen_sigs: set[str] = set()
+    extras: list[T] = []
+    seen_sigs: set[object] = set()
     for t in catalogued:
-        sig = sigs[t.playlist]
-        if kind_of[t.playlist] not in ("Episode", "MainMovie") and sig not in seen_sigs:
-            seen_sigs.add(sig)
+        if kind_of[key(t)] not in ("Episode", "MainMovie") and sig(t) not in seen_sigs:
+            seen_sigs.add(sig(t))
             extras.append(t)
     return _RoleChoice(movie, episodes, extras)
 
@@ -810,8 +816,11 @@ class BlurayDiscSource(DiscSource):
             titles = [t for t in titles if t.playlist not in malformed]
 
             # one title: nothing to choose, no query
-            roles = _online_roles(path, disc, titles) if lookup_enabled and len(titles) >= 2 else {}
-            choice = _choice_by_role(titles, roles, items_by_playlist, sigs, info.has_3d)
+            roles = _online_roles(path, _content_hash(disc), [t.playlist for t in titles]) \
+                if lookup_enabled and len(titles) >= 2 else {}
+            choice = _choice_by_role(
+                titles, roles, key=lambda t: t.playlist, sig=lambda t: sigs[t.playlist],
+                is_3d=lambda t: _is_3d(items_by_playlist.get(t.playlist)), has_3d=info.has_3d)
             if choice is not None:
                 log.info("%s: titles chosen as TheDiscDB lists them", path)
                 episodes_found: list[Source] = [
@@ -997,19 +1006,45 @@ class DvdSource(DiscSource):
     sub_canvas = ""                 # DVD: the picture in the same stream gives it
 
     @classmethod
-    def all_on(cls, path: str, audio_langs: list[str] | None = None) -> list["DvdSource"]:
-        """The movie, or one source per episode (named like Blu-ray episodes, #127)."""
+    def all_on(cls, path: str, audio_langs: list[str] | None = None, *,
+               lookup_enabled: bool = False) -> list["DvdSource"]:
+        """The movie, or one source per episode (named like Blu-ray episodes, #127).
+        `lookup_enabled` (--lookup, #84, #69): as on Blu-ray, TheDiscDB's roles and
+        titles, by the disc's title numbers; off by default, no network touched."""
+        def key(t: dvd.DvdTitle) -> str:
+            return f"{t.number:02d}"
+
         with dvd.Dvd(path) as disc:
-            chosen = dvd.main_titles(disc)
+            parsed = dvd.all_titles(disc)
+            chosen = dvd.choose_titles(parsed)
+            roles: dict[str, lookup.Role] = {}
+            if lookup_enabled and len(parsed) >= 2:
+                roles = _online_roles(path, _dvd_content_hash(disc), [key(t) for t in parsed])
+        choice = _choice_by_role(
+            parsed, roles, key=key, sig=lambda t: (t.vts, t.cells[0].first if t.cells else 0),
+            is_3d=lambda _: False, has_3d=False)
+        if choice is not None:
+            log.info("%s: titles chosen as TheDiscDB lists them", path)
+            found: list[DvdSource] = [
+                cls(path, audio_langs, t, roles[key(t)].episode or 0,
+                    online_title=roles[key(t)].title, online_season=roles[key(t)].season)
+                for t in choice.episodes]
+            found += [cls(path, audio_langs, t, i, extra=True)
+                      for i, t in enumerate(choice.extras, 1)]
+            _apply_uniform_lang_label(found)
+            movie = [] if choice.movie is None else [cls(path, audio_langs, choice.movie)]
+            return movie + found
         if len(chosen) == 1:
             return [cls(path, audio_langs, chosen[0])]
-        found: list[DvdSource] = [cls(path, audio_langs, t, episode)
-                                  for episode, t in enumerate(chosen, 1)]
+        found = [cls(path, audio_langs, t, episode,
+                     online_title=roles[key(t)].title if key(t) in roles else None)
+                 for episode, t in enumerate(chosen, 1)]
         _apply_uniform_lang_label(found)
         return found
 
     def __init__(self, path: str, audio_langs: list[str] | None = None,
-                 title: dvd.DvdTitle | None = None, episode: int = 0) -> None:
+                 title: dvd.DvdTitle | None = None, episode: int = 0, *, extra: bool = False,
+                 online_title: str | None = None, online_season: int | None = None) -> None:
         self.path = path
         self._dvd = dvd.Dvd(path)
         try:
@@ -1035,7 +1070,8 @@ class DvdSource(DiscSource):
         self.fallback_name = not label
         self.name = _safe_name(label.replace("_", " ").title()) if label else f"DVD-{fingerprint}"
         if episode:  # as on Blu-ray (#80): S01E02 / E02 - Show (Disc 1) / E02 - name
-            self.name, _ = _episode_name(self.name, [self.name], episode, False)
+            self.name, self.subfolder = _episode_name(self.name, [self.name], episode, extra,
+                                                      online_title, online_season)
         self.duration = self.title.duration
         self.frame_size, self.frame_rate = self.title.frame_size, self.title.frame_rate
         w, h = self.frame_size.split("x")
@@ -1102,12 +1138,12 @@ class DvdSource(DiscSource):
 def open_disc(path: str, audio_langs: list[str] | None = None, *,
               lookup_enabled: bool = False) -> list[Source]:
     """What the drive/ISO/folder holds: a Blu-ray (3D or 2D), or a DVD (its
-    movie, or its episodes). `lookup_enabled`: --lookup (#84), Blu-ray only."""
+    movie, or its episodes). `lookup_enabled`: --lookup (#84, #69)."""
     try:
         return BlurayDiscSource.all_on(path, audio_langs, lookup_enabled=lookup_enabled)
     except OSError as bd_error:
         try:
-            return list(DvdSource.all_on(path, audio_langs))
+            return list(DvdSource.all_on(path, audio_langs, lookup_enabled=lookup_enabled))
         except OSError:
             raise bd_error from None
 

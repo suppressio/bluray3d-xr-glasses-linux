@@ -35,7 +35,7 @@ from osplatform import load_library
 SECTOR = 2048
 READ_ATTEMPTS = 4
 SLOW_FAILURE = 2.0                  # seconds
-DVD_READ_INFO_FILE, DVD_READ_TITLE_VOBS = 0, 3
+DVD_READ_INFO_FILE, DVD_READ_INFO_BACKUP_FILE, DVD_READ_MENU_VOBS, DVD_READ_TITLE_VOBS = 0, 1, 2, 3
 
 AUDIO_FORMATS = {0: "ac3", 2: "mp2", 3: "mp2", 4: "lpcm", 6: "dts"}
 
@@ -58,7 +58,9 @@ def _dvdread() -> ctypes.CDLL:
             ("DVDReadBlocks", ctypes.c_ssize_t,
              [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_void_p]),
             ("DVDUDFVolumeInfo", ctypes.c_int,
-             [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint])):
+             [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]),
+            ("DVDFileStat", ctypes.c_int,
+             [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_void_p])):
         getattr(lib, n).restype = res
         getattr(lib, n).argtypes = args
     return lib
@@ -143,6 +145,12 @@ class VobFile:
             self._h = None
 
 
+class _DvdStat(ctypes.Structure):
+    """libdvdread's dvd_stat_t: a file's size, or a title's VOB parts and their sizes."""
+    _fields_ = [("size", ctypes.c_int64), ("nr_parts", ctypes.c_int),
+                ("parts_size", ctypes.c_int64 * 9)]
+
+
 class Dvd:
     """A DVD-Video disc, ISO image or folder with VIDEO_TS/."""
 
@@ -172,6 +180,27 @@ class Dvd:
             n: int = _dvdread().DVDReadBytes(f, buf, size)
             _dvdread().DVDCloseFile(f)
         return buf.raw[:max(0, n)]
+
+    def file_sizes(self) -> dict[str, int]:
+        """Name -> size of every file of VIDEO_TS/ (IFO, BUP, VOB) as the disc's file
+        system gives it, for TheDiscDB's fingerprint (#69). A file the disc does not
+        have (a title set's menu VOB, often) is simply not listed."""
+        vmg = self.ifo(0)
+        sizes: dict[str, int] = {}
+        stat = _DvdStat()
+        with self._lock:
+            for vts in range(_u16(vmg, 0x3E) + 1):     # VMGI_MAT: number of title sets
+                base = "VIDEO_TS" if vts == 0 else f"VTS_{vts:02d}_0"
+                for domain, ext in ((DVD_READ_INFO_FILE, "IFO"),
+                                    (DVD_READ_INFO_BACKUP_FILE, "BUP"),
+                                    (DVD_READ_MENU_VOBS, "VOB")):
+                    if _dvdread().DVDFileStat(self._dvd, vts, domain, ctypes.byref(stat)) == 0:
+                        sizes[f"{base}.{ext}"] = stat.size
+                if vts and _dvdread().DVDFileStat(self._dvd, vts, DVD_READ_TITLE_VOBS,
+                                                  ctypes.byref(stat)) == 0:
+                    for part in range(stat.nr_parts):
+                        sizes[f"VTS_{vts:02d}_{part + 1}.VOB"] = stat.parts_size[part]
+        return sizes
 
     def title_vobs(self, vts: int) -> VobFile:
         with self._lock:
@@ -394,6 +423,11 @@ def choose_titles(parsed: list[DvdTitle]) -> list[DvdTitle]:
 
 def main_titles(dvd: IfoReader) -> list[DvdTitle]:
     """The titles of the disc worth offering (see choose_titles)."""
+    return choose_titles(all_titles(dvd))
+
+
+def all_titles(dvd: IfoReader) -> list[DvdTitle]:
+    """Every title of the disc that parses, before any choice."""
     ifos: dict[int, bytes] = {}
     parsed: list[DvdTitle] = []
     for number, vts, ttn in titles(dvd.ifo(0)):
@@ -405,7 +439,7 @@ def main_titles(dvd: IfoReader) -> list[DvdTitle]:
             continue
     if not parsed:
         raise OSError("no title found on the DVD")
-    return choose_titles(parsed)
+    return parsed
 
 
 @dataclass

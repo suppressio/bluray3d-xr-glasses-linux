@@ -19,6 +19,7 @@ from hypothesis import strategies as st
 
 import bluray as bluray_module
 import dvd
+import lookup
 import osplatform
 import sources
 from bdmv import AudioStream, Clip, PlayItem, m2ts_seek, ssif_seek
@@ -2033,4 +2034,68 @@ def test_bluray_lookup_roles_movie_audio_does_not_label_the_episodes(
         "00001": Role("MainMovie", "Film", None, None),
         "00002": Role("Episode", "Bonus", 1, 1)})
     assert [[v.label for v in s.variants()] for s in found][1] == [""]
+
+
+class LabeledSeriesDvd(FakeDvd):
+    """Alias S1 on DVD: three 25-minute titles in VTS 1-3, and its files' sizes."""
+
+    @override
+    def ifo(self, vts: int) -> bytes:
+        if vts == 0:
+            return vmg_ifo([(1, 1), (2, 1), (3, 1)])
+        first = (vts - 1) * 10_000
+        return vts_ifo([DvdCell(1500.0, first, first + 9_999)], [DvdAudioAttr(0, "en")], [])
+
+    @override
+    def volume_id(self) -> str:
+        return "ALIAS_S1"
+
+    def file_sizes(self) -> dict[str, int]:
+        return {"VIDEO_TS.IFO": 12_288, "VTS_01_1.VOB": 1_000_000}
+
+
+def _dvd_roles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, roles: dict[str, Role] | None,
+               ) -> list[DvdSource]:
+    """DvdSource.all_on() on LabeledSeriesDvd; --lookup on when `roles` is given, with
+    TheDiscDB answering them (#69)."""
+    monkeypatch.setattr(dvd, "Dvd", LabeledSeriesDvd)
+    seen: dict[str, object] = {}
+
+    def disc_roles(content_hash: str, ids: list[str]) -> dict[str, Role]:
+        seen.update(content_hash=content_hash, ids=ids)
+        return roles or {}
+
+    monkeypatch.setattr(sources.lookup, "disc_roles", disc_roles)
+    place = tmp_path / "Alias"
+    place.mkdir(exist_ok=True)
+    found = DvdSource.all_on(str(place), lookup_enabled=roles is not None)
+    if roles is not None:
+        assert seen == {"content_hash": lookup.content_hash(LabeledSeriesDvd().file_sizes()),
+                        "ids": ["01", "02", "03"]}
+    else:
+        assert not seen
+    return found
+
+
+def test_dvd_lookup_off_asks_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    found = _dvd_roles(monkeypatch, tmp_path, None)
+    assert [s.name for s in found] == ["S01E01 - Alias", "S01E02 - Alias", "S01E03 - Alias"]
+
+
+def test_dvd_lookup_roles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#69 on DVD: TheDiscDB's episodes, order and titles, and its extra in Extra/."""
+    found = _dvd_roles(monkeypatch, tmp_path, {
+        "01": Role("Episode", "So It Begins", 1, 2),
+        "02": Role("Episode", "Truth Be Told", 1, 1),
+        "03": Role("Extra", "Gag Reel", None, None)})
+    assert [(s.title.number, s.name, s.subfolder) for s in found] == [
+        (2, "S01E01 - Alias - Truth Be Told", ""), (1, "S01E02 - Alias - So It Begins", ""),
+        (3, "Alias - Extra 1", "Extra")]
+
+
+def test_dvd_lookup_titles_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Titles with no role: the offline episodes, with the titles appended (#84 on DVD)."""
+    found = _dvd_roles(monkeypatch, tmp_path, {"01": Role(None, "Truth Be Told", None, None)})
+    assert [s.name for s in found] == ["S01E01 - Alias - Truth Be Told", "S01E02 - Alias",
+                                       "S01E03 - Alias"]
 
