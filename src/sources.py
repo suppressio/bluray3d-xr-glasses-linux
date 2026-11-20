@@ -515,7 +515,7 @@ def _dvd_content_hash(path: str) -> str | None:
     dvd.video_ts_sizes() and lookup.content_hash(). None if they cannot be listed."""
     try:
         return lookup.content_hash(dvd.video_ts_sizes(path))
-    except OSError as e:
+    except (OSError, ValueError, IndexError) as e:
         log.info("content hash failed, skipping TheDiscDB: %s", e)
         return None
 
@@ -1025,14 +1025,17 @@ class DvdSource(DiscSource):
             is_3d=lambda _: False, has_3d=False)
         if choice is not None:
             log.info("%s: titles chosen as TheDiscDB lists them", path)
+            # the CSS check runs once, on the first source built: TheDiscDB may number
+            # the first episode 8 (disc 2 of a season), so not by its number
+            movie = [] if choice.movie is None else [cls(path, audio_langs, choice.movie)]
             found: list[DvdSource] = [
                 cls(path, audio_langs, t, roles[key(t)].episode or 0,
-                    online_title=roles[key(t)].title, online_season=roles[key(t)].season)
-                for t in choice.episodes]
-            found += [cls(path, audio_langs, t, i, extra=True)
+                    online_title=roles[key(t)].title, online_season=roles[key(t)].season,
+                    css_check=not movie and i == 0)
+                for i, t in enumerate(choice.episodes)]
+            found += [cls(path, audio_langs, t, i, extra=True, css_check=False)
                       for i, t in enumerate(choice.extras, 1)]
             _apply_uniform_lang_label(found)
-            movie = [] if choice.movie is None else [cls(path, audio_langs, choice.movie)]
             return movie + found
         if len(chosen) == 1:
             return [cls(path, audio_langs, chosen[0])]
@@ -1044,7 +1047,8 @@ class DvdSource(DiscSource):
 
     def __init__(self, path: str, audio_langs: list[str] | None = None,
                  title: dvd.DvdTitle | None = None, episode: int = 0, *, extra: bool = False,
-                 online_title: str | None = None, online_season: int | None = None) -> None:
+                 online_title: str | None = None, online_season: int | None = None,
+                 css_check: bool | None = None) -> None:
         self.path = path
         self._dvd = dvd.Dvd(path)
         try:
@@ -1057,8 +1061,9 @@ class DvdSource(DiscSource):
             self._dvd.close()
             raise
         self._vobs = self._dvd.title_vobs(self.title.vts)
-        # once per disc (the first episode): each check is a seek of the drive
-        if episode <= 1:
+        # once per disc (the first source built: `css_check`, else the first episode):
+        # each check is a seek of the drive
+        if episode <= 1 if css_check is None else css_check:
             if dvd.scrambled(self._vobs.read(self.title.cells[0].first, 16)):
                 self._dvd.close()
                 raise OSError(f"{path}: the DVD is encrypted (CSS) and libdvdcss is missing or "

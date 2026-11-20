@@ -155,6 +155,8 @@ def _iso9660_dir(f: BinaryIO, extent: int, length: int) -> dict[str, tuple[int, 
         if size == 0:
             pos = (pos // SECTOR + 1) * SECTOR
             continue
+        if size < 34 or pos + size > len(data):
+            raise OSError("damaged ISO9660 listing")
         record = data[pos:pos + size]
         name = record[33:33 + record[32]]
         if name not in (b"\x00", b"\x01"):            # "." and ".."
@@ -178,10 +180,17 @@ def video_ts_sizes(path: str) -> dict[str, int]:
             raise OSError(f"no VIDEO_TS folder in {path}")
         return {c.name.upper(): c.stat().st_size for c in folder.iterdir() if c.is_file()}
     with p.open("rb") as f:
-        f.seek(16 * SECTOR)
-        pvd = f.read(SECTOR)
-        if pvd[1:6] != b"CD001":
-            raise OSError(f"no ISO9660 file system on {path}")
+        # the volume descriptors start at sector 16: the primary one (type 1) is not
+        # always first (a boot record may be), 255 ends them
+        sector, pvd = 16, b""
+        while True:
+            f.seek(sector * SECTOR)
+            pvd = f.read(SECTOR)
+            if len(pvd) < SECTOR or pvd[1:6] != b"CD001" or pvd[0] == 255:
+                raise OSError(f"no ISO9660 file system on {path}")
+            if pvd[0] == 1:
+                break
+            sector += 1
         root = pvd[156:190]
         top = _iso9660_dir(f, int.from_bytes(root[2:6], "little"),
                            int.from_bytes(root[10:14], "little"))

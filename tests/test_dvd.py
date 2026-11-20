@@ -315,3 +315,30 @@ def test_video_ts_sizes_not_a_dvd(tmp_path: Path) -> None:
     other.write_bytes(b"\0" * dvd.SECTOR * 20)
     with pytest.raises(OSError, match="no ISO9660"):
         dvd.video_ts_sizes(str(other))
+
+
+def test_video_ts_sizes_finds_the_primary_descriptor(tmp_path: Path) -> None:
+    """The primary volume descriptor need not be the first one (a boot record may come
+    first): the descriptors are walked until it."""
+    image = bytearray(_iso(FILES))
+    sector = dvd.SECTOR
+    pvd = bytes(image[16 * sector:17 * sector])
+    boot = bytearray(sector)
+    boot[0:6] = b"\x00CD001"
+    image[16 * sector:17 * sector] = boot
+    image[17 * sector:18 * sector] = pvd
+    iso = tmp_path / "boot.iso"
+    iso.write_bytes(bytes(image))
+    assert dvd.video_ts_sizes(str(iso)) == FILES
+
+
+def test_video_ts_sizes_record_cut_short(tmp_path: Path) -> None:
+    """A directory record too short to be one is a damaged listing: OSError."""
+    image = bytearray(_iso(FILES))
+    sector = dvd.SECTOR
+    image[19 * sector + 68] = 10        # the first file's record claims 10 bytes
+    iso = tmp_path / "damaged.iso"
+    iso.write_bytes(bytes(image))
+    with pytest.raises(OSError, match="damaged"):
+        dvd.video_ts_sizes(str(iso))
+
