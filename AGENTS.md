@@ -25,6 +25,13 @@ scripts/check.sh          # ruff, pyright (strict), shellcheck, unit tests: must
 - Every fix comes with the unit test that would have caught it. Unit tests need no disc: use `tests/builders.py` (real MPLS/CLPI/IFO/TS files) and `tests/fakes.py` (`FakeBluray`, `FakeDvd`).
 - **No drive in the cloud.** The integration tests (`scripts/check.sh --integration`) need a disc in a real drive. If you cannot run them, say so in the test plan and list what a person must check on real hardware: do not mark them as done.
 
+## Platforms
+
+Spinema runs on Linux, and is being ported to Windows (#10) and later macOS (#9).
+
+- **Same features everywhere.** Every feature the Linux version has must work on every supported platform: drive insert detection, Blu-ray decryption (libaacs and libmmbd), DVD, 3D, sharing over SMB and DLNA, and the rest. A port that drops a feature, or a "this platform only gets X" outcome, is not acceptable: if a platform cannot do something the usual way, find another way that keeps it.
+- **One code path for all platforms.** Prefer a solution that works the same on Linux, Windows and macOS over one implementation per platform: one way to chain and stop processes, one way to pass streams between them, one set of tests. Platform-specific code is limited to what the OS really makes different (drive letters vs device paths, library file names, default directories) and stays in `src/osplatform.py`. When a pull request adds a per-platform branch, its description says why a shared solution was not possible.
+
 ## Conventions
 
 - Code, comments and log messages in English.
