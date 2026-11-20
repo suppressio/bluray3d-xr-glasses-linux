@@ -37,6 +37,7 @@ from builders import (
 )
 from fakes import EPS, FakeBluray, FakeDvd, mkv_probe, opener, pack
 from library import Library, VirtualFile
+from lookup import Role
 from sources import (
     BlurayDiscSource,
     DvdSource,
@@ -839,7 +840,7 @@ def test_episode_name_extra(name: str, raw_names: list[str],
 
 def test_bluray_lookup_disabled_by_default_touches_no_lookup(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """#84: --lookup is opt-in. Without it, lookup.episode_titles() (and so any
+    """#84: --lookup is opt-in. Without it, lookup.disc_roles() (and so any
     network access) is never called, even on a multi-episode disc."""
     iso = tmp_path / "disc.iso"
     iso.write_text("")
@@ -849,19 +850,18 @@ def test_bluray_lookup_disabled_by_default_touches_no_lookup(
         return disc, disc.info(), {}
 
     def fail(*args: object, **kwargs: object) -> None:
-        raise AssertionError("lookup.episode_titles() must not be called")
+        raise AssertionError("lookup.disc_roles() must not be called")
 
     monkeypatch.setattr(sources, "_open_disc", open_disc)
-    monkeypatch.setattr(sources.lookup, "episode_titles", fail)
+    monkeypatch.setattr(sources.lookup, "disc_roles", fail)
     found = [s for s in BlurayDiscSource.all_on(str(iso)) if isinstance(s, BlurayDiscSource)]
     assert [s.name for s in found] == ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
 
 
 def test_bluray_lookup_enabled_appends_online_titles(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """--lookup on: the per-episode title lookup.episode_titles() returns is appended
-    to the offline name, and it is called with this disc's content hash and
-    playlists."""
+    """--lookup on: a title lookup.disc_roles() returns with no role is appended to
+    the offline name, and it is called with this disc's content hash and playlists."""
     iso = tmp_path / "disc.iso"
     iso.write_text("")
     disc = _two_episode_disc("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1")
@@ -870,12 +870,13 @@ def test_bluray_lookup_enabled_appends_online_titles(
     def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
         return disc, disc.info(), {}
 
-    def fake_episode_titles(content_hash: str, playlists: list[str]) -> list[str | None]:
+    def fake_disc_roles(content_hash: str, playlists: list[str]) -> dict[str, Role]:
         seen.update(content_hash=content_hash, playlists=playlists)
-        return ["Pilot", "Lawnmower Dog"]
+        return {"00001": Role(None, "Pilot", None, None),
+                "00002": Role(None, "Lawnmower Dog", None, None)}
 
     monkeypatch.setattr(sources, "_open_disc", open_disc)
-    monkeypatch.setattr(sources.lookup, "episode_titles", fake_episode_titles)
+    monkeypatch.setattr(sources.lookup, "disc_roles", fake_disc_roles)
     found = [s for s in BlurayDiscSource.all_on(str(iso), lookup_enabled=True)
             if isinstance(s, BlurayDiscSource)]
 
@@ -888,7 +889,7 @@ def test_bluray_lookup_enabled_appends_online_titles(
 def test_bluray_lookup_no_titles_found_keeps_offline_naming(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
         ) -> None:
-    """lookup.episode_titles() returning nothing (no match / network error, already
+    """lookup.disc_roles() returning nothing (no match / network error, already
     logged there) must not break naming: the offline S01E.. names are kept, with
     one more log line here."""
     iso = tmp_path / "disc.iso"
@@ -898,17 +899,17 @@ def test_bluray_lookup_no_titles_found_keeps_offline_naming(
     def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
         return disc, disc.info(), {}
 
-    def no_titles(content_hash: str, playlists: list[str]) -> list[str | None]:
-        return [None, None]
+    def no_roles(content_hash: str, playlists: list[str]) -> dict[str, Role]:
+        return {}
 
     monkeypatch.setattr(sources, "_open_disc", open_disc)
-    monkeypatch.setattr(sources.lookup, "episode_titles", no_titles)
+    monkeypatch.setattr(sources.lookup, "disc_roles", no_roles)
     caplog.set_level(logging.INFO, logger="bd3d_fs")
     found = [s for s in BlurayDiscSource.all_on(str(iso), lookup_enabled=True)
             if isinstance(s, BlurayDiscSource)]
 
     assert [s.name for s in found] == ["S01E01 - Rick and Morty", "S01E02 - Rick and Morty"]
-    assert "no online episode titles" in caplog.text
+    assert "nothing found on TheDiscDB, using the offline names" in caplog.text
 
 
 # the real Rick_Morty_S1 disc (#94): size of each BDMV/STREAM/000NN.m2ts, from
@@ -1840,3 +1841,77 @@ def test_names_a_disc_gives_itself_are_not_numbered(monkeypatch: pytest.MonkeyPa
     second = DvdSource(places[1])
     assert lib._unique(second) is second
     lib.remove(added)
+
+
+def _roles_disc(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, disc: MultiEpisodeBluray,
+                roles: dict[str, Role]) -> list[BlurayDiscSource]:
+    """all_on() with --lookup on `disc`, TheDiscDB answering `roles` (#69)."""
+    iso = tmp_path / "disc.iso"
+    iso.write_text("")
+
+    def open_disc(path: str) -> tuple[MultiEpisodeBluray, DiscInfo, dict[str, str]]:
+        return disc, disc.info(), {}
+
+    def disc_roles(content_hash: str, playlists: list[str]) -> dict[str, Role]:
+        return roles
+
+    monkeypatch.setattr(sources, "_open_disc", open_disc)
+    monkeypatch.setattr(sources.lookup, "disc_roles", disc_roles)
+    return [s for s in BlurayDiscSource.all_on(str(iso), lookup_enabled=True)
+            if isinstance(s, BlurayDiscSource)]
+
+
+def test_bluray_lookup_roles_override_offline_split(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#69: four titles alike (offline: four episodes). TheDiscDB says two are episodes,
+    in the other order, one an extra, and knows nothing of the fourth: episodes follow
+    its numbers, the extra goes to Extra/, the unknown title is left out."""
+    disc = MultiEpisodeBluray({"00001": [_ep("00010")], "00002": [_ep("00020")],
+                               "00003": [_ep("00030")], "00004": [_ep("00040")]})
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00001": Role("Episode", "Lawnmower Dog", 1, 2),
+        "00002": Role("Episode", "Pilot", 1, 1),
+        "00003": Role("Extra", "Animatic", None, None),
+    })
+    assert [(s.playlist, s.name, s.subfolder) for s in found] == [
+        ("00002", "S01E01 - Rick and Morty - Pilot", ""),
+        ("00001", "S01E02 - Rick and Morty - Lawnmower Dog", ""),
+        ("00003", "Rick and Morty - Extra 1", "Extra")]
+
+
+def test_bluray_lookup_roles_episode_numbers_on_a_later_disc(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#69: on disc 2 of a season the offline numbering starts again from 1; TheDiscDB's
+    episode numbers are the real ones."""
+    disc = _two_episode_disc("Rick and Morty Staffel 1 Disc 2 - Blu-ray", "RICK_AND_MORTY_S1_D2")
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00001": Role("Episode", "Rixty Minutes", 1, 8),
+        "00002": Role("Episode", "Something Ricked This Way Comes", 1, 9),
+    })
+    assert [s.name for s in found] == [
+        "E08 - Rick and Morty Staffel 1 (Disc 2) - Rixty Minutes",
+        "E09 - Rick and Morty Staffel 1 (Disc 2) - Something Ricked This Way Comes"]
+
+
+def test_bluray_lookup_main_movie(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#69: titles that look like episodes, but TheDiscDB says one is the main movie:
+    one source, that playlist."""
+    disc = _two_episode_disc("Some Movie - Blu-ray", "SOME_MOVIE")
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00002": Role("MainMovie", "Some Movie", None, None),
+        "00001": Role("Extra", "Trailer", None, None)})
+    assert [s.playlist for s in found] == ["00002"]
+
+
+def test_bluray_lookup_main_movie_in_2d_on_a_3d_disc_is_not_taken(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#69: on a 3D disc a main movie TheDiscDB points at in 2D would lose the 3D:
+    the offline choice (the 3D playlist) stays."""
+    long = 45_000 * 7200
+    disc = MultiEpisodeBluray(
+        # 2D and 3D playlists of one movie share the base-view clip, as on real discs
+        {"00100": [Item("00010", 0, long)], "00200": [Item("00010", 0, long)]},
+        name="Mad Max - Blu-ray", volume_id="MAD_MAX_3D", dep_clips={"00200": ["00021"]})
+    found = _roles_disc(monkeypatch, tmp_path, disc,
+                        {"00100": Role("MainMovie", "Mad Max", None, None)})
+    assert [(s.playlist, s.two_d) for s in found] == [("00200", False)]
