@@ -58,6 +58,21 @@ _BDFile._fields_ = [
 ]
 
 
+class _BDDirent(Structure):
+    _fields_ = [("d_name", c_char * 256)]
+
+
+class _BDDir(Structure):
+    pass
+
+
+_BDDir._fields_ = [
+    ("internal", c_void_p),
+    ("close", CFUNCTYPE(None, POINTER(_BDDir))),
+    ("read", CFUNCTYPE(c_int, POINTER(_BDDir), POINTER(_BDDirent))),
+]
+
+
 class _TitleInfo(Structure):
     _fields_ = [("idx", c_uint32), ("playlist", c_uint32), ("duration", c_uint64),
                 ("clip_count", c_uint32), ("angle_count", c_uint8),
@@ -110,6 +125,8 @@ def _libbluray() -> ctypes.CDLL:
     lib.bd_close.argtypes = [c_void_p]
     lib.bd_open_file_dec.restype = POINTER(_BDFile)
     lib.bd_open_file_dec.argtypes = [c_void_p, c_char_p]
+    lib.bd_open_dir.restype = POINTER(_BDDir)
+    lib.bd_open_dir.argtypes = [c_void_p, c_char_p]
     lib.bd_get_disc_info.restype = POINTER(_DiscInfo)
     lib.bd_get_disc_info.argtypes = [c_void_p]
     lib.bd_get_titles.restype = c_uint32
@@ -212,6 +229,24 @@ class Disc:
     def read_file(self, path: str) -> bytes:
         with self.open(path) as f:
             return f.read_all()
+
+    def list_dir(self, path: str) -> list[str]:
+        """Names in a directory on the disc (files and subdirectories, no . or ..)."""
+        h = _libbluray().bd_open_dir(self._bd, path.encode())
+        if not h:
+            raise OSError(f"cannot open {path} on the disc")
+        names: list[str] = []
+        entry = _BDDirent()
+        try:
+            while (r := h.contents.read(h, ctypes.byref(entry))) == 0:
+                name = entry.d_name.decode("utf-8", "replace")
+                if name not in (".", ".."):
+                    names.append(name)
+        finally:
+            h.contents.close(h)
+        if r < 0:
+            raise OSError(f"cannot read {path} on the disc")
+        return names
 
     def close(self) -> None:
         if self._bd:
