@@ -342,3 +342,22 @@ def test_video_ts_sizes_record_cut_short(tmp_path: Path) -> None:
     with pytest.raises(OSError, match="damaged"):
         dvd.video_ts_sizes(str(iso))
 
+
+def test_video_ts_sizes_huge_directory_length(tmp_path: Path) -> None:
+    """A damaged directory length (4 GiB) is refused before reading: no drive-long read."""
+    image = bytearray(_iso(FILES))
+    sector = dvd.SECTOR
+    image[16 * sector + 156 + 10:16 * sector + 156 + 14] = (0xFFFFFFF0).to_bytes(4, "little")
+    iso = tmp_path / "huge.iso"
+    iso.write_bytes(bytes(image))
+    with pytest.raises(OSError, match="damaged"):
+        dvd.video_ts_sizes(str(iso))
+
+
+def test_video_ts_sizes_lowercase_names(tmp_path: Path) -> None:
+    """Names as an image records them in lowercase still match, as for a folder."""
+    image = _iso({"video_ts.ifo": 12_288, "vts_02_0.vob": 0}).replace(b"VIDEO_TS", b"video_ts")
+    iso = tmp_path / "lower.iso"
+    iso.write_bytes(image)
+    assert dvd.video_ts_sizes(str(iso)) == {"VIDEO_TS.IFO": 12_288, "VTS_02_0.VOB": 0}
+
