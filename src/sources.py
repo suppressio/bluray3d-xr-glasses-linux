@@ -510,11 +510,11 @@ def _content_hash(disc: bluray.Disc) -> str | None:
         return None
 
 
-def _dvd_content_hash(disc: "dvd.Dvd") -> str | None:
+def _dvd_content_hash(path: str) -> str | None:
     """TheDiscDB's fingerprint of a DVD (#69): every file of VIDEO_TS/, see
-    lookup.content_hash(). None if the disc's files cannot be listed."""
+    dvd.video_ts_sizes() and lookup.content_hash(). None if they cannot be listed."""
     try:
-        return lookup.content_hash(disc.file_sizes())
+        return lookup.content_hash(dvd.video_ts_sizes(path))
     except OSError as e:
         log.info("content hash failed, skipping TheDiscDB: %s", e)
         return None
@@ -1019,7 +1019,7 @@ class DvdSource(DiscSource):
             chosen = dvd.choose_titles(parsed)
             roles: dict[str, lookup.Role] = {}
             if lookup_enabled and len(parsed) >= 2:
-                roles = _online_roles(path, _dvd_content_hash(disc), [key(t) for t in parsed])
+                roles = _online_roles(path, _dvd_content_hash(path), [key(t) for t in parsed])
         choice = _choice_by_role(
             parsed, roles, key=key, sig=lambda t: (t.vts, t.cells[0].first if t.cells else 0),
             is_3d=lambda _: False, has_3d=False)

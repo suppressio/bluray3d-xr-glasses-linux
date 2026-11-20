@@ -2050,8 +2050,8 @@ class LabeledSeriesDvd(FakeDvd):
     def volume_id(self) -> str:
         return "ALIAS_S1"
 
-    def file_sizes(self) -> dict[str, int]:
-        return {"VIDEO_TS.IFO": 12_288, "VTS_01_1.VOB": 1_000_000}
+
+ALIAS_FILES = {"VIDEO_TS.IFO": 12_288, "VTS_01_1.VOB": 1_000_000, "VTS_02_0.VOB": 0}
 
 
 def _dvd_roles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, roles: dict[str, Role] | None,
@@ -2059,6 +2059,10 @@ def _dvd_roles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, roles: dict[str,
     """DvdSource.all_on() on LabeledSeriesDvd; --lookup on when `roles` is given, with
     TheDiscDB answering them (#69)."""
     monkeypatch.setattr(dvd, "Dvd", LabeledSeriesDvd)
+    def video_ts_sizes(path: str) -> dict[str, int]:
+        return ALIAS_FILES
+
+    monkeypatch.setattr(dvd, "video_ts_sizes", video_ts_sizes)
     seen: dict[str, object] = {}
 
     def disc_roles(content_hash: str, ids: list[str]) -> dict[str, Role]:
@@ -2070,7 +2074,7 @@ def _dvd_roles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, roles: dict[str,
     place.mkdir(exist_ok=True)
     found = DvdSource.all_on(str(place), lookup_enabled=roles is not None)
     if roles is not None:
-        assert seen == {"content_hash": lookup.content_hash(LabeledSeriesDvd().file_sizes()),
+        assert seen == {"content_hash": lookup.content_hash(ALIAS_FILES),
                         "ids": ["01", "02", "03"]}
     else:
         assert not seen
