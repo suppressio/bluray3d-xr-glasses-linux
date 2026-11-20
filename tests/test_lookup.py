@@ -10,7 +10,12 @@ from urllib.request import Request
 import pytest
 
 import lookup
-from lookup import episode_titles
+
+
+def episode_titles(content_hash: str, playlists: list[str]) -> list[str | None]:
+    """The title disc_roles() gives each playlist, None where it has none."""
+    roles = lookup.disc_roles(content_hash, playlists)
+    return [roles[p].title if p in roles else None for p in playlists]
 
 
 class FakeResponse:
@@ -222,14 +227,24 @@ def test_disc_roles_title_without_a_role(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_disc_roles_releases_disagree(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two releases of the same disc giving one playlist two roles: left out, not guessed."""
+    """Two releases of the same disc: a field they give differently is left out, not
+    guessed; what they agree on, or only one of them gives, is kept."""
     fake_http(monkeypatch, thediscdb=roles_answer(
         ("HASH1", [("00070.mpls", "Pilot", "Episode", "1", "1"),
                    ("00071.mpls", "Bonus", "Extra", "", "")]),
-        ("HASH1", [("00070.mpls", "Pilot", "Episode", "1", "1"),
+        ("HASH1", [("00070.mpls", "Pilot", "", "", ""),
                    ("00071.mpls", "Bonus", "Episode", "1", "2")])))
-    assert lookup.disc_roles("HASH1", ["00070", "00071"]) == \
-        {"00070": lookup.Role("Episode", "Pilot", 1, 1)}
+    assert lookup.disc_roles("HASH1", ["00070", "00071"]) == {
+        "00070": lookup.Role("Episode", "Pilot", 1, 1),
+        "00071": lookup.Role(None, "Bonus", 1, 2)}
+
+
+@pytest.mark.parametrize(("value", "expected"), [
+    ("8", 8), (8, 8), ("", None), (None, None), ("²", None), ("1a", None), (True, None)])
+def test_number(value: object, expected: int | None) -> None:
+    """Season/episode come as strings, maybe as integers one day; anything else is no
+    number, never an error that would throw the whole disc's answer away."""
+    assert lookup._number(value) == expected
 
 
 def test_disc_roles_network_error(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -451,13 +451,15 @@ def _parse_disc_part(*names: str) -> tuple[str, str] | None:
 
 
 def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool,
-                  online_title: str | None = None) -> tuple[str, str]:
+                  online_title: str | None = None,
+                  online_season: int | None = None) -> tuple[str, str]:
     """An episode's file name and subfolder: extras (#39) are numbered apart and go
     in Extra/, named after the show like episodes are (#81); an episode gets
     S<season>E<episode> first when the season is known and reliable (#27).
     Otherwise (#80) "E<episode> - <name>", with the disc/volume marker in
     parentheses when the disc's name carries one (e.g. "Disco 1"). Either way, its
-    real title from --lookup (#84) is appended when one was found online. The raw
+    real title from --lookup (#84) is appended when one was found online, and a
+    season TheDiscDB gives (#69) wins over the disc's, so S<season>E<episode>. The raw
     disc name/label may have underscores instead of spaces (#81): cleaned up already
     by _parse_season/_parse_disc_part, or here for the fallback with no marker at all."""
     season_show = _parse_season(*raw_names)
@@ -470,7 +472,12 @@ def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool,
         else:
             show = name.replace("_", " ")
         return f"{_safe_name(show)} - Extra {episode}", "Extra"
-    if season_show is not None:
+    if online_season is not None:
+        # the show without the season the disc name may still carry ("... Staffel 1")
+        named = season_show or (_parse_season(disc_part[1]) if disc_part else None)
+        show = named[1] if named else disc_part[1] if disc_part else name.replace("_", " ")
+        base = f"S{online_season:02d}E{episode:02d} - {_safe_name(show)}"
+    elif season_show is not None:
         season, show = season_show
         base = f"S{season:02d}E{episode:02d} - {_safe_name(show)}"
     elif disc_part is not None:
@@ -518,34 +525,40 @@ def _online_roles(path: str, disc: bluray.Disc,
     return roles
 
 
-# TheDiscDB itemTypes that go to Extra/ (#69)
-EXTRA_KINDS = frozenset({"Extra", "DeletedScene"})
+def _is_3d(items: list[PlayItem] | None) -> bool:
+    return bool(items) and all(it.dep_clip for it in items or [])
 
 
-def _episodes_by_role(titles: list[bluray.Title], roles: dict[str, lookup.Role]
+def _episodes_by_role(titles: list[bluray.Title], roles: dict[str, lookup.Role],
+                      items_by_playlist: dict[str, list[PlayItem]], has_3d: bool
                       ) -> tuple[list[bluray.Title], list[bluray.Title]]:
     """The episodes TheDiscDB names on this disc, in its season/episode order, one
-    title per episode (an alternate-language variant carries the same numbers), and
-    its extras (#69). No episode: ([], []), the offline split decides."""
-    def role(t: bluray.Title) -> lookup.Role | None:
-        return roles.get(t.playlist)
+    title per episode (an alternate-language or 2D variant carries the same numbers:
+    on a 3D disc the 3D one is kept), and its other catalogued titles, which go to
+    Extra/ (#69). The main movie is neither. No episode, or one without a number to
+    order and tell them apart by: ([], []), the offline split decides."""
+    def kind(t: bluray.Title) -> str | None:
+        r = roles.get(t.playlist)
+        return r.kind if r else None
 
-    def order(t: bluray.Title) -> tuple[int, int, str]:
+    candidates = [t for t in titles if kind(t) == "Episode"]
+    if not candidates or any(roles[t.playlist].episode is None for t in candidates):
+        return [], []
+
+    def order(t: bluray.Title) -> tuple[int, int, bool, str]:
         r = roles[t.playlist]
-        return (r.season or 0, r.episode if r.episode is not None else 10**6, t.playlist)
+        three_d_first = has_3d and not _is_3d(items_by_playlist.get(t.playlist))
+        return (r.season or 0, r.episode or 0, three_d_first, t.playlist)
 
     episodes: list[bluray.Title] = []
-    seen: set[tuple[int | None, int]] = set()
-    for t in sorted((t for t in titles if (r := role(t)) and r.kind == "Episode"), key=order):
+    seen: set[tuple[int | None, int | None]] = set()
+    for t in sorted(candidates, key=order):
         r = roles[t.playlist]
-        if r.episode is not None:
-            if (r.season, r.episode) in seen:
-                continue
+        if (r.season, r.episode) not in seen:
             seen.add((r.season, r.episode))
-        episodes.append(t)
-    if not episodes:
-        return [], []
-    return episodes, [t for t in titles if (r := role(t)) and r.kind in EXTRA_KINDS]
+            episodes.append(t)
+    extras = [t for t in titles if kind(t) not in (None, "Episode", "MainMovie")]
+    return episodes, extras
 
 
 def _main_movie_by_role(titles: list[bluray.Title], roles: dict[str, lookup.Role],
@@ -556,8 +569,7 @@ def _main_movie_by_role(titles: list[bluray.Title], roles: dict[str, lookup.Role
     than one: the offline choice decides."""
     movies = [t for t in titles if (r := roles.get(t.playlist)) and r.kind == "MainMovie"]
     if has_3d:
-        movies = [t for t in movies if (items := items_by_playlist.get(t.playlist))
-                  and all(it.dep_clip for it in items)]
+        movies = [t for t in movies if _is_3d(items_by_playlist.get(t.playlist))]
     return movies[0] if len(movies) == 1 else None
 
 
@@ -781,22 +793,26 @@ class BlurayDiscSource(DiscSource):
 
             # one title: nothing to choose, no query
             roles = _online_roles(path, disc, titles) if lookup_enabled and len(titles) >= 2 else {}
-            by_role, extras_by_role = _episodes_by_role(titles, roles)
+            by_role, extras_by_role = _episodes_by_role(titles, roles, items_by_playlist,
+                                                        info.has_3d)
+            movie_by_role = _main_movie_by_role(titles, roles, items_by_playlist, info.has_3d)
             if by_role:
-                numbers: list[int] = [roles[t.playlist].episode or 0 for t in by_role]
-                if 0 in numbers or len(set(numbers)) < len(numbers):
-                    numbers = list(range(1, len(by_role) + 1))
                 log.info("%s: episodes and extras as TheDiscDB lists them", path)
+                # a movie disc with a bonus episode keeps its movie
                 found_by_role: list[Source] = [
-                    cls(path, audio_langs, _title=t, _episode=n,
-                        _online_title=roles[t.playlist].title, _disc=disc, _info=info, _env=env)
-                    for t, n in zip(by_role, numbers, strict=True)]
+                    cls(path, audio_langs, _title=movie_by_role, _disc=disc, _info=info, _env=env)
+                ] if movie_by_role is not None else []
+                found_by_role += [
+                    cls(path, audio_langs, _title=t, _episode=roles[t.playlist].episode or 0,
+                        _online_title=roles[t.playlist].title,
+                        _online_season=roles[t.playlist].season,
+                        _disc=disc, _info=info, _env=env)
+                    for t in by_role]
                 found_by_role += [cls(path, audio_langs, _title=t, _episode=i, _extra=True,
                                       _disc=disc, _info=info, _env=env)
                                   for i, t in enumerate(extras_by_role, 1)]
                 _apply_uniform_lang_label(found_by_role)
                 return found_by_role
-            movie_by_role = _main_movie_by_role(titles, roles, items_by_playlist, info.has_3d)
             if movie_by_role is not None:
                 log.info("%s: main movie as TheDiscDB lists it (%s)", path, movie_by_role.playlist)
                 return [cls(path, audio_langs, _title=movie_by_role,
@@ -859,7 +875,7 @@ class BlurayDiscSource(DiscSource):
 
     def __init__(self, path: str, audio_langs: list[str] | None = None,
                  _title: bluray.Title | None = None, _episode: int = 0, _extra: bool = False,
-                 _online_title: str | None = None,
+                 _online_title: str | None = None, _online_season: int | None = None,
                  _disc: bluray.Disc | None = None, _info: bluray.DiscInfo | None = None,
                  _env: dict[str, str] | None = None) -> None:
         self.path = path
@@ -899,7 +915,8 @@ class BlurayDiscSource(DiscSource):
         self.name = _safe_name(info.name or label)
         if _episode:  # extras (#39) are numbered apart and go in Extra/
             self.name, self.subfolder = _episode_name(self.name, [info.name, label],
-                                                      _episode, _extra, _online_title)
+                                                      _episode, _extra, _online_title,
+                                                      _online_season)
         self.duration = sum(it.duration for it in items)
         self.starts = list(itertools.accumulate([0.0] + [it.duration for it in items[:-1]]))
         st = Path(path).stat()

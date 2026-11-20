@@ -81,7 +81,26 @@ class Role:
 
 
 def _number(value: object) -> int | None:
-    return int(value) if isinstance(value, str) and value.isdigit() else None
+    """A season/episode number: a string of ASCII digits, or an integer; else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return int(value) if isinstance(value, str) and value.isascii() and value.isdigit() else None
+
+
+def _merge(roles: list[Role]) -> Role | None:
+    """One playlist described by more than one release of the same disc (a box set
+    and a single season): each field they all give alike is kept, one given by only
+    some of them is kept too, one they give differently is left out (None) rather
+    than guessed. Nothing left: None."""
+    def agreed[T](values: list[T | None]) -> T | None:
+        given = {v for v in values if v is not None}
+        return next(iter(given)) if len(given) == 1 else None
+
+    merged = Role(agreed([r.kind for r in roles]), agreed([r.title for r in roles]),
+                  agreed([r.season for r in roles]), agreed([r.episode for r in roles]))
+    return merged if merged.kind or merged.title else None
 
 
 def disc_roles(content_hash: str, playlists: list[str]) -> dict[str, Role]:
@@ -89,7 +108,7 @@ def disc_roles(content_hash: str, playlists: list[str]) -> dict[str, Role]:
     where it gives a name or a role; empty when it is not catalogued, or on a
     network/data problem (logged). The same disc can be catalogued in more than
     one release (a box set and a single season): a playlist they describe
-    differently is left out rather than given a guess."""
+    differently keeps only what they agree on (see _merge)."""
     try:
         data = _post_json(THEDISCDB_URL,
                           {"query": THEDISCDB_QUERY, "variables": {"hash": content_hash}})
@@ -99,7 +118,7 @@ def disc_roles(content_hash: str, playlists: list[str]) -> dict[str, Role]:
         discs = [disc for node in nodes for release in node["releases"]
                  for disc in release["discs"]
                  if str(disc["contentHash"]).upper() == content_hash.upper()]
-        roles: dict[str, set[Role]] = {}
+        roles: dict[str, list[Role]] = {}
         for disc in discs:
             for title in disc["titles"]:
                 source = Path(str(title.get("sourceFile") or ""))
@@ -113,15 +132,9 @@ def disc_roles(content_hash: str, playlists: list[str]) -> dict[str, Role]:
                             name if isinstance(name, str) and name else None,
                             _number(title.get("season")), _number(title.get("episode")))
                 if role.kind or role.title:
-                    roles.setdefault(source.stem, set()).add(role)
+                    roles.setdefault(source.stem, []).append(role)
     except LOOKUP_ERRORS as e:
         log.info("TheDiscDB: lookup failed: %s", e)
         return {}
-    return {p: next(iter(roles[p])) for p in playlists if len(roles.get(p, ())) == 1}
-
-
-def episode_titles(content_hash: str, playlists: list[str]) -> list[str | None]:
-    """The title of each episode (parallel to `playlists`) from TheDiscDB, None
-    where it has none: on no match and on a network/data problem alike."""
-    roles = disc_roles(content_hash, playlists)
-    return [roles[p].title if p in roles else None for p in playlists]
+    merged = {p: _merge(roles[p]) for p in playlists if p in roles}
+    return {p: r for p, r in merged.items() if r is not None}
