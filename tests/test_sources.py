@@ -1966,3 +1966,71 @@ def test_bluray_lookup_roles_without_numbers_keep_the_offline_choice(
         "00002": Role("Episode", "Lawnmower Dog", None, None)})
     assert [s.name for s in found] == ["S01E01 - Rick and Morty - Pilot",
                                        "S01E02 - Rick and Morty - Lawnmower Dog"]
+
+
+OFFLINE = ["S01E01 - Rick and Morty - Pilot", "S01E02 - Rick and Morty - Lawnmower Dog"]
+
+
+@pytest.mark.parametrize("roles", [
+    # a kind the releases disagree on (merged to None): nowhere to put that title
+    {"00001": Role("Episode", "Pilot", 1, 1), "00002": Role(None, "Lawnmower Dog", 1, 2)},
+    # episode 0 (a special): not an episode number the names can carry
+    {"00001": Role("Episode", "Pilot", 1, 0), "00002": Role("Episode", "Lawnmower Dog", 1, 2)},
+    # a season known for some episodes only
+    {"00001": Role("Episode", "Pilot", 1, 1), "00002": Role("Episode", "Lawnmower Dog", None, 2)},
+    # numberless episodes next to a main movie: not the movie alone
+    {"00001": Role("Episode", "Pilot", None, None),
+     "00002": Role("MainMovie", "Lawnmower Dog", None, None)},
+], ids=["kind-clash", "episode-0", "season-partly", "movie-numberless-episodes"])
+def test_bluray_lookup_roles_unclear_keep_the_offline_choice(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, roles: dict[str, Role]) -> None:
+    """#69: roles are used only when they make a whole picture; otherwise the offline
+    choice and order stay, with the titles TheDiscDB gives."""
+    disc = _two_episode_disc("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1")
+    found = _roles_disc(monkeypatch, tmp_path, disc, roles)
+    assert [s.playlist for s in found] == ["00001", "00002"]
+    assert [s.name.split(" - ")[0] for s in found] == ["S01E01", "S01E02"]
+
+
+def test_bluray_lookup_roles_two_main_movies_and_an_episode(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#69: two cuts both called the main movie, plus a bonus episode: no single movie
+    to keep next to the episode, so the offline choice decides, and no title is lost."""
+    disc = MultiEpisodeBluray({"00001": [Item("00010", 0, 45_000 * 7200)],
+                               "00002": [Item("00020", 0, 45_000 * 7500)],
+                               "00003": [_ep("00030")]}, name="Film - Blu-ray",
+                              volume_id="FILM")
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00001": Role("MainMovie", "Film", None, None),
+        "00002": Role("MainMovie", "Film (Extended)", None, None),
+        "00003": Role("Episode", "Bonus", 1, 1)})
+    offline = _roles_disc(monkeypatch, tmp_path, disc, {})
+    assert [s.playlist for s in found] == [s.playlist for s in offline]
+
+
+def test_bluray_lookup_roles_extras_once(monkeypatch: pytest.MonkeyPatch,
+                                         tmp_path: Path) -> None:
+    """#69: an extra catalogued in two playlists with the same opening clip (an audio
+    card variant) is listed once, as offline."""
+    disc = MultiEpisodeBluray({"00001": [_ep("00010")], "00002": [_ep("00020")],
+                               "00021": [_ep("00020"), _card("00099")]})
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00001": Role("Episode", "Pilot", 1, 1),
+        "00002": Role("Extra", "Featurette", None, None),
+        "00021": Role("Extra", "Featurette", None, None)})
+    assert [(s.playlist, s.subfolder) for s in found] == [("00001", ""), ("00002", "Extra")]
+
+
+def test_bluray_lookup_roles_movie_audio_does_not_label_the_episodes(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#69: the language prefix rule (#80) is for a series' episodes: a dubbed movie next
+    to an eng-only bonus episode does not make the episode "ENG - ..."."""
+    dubbed = [Stream(0x1100, "ita", 0x81), Stream(0x1101, "eng", 0x81)]
+    disc = MultiEpisodeBluray({"00001": [Item("00010", 0, 45_000 * 7200, audio=dubbed)],
+                               "00002": [_ep("00020")]}, name="Film - Blu-ray",
+                              volume_id="FILM")
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00001": Role("MainMovie", "Film", None, None),
+        "00002": Role("Episode", "Bonus", 1, 1)})
+    assert [[v.label for v in s.variants()] for s in found][1] == [""]
+

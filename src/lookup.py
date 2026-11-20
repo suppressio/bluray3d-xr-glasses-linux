@@ -85,7 +85,7 @@ def _number(value: object) -> int | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
-        return value
+        return value if value >= 0 else None
     return int(value) if isinstance(value, str) and value.isascii() and value.isdigit() else None
 
 

@@ -529,26 +529,50 @@ def _is_3d(items: list[PlayItem] | None) -> bool:
     return bool(items) and all(it.dep_clip for it in items or [])
 
 
-def _episodes_by_role(titles: list[bluray.Title], roles: dict[str, lookup.Role],
-                      items_by_playlist: dict[str, list[PlayItem]], has_3d: bool
-                      ) -> tuple[list[bluray.Title], list[bluray.Title]]:
-    """The episodes TheDiscDB names on this disc, in its season/episode order, one
-    title per episode (an alternate-language or 2D variant carries the same numbers:
-    on a 3D disc the 3D one is kept), and its other catalogued titles, which go to
-    Extra/ (#69). The main movie is neither. No episode, or one without a number to
-    order and tell them apart by: ([], []), the offline split decides."""
-    def kind(t: bluray.Title) -> str | None:
-        r = roles.get(t.playlist)
-        return r.kind if r else None
+@dataclass
+class _RoleChoice:
+    """What a disc holds by TheDiscDB's roles (#69): a main movie, episodes in order,
+    extras."""
+    movie: bluray.Title | None
+    episodes: list[bluray.Title]
+    extras: list[bluray.Title]
 
-    candidates = [t for t in titles if kind(t) == "Episode"]
-    if not candidates or any(roles[t.playlist].episode is None for t in candidates):
-        return [], []
+
+def _choice_by_role(titles: list[bluray.Title], roles: dict[str, lookup.Role],
+                    items_by_playlist: dict[str, list[PlayItem]], sigs: dict[str, str],
+                    has_3d: bool) -> _RoleChoice | None:
+    """The disc as TheDiscDB catalogues it (#69), or None when its roles do not make a
+    whole, unambiguous picture and the offline choice must decide instead:
+    - episodes in its season/episode order, one per episode (of the variants, the 3D
+      one on a 3D disc); each needs an episode number of 1 or more, and either every
+      episode has a season or none has;
+    - its main movie, when it names exactly one (on a 3D disc a 3D one);
+    - its other catalogued titles as extras, one per opening clip like offline;
+    - a catalogued title with no kind (the releases disagree on it) has nowhere to go.
+    Titles it does not catalogue are left out."""
+    catalogued = [t for t in titles if t.playlist in roles]
+    if not any(roles[t.playlist].kind for t in catalogued) or \
+            any(roles[t.playlist].kind is None for t in catalogued):
+        return None
+    kind_of = {t.playlist: roles[t.playlist].kind for t in catalogued}
+    candidates = [t for t in catalogued if kind_of[t.playlist] == "Episode"]
+    named_movies = [t for t in catalogued if kind_of[t.playlist] == "MainMovie"]
+    movies = [t for t in named_movies
+              if not has_3d or _is_3d(items_by_playlist.get(t.playlist))]
+    if named_movies and len(movies) != 1:
+        return None
+    movie = movies[0] if movies else None
+    if not candidates:
+        return _RoleChoice(movie, [], []) if movie else None
+    numbers = [roles[t.playlist] for t in candidates]
+    if any(r.episode is None or r.episode < 1 for r in numbers) or \
+            len({r.season is None for r in numbers}) > 1:
+        return None
 
     def order(t: bluray.Title) -> tuple[int, int, bool, str]:
         r = roles[t.playlist]
-        three_d_first = has_3d and not _is_3d(items_by_playlist.get(t.playlist))
-        return (r.season or 0, r.episode or 0, three_d_first, t.playlist)
+        two_d_last = has_3d and not _is_3d(items_by_playlist.get(t.playlist))
+        return (r.season or 0, r.episode or 0, two_d_last, t.playlist)
 
     episodes: list[bluray.Title] = []
     seen: set[tuple[int | None, int | None]] = set()
@@ -557,20 +581,14 @@ def _episodes_by_role(titles: list[bluray.Title], roles: dict[str, lookup.Role],
         if (r.season, r.episode) not in seen:
             seen.add((r.season, r.episode))
             episodes.append(t)
-    extras = [t for t in titles if kind(t) not in (None, "Episode", "MainMovie")]
-    return episodes, extras
-
-
-def _main_movie_by_role(titles: list[bluray.Title], roles: dict[str, lookup.Role],
-                        items_by_playlist: dict[str, list[PlayItem]], has_3d: bool
-                        ) -> bluray.Title | None:
-    """The one playlist TheDiscDB calls the main movie (#69); on a 3D disc only a 3D
-    one, so that its 2D playlist never costs the 3D. None when it names none, or more
-    than one: the offline choice decides."""
-    movies = [t for t in titles if (r := roles.get(t.playlist)) and r.kind == "MainMovie"]
-    if has_3d:
-        movies = [t for t in movies if _is_3d(items_by_playlist.get(t.playlist))]
-    return movies[0] if len(movies) == 1 else None
+    extras: list[bluray.Title] = []
+    seen_sigs: set[str] = set()
+    for t in catalogued:
+        sig = sigs[t.playlist]
+        if kind_of[t.playlist] not in ("Episode", "MainMovie") and sig not in seen_sigs:
+            seen_sigs.add(sig)
+            extras.append(t)
+    return _RoleChoice(movie, episodes, extras)
 
 
 AUDIO_PREFERENCE = ["dts-hd ma", "dts-hd", "dts", "ac3", "eac3", "lpcm", "truehd"]
@@ -793,30 +811,24 @@ class BlurayDiscSource(DiscSource):
 
             # one title: nothing to choose, no query
             roles = _online_roles(path, disc, titles) if lookup_enabled and len(titles) >= 2 else {}
-            by_role, extras_by_role = _episodes_by_role(titles, roles, items_by_playlist,
-                                                        info.has_3d)
-            movie_by_role = _main_movie_by_role(titles, roles, items_by_playlist, info.has_3d)
-            if by_role:
-                log.info("%s: episodes and extras as TheDiscDB lists them", path)
-                # a movie disc with a bonus episode keeps its movie
-                found_by_role: list[Source] = [
-                    cls(path, audio_langs, _title=movie_by_role, _disc=disc, _info=info, _env=env)
-                ] if movie_by_role is not None else []
-                found_by_role += [
+            choice = _choice_by_role(titles, roles, items_by_playlist, sigs, info.has_3d)
+            if choice is not None:
+                log.info("%s: titles chosen as TheDiscDB lists them", path)
+                episodes_found: list[Source] = [
                     cls(path, audio_langs, _title=t, _episode=roles[t.playlist].episode or 0,
                         _online_title=roles[t.playlist].title,
                         _online_season=roles[t.playlist].season,
                         _disc=disc, _info=info, _env=env)
-                    for t in by_role]
-                found_by_role += [cls(path, audio_langs, _title=t, _episode=i, _extra=True,
-                                      _disc=disc, _info=info, _env=env)
-                                  for i, t in enumerate(extras_by_role, 1)]
-                _apply_uniform_lang_label(found_by_role)
-                return found_by_role
-            if movie_by_role is not None:
-                log.info("%s: main movie as TheDiscDB lists it (%s)", path, movie_by_role.playlist)
-                return [cls(path, audio_langs, _title=movie_by_role,
-                            _disc=disc, _info=info, _env=env)]
+                    for t in choice.episodes]
+                episodes_found += [cls(path, audio_langs, _title=t, _episode=i, _extra=True,
+                                       _disc=disc, _info=info, _env=env)
+                                   for i, t in enumerate(choice.extras, 1)]
+                # the language prefix rule (#80) is for a series' episodes, not the movie
+                _apply_uniform_lang_label(episodes_found)
+                # a movie disc with a bonus episode keeps its movie
+                movie_found: list[Source] = [] if choice.movie is None else [
+                    cls(path, audio_langs, _title=choice.movie, _disc=disc, _info=info, _env=env)]
+                return movie_found + episodes_found
 
             if len(titles) < 2:
                 return [cls(path, audio_langs, _disc=disc, _info=info, _env=env)]
