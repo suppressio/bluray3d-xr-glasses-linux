@@ -240,7 +240,8 @@ def test_disc_roles_releases_disagree(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize(("value", "expected"), [
-    ("8", 8), (8, 8), ("", None), (None, None), ("²", None), ("1a", None), (True, None)])
+    ("8", 8), (8, 8), ("", None), (None, None), ("²", None), ("1a", None), (True, None),
+    (-1, None)])
 def test_number(value: object, expected: int | None) -> None:
     """Season/episode come as strings, maybe as integers one day; anything else is no
     number, never an error that would throw the whole disc's answer away."""
