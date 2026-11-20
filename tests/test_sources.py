@@ -2132,3 +2132,64 @@ def test_dvd_lookup_unreadable_listing_falls_back(monkeypatch: pytest.MonkeyPatc
     found = DvdSource.all_on(str(place), lookup_enabled=True)
     assert [s.name for s in found] == ["S01E01 - Alias", "S01E02 - Alias", "S01E03 - Alias"]
 
+
+@pytest.mark.parametrize(("title", "expected"), [
+    ("Trailer - Blu-ray Exclusive", "Show - Extra 1 - Trailer - Blu-ray Exclusive"),
+    ("What? Why: Now", "Show - Extra 1 - What - Why - Now"),
+    ("???", "Show - Extra 1"),
+])
+def test_online_title_keeps_its_words(title: str, expected: str) -> None:
+    """An online title only loses the characters SMB forbids: not a "Blu-ray" part,
+    and nothing is added when nothing is left."""
+    assert _episode_name("Show", ["Show"], 1, True, title)[0] == expected
+
+
+class ZeroCellSeriesDvd(LabeledSeriesDvd):
+    """Title 1 has no cell (a copy-protection dummy); titles 2 and 3 are episodes."""
+
+    @override
+    def ifo(self, vts: int) -> bytes:
+        if vts == 1:
+            return vts_ifo([], [DvdAudioAttr(0, "en")], [])
+        return super().ifo(vts)
+
+
+def test_dvd_lookup_title_without_cells_is_not_served(monkeypatch: pytest.MonkeyPatch,
+                                                      tmp_path: Path) -> None:
+    """A title TheDiscDB catalogues but that has no cell on this pressing is never built
+    (it would fail the disc): the role choice works on titles that can play."""
+    monkeypatch.setattr(dvd, "Dvd", ZeroCellSeriesDvd)
+
+    def video_ts_sizes(path: str) -> dict[str, int]:
+        return ALIAS_FILES
+
+    def disc_roles(content_hash: str, ids: list[str]) -> dict[str, Role]:
+        return {"01": Role("Episode", "Dummy", 1, 1), "02": Role("Episode", "A", 1, 2),
+                "03": Role("Episode", "B", 1, 3)}
+
+    monkeypatch.setattr(dvd, "video_ts_sizes", video_ts_sizes)
+    monkeypatch.setattr(sources.lookup, "disc_roles", disc_roles)
+    place = tmp_path / "Alias"
+    place.mkdir()
+    found = DvdSource.all_on(str(place), lookup_enabled=True)
+    assert [s.title.number for s in found] == [2, 3]
+
+
+def test_bluray_lookup_offline_extras_get_titles(monkeypatch: pytest.MonkeyPatch,
+                                                 tmp_path: Path) -> None:
+    """Roles unclear (an episode with no number): the offline split stays, and its extras
+    get TheDiscDB's titles as its episodes do."""
+    ita_eng = [Stream(0x1100, "ita", 0x81), Stream(0x1101, "eng", 0x81)]
+    eng = [Stream(0x1100, "eng", 0x81)]
+    disc = MultiEpisodeBluray({
+        "00001": [Item("00010", 0, 45_000 * 1200, audio=ita_eng)],
+        "00002": [Item("00020", 0, 45_000 * 1200, audio=ita_eng)],
+        "00021": [Item("00030", 0, 45_000 * 1200, audio=eng)],
+        "00022": [Item("00040", 0, 45_000 * 1200, audio=eng)]})
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00001": Role("Episode", "Pilot", None, None),
+        "00021": Role("Extra", "Animatic", None, None)})
+    assert [(s.name, s.subfolder) for s in found] == [
+        ("S01E01 - Rick and Morty - Pilot", ""), ("S01E02 - Rick and Morty", ""),
+        ("Rick and Morty - Extra 1 - Animatic", "Extra"), ("Rick and Morty - Extra 2", "Extra")]
+

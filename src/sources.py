@@ -394,6 +394,13 @@ def _open_disc(path: str) -> tuple[bluray.Disc, bluray.DiscInfo, dict[str, str]]
                   f"Provide a KEYDB.cfg for libaacs or install MakeMKV (libmmbd).")
 
 
+def _safe_title(title: str) -> str:
+    """An online title -> part of a file name: only the characters SMB forbids go,
+    its words stay (no "Blu-ray" trimming); "" when nothing is left."""
+    title = re.sub(r'(\s*[:/\\*?"<>|])+\s*', " - ", title)
+    return re.sub(r"\s+", " ", title).strip(" .-")
+
+
 def _safe_name(name: str) -> str:
     """Disc title -> file name: drop the 'Blu-ray' suffix, no characters SMB forbids."""
     name = re.sub(r"\s*[-\u2013]\s*Blu-ray.*$", "", name, flags=re.IGNORECASE).strip()
@@ -473,7 +480,8 @@ def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool,
         else:
             show = name.replace("_", " ")
         base = f"{_safe_name(show)} - Extra {episode}"
-        return (f"{base} - {_safe_name(online_title)}" if online_title else base), "Extra"
+        title = _safe_title(online_title or "")
+        return (f"{base} - {title}" if title else base), "Extra"
     if online_season is not None:
         # the show without the season the disc name may still carry ("... Staffel 1")
         named = season_show or (_parse_season(disc_part[1]) if disc_part else None)
@@ -487,8 +495,8 @@ def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool,
         base = f"E{episode:02d} - {_safe_name(show)} ({marker})"
     else:
         base = f"E{episode:02d} - {name}"
-    if online_title:
-        base = f"{base} - {_safe_name(online_title)}"
+    if title := _safe_title(online_title or ""):
+        base = f"{base} - {title}"
     return base, ""
 
 
@@ -889,6 +897,8 @@ class BlurayDiscSource(DiscSource):
                                                _disc=disc, _info=info, _env=env)
                                            for i, t in enumerate(episodes, 1)]
                     found += [cls(path, audio_langs, _title=t, _episode=i, _extra=True,
+                                  _online_title=roles[t.playlist].title
+                                  if t.playlist in roles else None,
                                   _disc=disc, _info=info, _env=env)
                               for i, t in enumerate(extras, 1)]
                     _apply_uniform_lang_label(found)
@@ -1020,11 +1030,13 @@ class DvdSource(DiscSource):
         with dvd.Dvd(path) as disc:
             parsed = dvd.all_titles(disc)
             chosen = dvd.choose_titles(parsed)
+            # a title with no cell (a copy-protection dummy) cannot play, whatever its role
+            playable = [t for t in parsed if t.cells]
             roles: dict[str, lookup.Role] = {}
-            if lookup_enabled and len(parsed) >= 2:
-                roles = _online_roles(path, _dvd_content_hash(path), [key(t) for t in parsed])
+            if lookup_enabled and len(playable) >= 2:
+                roles = _online_roles(path, _dvd_content_hash(path), [key(t) for t in playable])
         choice = _choice_by_role(
-            parsed, roles, key=key, sig=lambda t: (t.vts, t.cells[0].first if t.cells else 0),
+            playable, roles, key=key, sig=lambda t: (t.vts, t.cells[0].first if t.cells else 0),
             is_3d=lambda _: False, has_3d=False)
         if choice is not None:
             log.info("%s: titles chosen as TheDiscDB lists them", path)
