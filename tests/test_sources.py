@@ -2103,3 +2103,30 @@ def test_dvd_lookup_titles_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     assert [s.name for s in found] == ["S01E01 - Alias - Truth Be Told", "S01E02 - Alias",
                                        "S01E03 - Alias"]
 
+
+def test_dvd_lookup_encrypted_later_disc_still_checked(monkeypatch: pytest.MonkeyPatch,
+                                                       tmp_path: Path) -> None:
+    """#69: on disc 2 of a season TheDiscDB numbers the episodes from E08: the CSS
+    check (once per disc) must still run, so a missing libdvdcss gives its clear error."""
+    monkeypatch.setattr(LabeledSeriesDvd, "scrambled", True)
+    monkeypatch.setattr(dvd, "has_dvdcss", lambda: False)
+    with pytest.raises(OSError, match="encrypted"):
+        _dvd_roles(monkeypatch, tmp_path, {
+            "01": Role("Episode", "A", 1, 8), "02": Role("Episode", "B", 1, 9)})
+
+
+def test_dvd_lookup_unreadable_listing_falls_back(monkeypatch: pytest.MonkeyPatch,
+                                                  tmp_path: Path) -> None:
+    """A damaged ISO9660 listing (an IndexError while parsing it) never breaks the disc:
+    no fingerprint, the offline choice and names."""
+    monkeypatch.setattr(dvd, "Dvd", LabeledSeriesDvd)
+
+    def broken(path: str) -> dict[str, int]:
+        raise IndexError("record cut short")
+
+    monkeypatch.setattr(dvd, "video_ts_sizes", broken)
+    place = tmp_path / "Alias"
+    place.mkdir()
+    found = DvdSource.all_on(str(place), lookup_enabled=True)
+    assert [s.name for s in found] == ["S01E01 - Alias", "S01E02 - Alias", "S01E03 - Alias"]
+

@@ -47,7 +47,7 @@ How to run the program from a clone, where things are in the code, what the test
 | `src/dvd.py` | libdvdread through ctypes, the IFO files, the choice of the main title or the episodes, and the exact seek. |
 | `src/dvd_reader.py` | Reads a DVD title from a given time as an MPEG program stream for FFmpeg. It runs as its own process. |
 | `src/langs.py` | One spelling per language (ISO 639-2). |
-| `src/lookup.py` | `--lookup` (#84): episode titles from TheDiscDB (by the disc's content hash), asked on every insert, no local cache. No Blu-ray-specific code: `sources.py` computes the content hash and calls it. |
+| `src/lookup.py` | `--lookup` (#84, #69): what TheDiscDB says each title of a disc is (main movie, episode with its numbers, extra) and its name, by the disc's content hash; asked on every insert, no local cache. The same for Blu-ray and DVD: `sources.py` lists the files to fingerprint and picks the titles. |
 | `src/tree.py` | The tree of folders and files Library builds, independent of how it is served: ids, not FUSE inodes, though Bd3dFS reuses them as such. |
 | `src/fuse_fs.py` | The FUSE front end (`--share samba`/`both`): Bd3dFS mounts the tree for Samba through vendored `mfusepy`. The only module loading the adapter, loaded only when FUSE is used, so `--share dlna` runs without it. |
 | `src/http_server.py` | The same tree over plain HTTP: a byte Range maps straight onto a `FileEntry.read()`, like a FUSE read. Used standalone (`--share dlna`/`both`) and as the transport dlna.py's endpoints ride on. |
