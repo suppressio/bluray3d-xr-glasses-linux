@@ -16,6 +16,7 @@ insert, so every insert asks again. A disc catalogued later, or a title
 corrected there, is picked up on the next insert instead of a stale answer
 staying for good.
 """
+import hashlib
 import http.client
 import json
 import logging
@@ -80,6 +81,32 @@ class Role:
     episode: int | None
 
 
+def content_hash(sizes: dict[str, int]) -> str | None:
+    """TheDiscDB's fingerprint of a disc, the same for Blu-ray and DVD: MD5 of each
+    file's size, one 8-byte little-endian integer per file in name order, hex
+    uppercase (TheDiscDb/web: DiscScanner.cs picks the files, BDMV/STREAM/*.m2ts or
+    every file in VIDEO_TS/; ClientApiController.Hash sorts them by name;
+    HashingExtensions.cs hashes). None for no file."""
+    if not sizes:
+        return None
+    digest = hashlib.md5(usedforsecurity=False)
+    for name in sorted(sizes):
+        digest.update(sizes[name].to_bytes(8, "little"))
+    return digest.hexdigest().upper()
+
+
+def _title_key(source_file: str) -> str | None:
+    """How TheDiscDB names a title, as the caller names it: a Blu-ray playlist
+    ("00070.mpls" -> "00070") or a DVD title number ("1" or "01" -> "01"); None for
+    a bare .m2ts clip (an extra that may share its number with a playlist)."""
+    path = Path(source_file)
+    if path.suffix.lower() == ".mpls":
+        return path.stem
+    if source_file.isascii() and source_file.isdigit():
+        return f"{int(source_file):02d}"
+    return None
+
+
 def _number(value: object) -> int | None:
     """A season/episode number: a string of ASCII digits, or an integer; else None."""
     if isinstance(value, bool):
@@ -103,8 +130,9 @@ def _merge(roles: list[Role]) -> Role | None:
     return merged if merged.kind or merged.title else None
 
 
-def disc_roles(content_hash: str, playlists: list[str]) -> dict[str, Role]:
-    """playlist -> Role for a disc TheDiscDB knows, only for `playlists` and only
+def disc_roles(content_hash: str, ids: list[str]) -> dict[str, Role]:
+    """title -> Role for a disc TheDiscDB knows (Blu-ray or DVD), only for `ids`
+    (Blu-ray playlists "00070", DVD title numbers "01") and only
     where it gives a name or a role; empty when it is not catalogued, or on a
     network/data problem (logged). The same disc can be catalogued in more than
     one release (a box set and a single season): a playlist they describe
@@ -121,9 +149,8 @@ def disc_roles(content_hash: str, playlists: list[str]) -> dict[str, Role]:
         roles: dict[str, list[Role]] = {}
         for disc in discs:
             for title in disc["titles"]:
-                source = Path(str(title.get("sourceFile") or ""))
-                # a bare .m2ts clip (an extra) may share its number with a playlist
-                if source.suffix.lower() != ".mpls":
+                key = _title_key(str(title.get("sourceFile") or ""))
+                if key is None:
                     continue
                 item: dict[str, Any] = title.get("item") or {}
                 name: Any = item.get("title")
@@ -132,9 +159,9 @@ def disc_roles(content_hash: str, playlists: list[str]) -> dict[str, Role]:
                             name if isinstance(name, str) and name else None,
                             _number(title.get("season")), _number(title.get("episode")))
                 if role.kind or role.title:
-                    roles.setdefault(source.stem, []).append(role)
+                    roles.setdefault(key, []).append(role)
     except LOOKUP_ERRORS as e:
         log.info("TheDiscDB: lookup failed: %s", e)
         return {}
-    merged = {p: _merge(roles[p]) for p in playlists if p in roles}
+    merged = {p: _merge(roles[p]) for p in ids if p in roles}
     return {p: r for p, r in merged.items() if r is not None}
