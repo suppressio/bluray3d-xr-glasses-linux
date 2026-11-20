@@ -454,7 +454,8 @@ def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool,
                   online_title: str | None = None,
                   online_season: int | None = None) -> tuple[str, str]:
     """An episode's file name and subfolder: extras (#39) are numbered apart and go
-    in Extra/, named after the show like episodes are (#81); an episode gets
+    in Extra/, named after the show like episodes are (#81), with their online title
+    appended when there is one (#69); an episode gets
     S<season>E<episode> first when the season is known and reliable (#27).
     Otherwise (#80) "E<episode> - <name>", with the disc/volume marker in
     parentheses when the disc's name carries one (e.g. "Disco 1"). Either way, its
@@ -471,7 +472,8 @@ def _episode_name(name: str, raw_names: list[str], episode: int, extra: bool,
             show = disc_part[1]
         else:
             show = name.replace("_", " ")
-        return f"{_safe_name(show)} - Extra {episode}", "Extra"
+        base = f"{_safe_name(show)} - Extra {episode}"
+        return (f"{base} - {_safe_name(online_title)}" if online_title else base), "Extra"
     if online_season is not None:
         # the show without the season the disc name may still carry ("... Staffel 1")
         named = season_show or (_parse_season(disc_part[1]) if disc_part else None)
@@ -830,6 +832,7 @@ class BlurayDiscSource(DiscSource):
                         _disc=disc, _info=info, _env=env)
                     for t in choice.episodes]
                 episodes_found += [cls(path, audio_langs, _title=t, _episode=i, _extra=True,
+                                       _online_title=roles[t.playlist].title,
                                        _disc=disc, _info=info, _env=env)
                                    for i, t in enumerate(choice.extras, 1)]
                 # the language prefix rule (#80) is for a series' episodes, not the movie
@@ -1033,7 +1036,8 @@ class DvdSource(DiscSource):
                     online_title=roles[key(t)].title, online_season=roles[key(t)].season,
                     css_check=not movie and i == 0)
                 for i, t in enumerate(choice.episodes)]
-            found += [cls(path, audio_langs, t, i, extra=True, css_check=False)
+            found += [cls(path, audio_langs, t, i, extra=True, online_title=roles[key(t)].title,
+                          css_check=False)
                       for i, t in enumerate(choice.extras, 1)]
             _apply_uniform_lang_label(found)
             return movie + found
