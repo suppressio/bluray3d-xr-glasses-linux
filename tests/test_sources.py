@@ -1881,16 +1881,16 @@ def test_bluray_lookup_roles_override_offline_split(
 
 def test_bluray_lookup_roles_episode_numbers_on_a_later_disc(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """#69: on disc 2 of a season the offline numbering starts again from 1; TheDiscDB's
-    episode numbers are the real ones."""
+    """#69: on disc 2 of a season the offline numbering starts again from 1 and the
+    season is unsure; TheDiscDB's season and episode numbers are the real ones."""
     disc = _two_episode_disc("Rick and Morty Staffel 1 Disc 2 - Blu-ray", "RICK_AND_MORTY_S1_D2")
     found = _roles_disc(monkeypatch, tmp_path, disc, {
         "00001": Role("Episode", "Rixty Minutes", 1, 8),
         "00002": Role("Episode", "Something Ricked This Way Comes", 1, 9),
     })
     assert [s.name for s in found] == [
-        "E08 - Rick and Morty Staffel 1 (Disc 2) - Rixty Minutes",
-        "E09 - Rick and Morty Staffel 1 (Disc 2) - Something Ricked This Way Comes"]
+        "S01E08 - Rick and Morty - Rixty Minutes",
+        "S01E09 - Rick and Morty - Something Ricked This Way Comes"]
 
 
 def test_bluray_lookup_main_movie(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1915,3 +1915,54 @@ def test_bluray_lookup_main_movie_in_2d_on_a_3d_disc_is_not_taken(
     found = _roles_disc(monkeypatch, tmp_path, disc,
                         {"00100": Role("MainMovie", "Mad Max", None, None)})
     assert [(s.playlist, s.two_d) for s in found] == [("00200", False)]
+
+
+def test_bluray_lookup_roles_several_seasons(monkeypatch: pytest.MonkeyPatch,
+                                             tmp_path: Path) -> None:
+    """#69: a box-set disc across two seasons: each episode keeps its own season."""
+    disc = _two_episode_disc("Rick and Morty - Blu-ray", "RICK_AND_MORTY")
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00001": Role("Episode", "Ricksy Business", 1, 11),
+        "00002": Role("Episode", "A Rickle in Time", 2, 1)})
+    assert [s.name for s in found] == ["S01E11 - Rick and Morty - Ricksy Business",
+                                       "S02E01 - Rick and Morty - A Rickle in Time"]
+
+
+def test_bluray_lookup_roles_movie_and_episode(monkeypatch: pytest.MonkeyPatch,
+                                               tmp_path: Path) -> None:
+    """#69: a movie disc with a bonus episode: the movie is not lost, and any other
+    catalogued kind (a trailer) goes to Extra/ with the extras."""
+    disc = MultiEpisodeBluray({"00001": [_ep("00010")], "00002": [_ep("00020")],
+                               "00003": [_ep("00030")]}, name="Show Movie - Blu-ray",
+                              volume_id="SHOW_MOVIE")
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00001": Role("MainMovie", "Show: The Movie", None, None),
+        "00002": Role("Episode", "Bonus Episode", 1, 1),
+        "00003": Role("Trailer", "Trailer", None, None)})
+    assert [(s.playlist, s.subfolder) for s in found] == \
+        [("00001", ""), ("00002", ""), ("00003", "Extra")]
+
+
+def test_bluray_lookup_roles_prefer_the_3d_episode(monkeypatch: pytest.MonkeyPatch,
+                                                   tmp_path: Path) -> None:
+    """#69: a 3D disc where TheDiscDB lists both the 2D and the 3D playlist of an
+    episode: the 3D one is kept, whatever its playlist number."""
+    disc = MultiEpisodeBluray({"00001": [_ep("00010")], "00101": [_ep("00010")]},
+                              name="Show 3D - Blu-ray", volume_id="SHOW_3D",
+                              dep_clips={"00101": ["00011"]})
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00001": Role("Episode", "Part One", 1, 1),
+        "00101": Role("Episode", "Part One", 1, 1)})
+    assert [(s.playlist, s.two_d) for s in found] == [("00101", False)]
+
+
+def test_bluray_lookup_roles_without_numbers_keep_the_offline_choice(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#69: episodes catalogued with no episode number cannot be ordered nor told
+    apart: the offline split and order stay, the titles are still appended."""
+    disc = _two_episode_disc("Rick_and_Morty_Staffel1 - Blu-ray", "RICK_AND_MORTY_S1")
+    found = _roles_disc(monkeypatch, tmp_path, disc, {
+        "00001": Role("Episode", "Pilot", None, None),
+        "00002": Role("Episode", "Lawnmower Dog", None, None)})
+    assert [s.name for s in found] == ["S01E01 - Rick and Morty - Pilot",
+                                       "S01E02 - Rick and Morty - Lawnmower Dog"]
