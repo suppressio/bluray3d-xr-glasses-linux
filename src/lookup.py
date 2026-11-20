@@ -36,7 +36,7 @@ LOOKUP_ERRORS = (OSError, http.client.HTTPException, ValueError, KeyError, TypeE
 
 THEDISCDB_URL = "https://thediscdb.com/graphql"
 # who is asking, so TheDiscDB can tell this project's traffic apart and reach us
-USER_AGENT = "bluray3d-xr (+https://github.com/suppressio/bluray3d-xr-glasses-linux)"
+USER_AGENT = "spinema (+https://github.com/suppressio/spinema)"
 # TheDiscDB's schema (https://thediscdb.com/graphql, checked by introspection):
 # no root field for discs, they hang off mediaItems -> releases -> discs. The
 # same filter on every level keeps the answer to the matching disc only, instead

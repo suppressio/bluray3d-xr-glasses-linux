@@ -75,7 +75,7 @@ A disc's bonus content (making-of, deleted scenes...) goes in an `Extra/` subfol
 By default an episode's file name only has its season/episode numbers, read offline from the disc (above). `--lookup` (Docker: `LOOKUP=on`) also looks up each episode's real title online, so the name becomes `S01E05 - Rick and Morty - Rixty Minutes.ts`:
 
 ```console
-bluray3d-xr --lookup /dev/sr0
+spinema --lookup /dev/sr0
 ```
 
 - **[TheDiscDB](https://thediscdb.com)** is the source: it identifies the disc by its content (a fingerprint of its stream files, no title or label involved) and, when the disc is in its community database, maps each playlist straight to its episode title. No API key, no setup. Only the same edition matches: the season disc of a box set and the stand-alone release of that season are different discs to TheDiscDB, so one can be found and the other not.

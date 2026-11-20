@@ -75,7 +75,7 @@ I contenuti extra di un disco (making-of, scene eliminate...) vanno in una sotto
 Per default il nome di un episodio ha solo il numero di stagione/episodio, letto offline dal disco (sopra). `--lookup` (Docker: `LOOKUP=on`) cerca online anche il titolo vero di ogni episodio, e il nome diventa `S01E05 - Rick and Morty - Rixty Minutes.ts`:
 
 ```console
-bluray3d-xr --lookup /dev/sr0
+spinema --lookup /dev/sr0
 ```
 
 - **[TheDiscDB](https://thediscdb.com)** è la fonte: identifica il disco dal suo contenuto (un'impronta dei file video, senza nome o etichetta) e, quando il disco è nel suo database comunitario, mappa ogni playlist direttamente al titolo del suo episodio. Nessuna chiave API, nessuna configurazione. Vale solo la stessa edizione: il disco di una stagione in un cofanetto e l'edizione singola di quella stagione sono dischi diversi per TheDiscDB, quindi uno può essere trovato e l'altro no.
