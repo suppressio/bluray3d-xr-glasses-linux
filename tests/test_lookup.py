@@ -1,5 +1,6 @@
 """lookup.py (#84): the TheDiscDB client, all against a fake
 HTTP layer (urllib.request.urlopen) — no real network call is made by these tests."""
+import hashlib
 import http.client
 import json
 import logging
@@ -10,7 +11,12 @@ from urllib.request import Request
 import pytest
 
 import lookup
-from lookup import episode_titles
+
+
+def episode_titles(content_hash: str, playlists: list[str]) -> list[str | None]:
+    """The title disc_roles() gives each playlist, None where it has none."""
+    roles = lookup.disc_roles(content_hash, playlists)
+    return [roles[p].title if p in roles else None for p in playlists]
 
 
 class FakeResponse:
@@ -179,3 +185,106 @@ def test_request_names_this_project(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = fake_http(monkeypatch, thediscdb=NO_DISC)
     episode_titles("HASH8", ["00070"])
     assert calls == [lookup.USER_AGENT]
+
+
+def roles_answer(*discs: tuple[str, list[tuple[str, str | None, str, str, str]]]
+                 ) -> dict[str, Any]:
+    """Like answer(), with each title's role (#69): (sourceFile, item title,
+    itemType, season, episode), as TheDiscDB gives them (strings, "" when unset)."""
+    return {"data": {"mediaItems": {"nodes": [{"releases": [
+        {"discs": [{"contentHash": content_hash, "titles": [
+            {"sourceFile": source, "item": {"title": name} if name else None,
+             "itemType": kind, "season": season, "episode": episode}
+            for source, name, kind, season, episode in titles]}]}
+        for content_hash, titles in discs]}]}}}
+
+
+ROLES = roles_answer(("HASH1", [
+    ("00069.mpls", "Pilot", "Episode", "1", "1"),
+    ("00005.mpls", "Lawnmower Dog", "Episode", "1", "2"),
+    ("00030.mpls", "Animatic", "Extra", "", ""),
+    ("00058.mpls", None, "", "", ""),            # a play-all: catalogued, no role
+    ("00100.mpls", "The Movie", "MainMovie", "", ""),
+]))
+
+
+def test_disc_roles(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#69: each playlist's role, title and numbers; one with no role is left out."""
+    fake_http(monkeypatch, thediscdb=ROLES)
+    assert lookup.disc_roles("HASH1", ["00069", "00005", "00030", "00058", "00100"]) == {
+        "00069": lookup.Role("Episode", "Pilot", 1, 1),
+        "00005": lookup.Role("Episode", "Lawnmower Dog", 1, 2),
+        "00030": lookup.Role("Extra", "Animatic", None, None),
+        "00100": lookup.Role("MainMovie", "The Movie", None, None),
+    }
+
+
+def test_disc_roles_title_without_a_role(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A title with a name but no itemType keeps its name, with no role: names still
+    reach the episodes (#84), roles only override when TheDiscDB gives one."""
+    fake_http(monkeypatch, thediscdb=answer(("HASH1", [("00070.mpls", "Pilot")])))
+    assert lookup.disc_roles("HASH1", ["00070"]) == \
+        {"00070": lookup.Role(None, "Pilot", None, None)}
+
+
+def test_disc_roles_releases_disagree(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two releases of the same disc: a field they give differently is left out, not
+    guessed; what they agree on, or only one of them gives, is kept."""
+    fake_http(monkeypatch, thediscdb=roles_answer(
+        ("HASH1", [("00070.mpls", "Pilot", "Episode", "1", "1"),
+                   ("00071.mpls", "Bonus", "Extra", "", "")]),
+        ("HASH1", [("00070.mpls", "Pilot", "", "", ""),
+                   ("00071.mpls", "Bonus", "Episode", "1", "2")])))
+    assert lookup.disc_roles("HASH1", ["00070", "00071"]) == {
+        "00070": lookup.Role("Episode", "Pilot", 1, 1),
+        "00071": lookup.Role(None, "Bonus", 1, 2)}
+
+
+@pytest.mark.parametrize(("value", "expected"), [
+    ("8", 8), (8, 8), ("", None), (None, None), ("²", None), ("1a", None), (True, None),
+    (-1, None)])
+def test_number(value: object, expected: int | None) -> None:
+    """Season/episode come as strings, maybe as integers one day; anything else is no
+    number, never an error that would throw the whole disc's answer away."""
+    assert lookup._number(value) == expected
+
+
+def test_disc_roles_network_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_http(monkeypatch, error=OSError("unreachable"))
+    assert lookup.disc_roles("HASH1", ["00070"]) == {}
+
+
+def test_query_asks_for_roles(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[dict[str, Any]] = []
+
+    def urlopen(req: Request, timeout: float = 0) -> FakeResponse:
+        seen.append(json.loads(cast(bytes, req.data)))
+        return FakeResponse(NO_DISC)
+
+    monkeypatch.setattr(lookup.urllib.request, "urlopen", urlopen)
+    lookup.disc_roles("HASH9", ["00070"])
+    assert "titles { sourceFile itemType season episode item { title } }" in seen[0]["query"]
+
+
+def test_content_hash_sorts_by_name() -> None:
+    """TheDiscDB's fingerprint, the same for Blu-ray and DVD: MD5 of each file's size,
+    8 bytes little-endian, in name order (VIDEO_TS.* before VTS_01_*), hex uppercase."""
+    sizes = {"VTS_01_1.VOB": 1_073_709_056, "VIDEO_TS.IFO": 12_288, "VTS_01_0.IFO": 69_632,
+             "VIDEO_TS.BUP": 12_288}
+    order = ["VIDEO_TS.BUP", "VIDEO_TS.IFO", "VTS_01_0.IFO", "VTS_01_1.VOB"]
+    expected = hashlib.md5(b"".join(sizes[n].to_bytes(8, "little") for n in order),
+                           usedforsecurity=False).hexdigest().upper()
+    assert lookup.content_hash(sizes) == expected
+    assert lookup.content_hash({}) is None
+
+
+def test_dvd_titles_are_keyed_by_number(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A DVD's titles come as their title number ("01"), a Blu-ray's as playlists; a
+    bare .m2ts clip is neither."""
+    fake_http(monkeypatch, thediscdb=roles_answer(("HASH1", [
+        ("01", "Pilot", "Episode", "1", "1"), ("2", "Truth Be Told", "Episode", "1", "2"),
+        ("00040.m2ts", "Clip", "Extra", "", "")])))
+    assert lookup.disc_roles("HASH1", ["01", "02", "00040"]) == {
+        "01": lookup.Role("Episode", "Pilot", 1, 1),
+        "02": lookup.Role("Episode", "Truth Be Told", 1, 2)}
+

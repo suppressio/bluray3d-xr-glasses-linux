@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
-from typing import Protocol, Self
+from typing import BinaryIO, Protocol, Self
 
 from langs import lang as to_lang
 from osplatform import load_library
@@ -141,6 +141,71 @@ class VobFile:
         if self._h:
             _dvdread().DVDCloseFile(self._h)
             self._h = None
+
+
+# a VIDEO_TS/ listing holds a few dozen records: a longer folder is a damaged one
+MAX_DIR_LENGTH = 1 << 20
+
+
+def _iso9660_dir(f: BinaryIO, extent: int, length: int) -> dict[str, tuple[int, int, bool]]:
+    """name -> (extent, size, is a folder) of an ISO9660 directory; a record never
+    crosses a sector, a zero length byte means the rest of the sector is empty."""
+    if length > MAX_DIR_LENGTH:
+        raise OSError(f"damaged ISO9660 listing: a {length}-byte folder")
+    f.seek(extent * SECTOR)
+    data = f.read(length)
+    entries: dict[str, tuple[int, int, bool]] = {}
+    pos = 0
+    while pos < len(data):
+        size = data[pos]
+        if size == 0:
+            pos = (pos // SECTOR + 1) * SECTOR
+            continue
+        if size < 34 or pos + size > len(data):
+            raise OSError("damaged ISO9660 listing")
+        record = data[pos:pos + size]
+        name = record[33:33 + record[32]]
+        if name not in (b"\x00", b"\x01"):            # "." and ".."
+            entries[name.decode("ascii", "replace").split(";")[0].upper()] = (
+                int.from_bytes(record[2:6], "little"), int.from_bytes(record[10:14], "little"),
+                bool(record[25] & 2))
+        pos += size
+    return entries
+
+
+def video_ts_sizes(path: str) -> dict[str, int]:
+    """Name -> size of every file directly in VIDEO_TS/, an empty one too, for
+    TheDiscDB's fingerprint (#69), which counts them all. A folder: its files. A
+    drive or an ISO image: the listing of its ISO9660 file system (a DVD-Video
+    normally has one next to UDF; an image without it gets no fingerprint), read
+    straight from it; libdvdread lists no empty file. Names upper case."""
+    p = Path(path)
+    if p.is_dir():
+        folder = next((c for c in p.iterdir() if c.name.upper() == "VIDEO_TS" and c.is_dir()),
+                      None)
+        if folder is None:
+            raise OSError(f"no VIDEO_TS folder in {path}")
+        return {c.name.upper(): c.stat().st_size for c in folder.iterdir() if c.is_file()}
+    with p.open("rb") as f:
+        # the volume descriptors start at sector 16: the primary one (type 1) is not
+        # always first (a boot record may be), 255 ends them
+        sector, pvd = 16, b""
+        while True:
+            f.seek(sector * SECTOR)
+            pvd = f.read(SECTOR)
+            if len(pvd) < SECTOR or pvd[1:6] != b"CD001" or pvd[0] == 255:
+                raise OSError(f"no ISO9660 file system on {path}")
+            if pvd[0] == 1:
+                break
+            sector += 1
+        root = pvd[156:190]
+        top = _iso9660_dir(f, int.from_bytes(root[2:6], "little"),
+                           int.from_bytes(root[10:14], "little"))
+        if "VIDEO_TS" not in top or not top["VIDEO_TS"][2]:
+            raise OSError(f"no VIDEO_TS folder on {path}")
+        extent, length, _ = top["VIDEO_TS"]
+        return {name: size for name, (_, size, is_dir) in _iso9660_dir(f, extent, length).items()
+                if not is_dir}
 
 
 class Dvd:
@@ -394,6 +459,11 @@ def choose_titles(parsed: list[DvdTitle]) -> list[DvdTitle]:
 
 def main_titles(dvd: IfoReader) -> list[DvdTitle]:
     """The titles of the disc worth offering (see choose_titles)."""
+    return choose_titles(all_titles(dvd))
+
+
+def all_titles(dvd: IfoReader) -> list[DvdTitle]:
+    """Every title of the disc that parses, before any choice."""
     ifos: dict[int, bytes] = {}
     parsed: list[DvdTitle] = []
     for number, vts, ttn in titles(dvd.ifo(0)):
@@ -405,7 +475,7 @@ def main_titles(dvd: IfoReader) -> list[DvdTitle]:
             continue
     if not parsed:
         raise OSError("no title found on the DVD")
-    return choose_titles(parsed)
+    return parsed
 
 
 @dataclass
